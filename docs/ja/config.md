@@ -74,15 +74,18 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `providers.env` | いいえ | record<string, string> | `{}` | 各 `opencode serve` プロセスに注入する環境変数（平文） |
-| `providers.env_from` | いいえ | record<string, string> | `{}` | 環境変数マッピング（key: 注入名, value: 現在プロセスの環境変数名） |
+| `providers.env_from` | いいえ | record<string, string> | `{}` | key は注入名、value は **orchestrator プロセス** 上のソース環境変数名。`providers.env` に同名が既にある場合は **スキップ**（OS から上書きしない） |
 | `providers.openai_compatible.base_url` | いいえ | string | - | `OPENAI_BASE_URL` へ自動マッピング |
-| `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨） |
-| `providers.openai_compatible.api_key_env` | いいえ | string | - | 現在プロセスの環境変数から key を読み取り `OPENAI_API_KEY` に注入 |
+| `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨）。設定時は既にマージ済みの `OPENAI_API_KEY` を上書き |
+| `providers.openai_compatible.api_key_env` | いいえ | string | - | `api_key` 未設定時：値は **環境変数名**。**まず** マージ済み設定（`providers.env` と適用済み `env_from`）から解決し、**なければ** 現在プロセスの環境から読み、子の `OPENAI_API_KEY` に注入 |
 
-注記：
+注記（マージ順）：
 
-- 注入優先度：`providers.openai_compatible.*` > `providers.env_from` > `providers.env`
-- 秘密情報は `env_from` / `api_key_env` の利用を推奨
+1. `providers.env` を先に適用。
+2. `providers.env_from` は、まだ存在しないキーにだけ適用。
+3. 最後に `providers.openai_compatible`：`base_url` / `api_key` を直接反映。`api_key` がなく `api_key_env` だけある場合は上表どおり（設定を OS より優先）。
+4. 秘密は OS 変数への `env_from` / `api_key_env`、またはコミットしないローカルの `providers.env` が無難。
+5. `env_from` でソースが OS にない、または `api_key_env` が設定・OS 双方で空、のとき warning。
 
 ## 6. `workspace`
 

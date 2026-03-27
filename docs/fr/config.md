@@ -74,15 +74,18 @@ Expansion de `~` :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans chaque processus `opencode serve` |
-| `providers.env_from` | Non | record<string, string> | `{}` | Mapping d'environnement (clé injectée -> nom de variable source du process courant) |
+| `providers.env_from` | Non | record<string, string> | `{}` | Mapping : clé = nom injecté, valeur = nom de variable source sur le **processus orchestrator** ; si cette clé existe déjà via `providers.env`, l'entrée est **ignorée** (pas d'écrasement depuis l'OS) |
 | `providers.openai_compatible.base_url` | Non | string | - | Mapping pratique vers `OPENAI_BASE_URL` |
-| `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) |
-| `providers.openai_compatible.api_key_env` | Non | string | - | Lit la clé depuis l'environnement courant et l'injecte en `OPENAI_API_KEY` |
+| `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) ; si défini, écrase toute valeur `OPENAI_API_KEY` déjà fusionnée |
+| `providers.openai_compatible.api_key_env` | Non | string | - | Si `api_key` absent : valeur = **nom de variable** ; résoudre **d'abord** depuis la config fusionnée (`providers.env` + `env_from` appliqué), **sinon** depuis l'environnement du process courant, puis injecter `OPENAI_API_KEY` chez l'enfant |
 
-Notes :
+Notes (ordre de fusion) :
 
-- Priorité d'injection : `providers.openai_compatible.*` > `providers.env_from` > `providers.env`
-- Pour les secrets, préférez `env_from` / `api_key_env`
+1. Appliquer `providers.env`.
+2. Appliquer `providers.env_from` seulement pour les clés encore absentes.
+3. Appliquer en dernier `providers.openai_compatible` : `base_url` / `api_key` directs ; si `api_key` absent et `api_key_env` défini, résolution comme ci-dessus (config avant env OS).
+4. Pour les secrets : `env_from` / `api_key_env` vers des variables OS, ou `providers.env` en local sans commit des clés.
+5. Avertissements si `env_from` manque la source OS, ou si `api_key_env` ne résout rien (config + env).
 
 ## 6. `workspace`
 

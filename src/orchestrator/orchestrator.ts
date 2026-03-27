@@ -47,6 +47,7 @@ export class Orchestrator {
       injectedEnv[k] = v;
     }
     for (const [targetKey, sourceEnvName] of Object.entries(providersCfg.env_from ?? {})) {
+      if (injectedEnv[targetKey] !== undefined) continue;
       const value = pickEnvValue(sourceEnvName);
       if (!value) {
         logger.warn(`providers.env_from references missing env: ${sourceEnvName} -> ${targetKey}`);
@@ -62,9 +63,11 @@ export class Orchestrator {
     if (openaiCompat.api_key) {
       injectedEnv.OPENAI_API_KEY = openaiCompat.api_key;
     } else if (openaiCompat.api_key_env) {
-      const key = pickEnvValue(openaiCompat.api_key_env);
+      const name = openaiCompat.api_key_env;
+      // 先 providers.env / env_from，未命中再读系统环境变量
+      const key = injectedEnv[name] ?? pickEnvValue(name);
       if (!key) {
-        logger.warn(`providers.openai_compatible.api_key_env not found: ${openaiCompat.api_key_env}`);
+        logger.warn(`providers.openai_compatible.api_key_env not found: ${name}`);
       } else {
         injectedEnv.OPENAI_API_KEY = key;
       }

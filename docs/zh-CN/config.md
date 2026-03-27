@@ -76,16 +76,18 @@ home 展开：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `providers.env` | 否 | record<string, string> | `{}` | 直接注入到每个 `opencode serve` 进程的环境变量（明文，不建议放敏感 key） |
-| `providers.env_from` | 否 | record<string, string> | `{}` | 环境变量映射：key 是注入名，value 是当前系统环境变量名（推荐用它传 key） |
+| `providers.env_from` | 否 | record<string, string> | `{}` | 环境变量映射：key 为注入名，value 为**当前 orchestrator 进程**中的源环境变量名；若该注入名已在 `providers.env` 中出现过则**跳过**（不再从系统环境覆盖） |
 | `providers.openai_compatible.base_url` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_BASE_URL` 注入 `opencode` 进程 |
-| `providers.openai_compatible.api_key` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_API_KEY`（不推荐明文） |
-| `providers.openai_compatible.api_key_env` | 否 | string | - | 便捷配置：从当前环境变量读取 key 并注入为 `OPENAI_API_KEY` |
+| `providers.openai_compatible.api_key` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_API_KEY`（不推荐明文）；若设置则会覆盖此前合并结果中的 `OPENAI_API_KEY` |
+| `providers.openai_compatible.api_key_env` | 否 | string | - | 在未设置 `api_key` 时生效：值为**环境变量名**；先取该名在**已合并配置**中的取值（含 `providers.env` 以及已应用的 `env_from`），**没有再读**当前进程环境变量，并写入子进程 `OPENAI_API_KEY` |
 
-注入说明：
+注入说明（合并顺序）：
 
-- 注入优先级（高 -> 低）：`providers.openai_compatible.*` / `providers.env_from` / `providers.env`
-- 推荐把真实 key 放在系统环境变量里，再通过 `env_from` 或 `api_key_env` 引用，避免明文写进 `team.json`
-- 如果 `env_from` 或 `api_key_env` 指向的系统环境变量不存在，运行时会给出 warning，`opencode` 可能因缺少 key 而调用失败
+1. 先应用 `providers.env`。
+2. 再应用 `providers.env_from`：仅当某个注入名尚未存在时才从系统环境补齐。
+3. 最后应用 `providers.openai_compatible`：`base_url`、`api_key` 直接写入；若未配置 `api_key` 且配置了 `api_key_env`，按上表「先配置文件、再环境变量」解析后写入 `OPENAI_API_KEY`。
+4. 秘密信息可放在系统环境变量中，通过 `env_from` 或 `api_key_env` 引用，避免明文写进 `team.json`；也可直接写在 `providers.env`（不建议提交仓库）。
+5. 若 `env_from` 仍需从系统读取但源变量不存在，或 `api_key_env` 在配置与环境中均解析不到有效值，运行时会 warning，`opencode` 可能因缺少 key 而调用失败。
 
 ## 6. `workspace`
 

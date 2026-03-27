@@ -74,15 +74,18 @@ Home expansion:
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `providers.env` | No | record<string, string> | `{}` | Plain env vars injected into every `opencode serve` process |
-| `providers.env_from` | No | record<string, string> | `{}` | Env mapping: key is injected env name, value is source env name from current process |
+| `providers.env_from` | No | record<string, string> | `{}` | Env mapping: key is injected name, value is source env var name on the **orchestrator process**; if that injected key already exists from `providers.env`, the entry is **skipped** (no overwrite from the OS) |
 | `providers.openai_compatible.base_url` | No | string | - | Convenience mapping to `OPENAI_BASE_URL` |
-| `providers.openai_compatible.api_key` | No | string | - | Convenience mapping to `OPENAI_API_KEY` (plain text; not recommended) |
-| `providers.openai_compatible.api_key_env` | No | string | - | Read key from current process env and map to `OPENAI_API_KEY` |
+| `providers.openai_compatible.api_key` | No | string | - | Convenience mapping to `OPENAI_API_KEY` (plain text; not recommended); if set, overwrites any prior merged `OPENAI_API_KEY` |
+| `providers.openai_compatible.api_key_env` | No | string | - | Used when `api_key` is unset: value is an **env var name**; resolve **first** from merged config (`providers.env` plus applied `env_from`), **else** from the current process env, then set child `OPENAI_API_KEY` |
 
-Notes:
+Notes (merge order):
 
-- Injection priority: `providers.openai_compatible.*` > `providers.env_from` > `providers.env`
-- Prefer `env_from` or `api_key_env` for secrets
+1. Apply `providers.env` first.
+2. Apply `providers.env_from` only for keys not already present.
+3. Apply `providers.openai_compatible` last: `base_url` / `api_key` directly; if `api_key` is absent and `api_key_env` is set, resolve as above (config before OS env).
+4. For secrets, prefer `env_from` or `api_key_env` pointing at OS vars, or use `providers.env` locally without committing keys.
+5. Warnings if `env_from` still needs the OS but the source var is missing, or if `api_key_env` resolves empty from both config and env.
 
 ## 6. `workspace`
 
