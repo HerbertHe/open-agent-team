@@ -39,6 +39,8 @@ skills/
 以下は「最小スケルトン」例です（モデルと prompt は自分の内容に置き換え、skill 名は実在するものを指定してください）：
 
 ```yaml
+model: default
+
 project:
   name: open-agent-team-demo
   repo: .
@@ -88,6 +90,7 @@ teams:
 最低限、次を満たしてください：
 
 - `admin.prompt`、`leader.prompt`、`worker.prompt` が空でないこと（または `*.md` のファイルパス形式）
+- モデル継承を理解しておくこと：`worker.model -> leader.model -> admin.model -> model`（トップレベル `model` のみ定義し、必要箇所だけ上書き可能）
 - `teams[]` に少なくとも 1 つのチームが入っていること
 - `leader.repos` に worker が重点的に扱うパスを指定すること（sparse-checkout の allowlist に対応）
 

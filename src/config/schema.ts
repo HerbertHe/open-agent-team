@@ -12,14 +12,14 @@ export const TeamSchema = z.object({
   leader: z.object({
     name: z.string().min(1),
     description: z.string().min(1),
-    model: z.string().min(1),
+    model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     skills: z.array(z.string().min(1)).default([]),
     repos: z.array(z.string().min(1)).default([]),
   }),
   worker: z.object({
     max: z.number().int().positive(),
-    model: z.string().min(1),
+    model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     extra_skills: z.array(z.string().min(1)).default([]),
     lifecycle: z.nativeEnum(WorkerLifecycleEnum).default(WorkerLifecycleEnum.EphemeralAfterMergeToMain),
@@ -28,6 +28,7 @@ export const TeamSchema = z.object({
 });
 
 export const TeamFileSchema = z.object({
+  model: z.string().min(1).optional(),
   project: z.object({
     name: z.string().min(1),
     repo: z.string().min(1),
@@ -76,7 +77,7 @@ export const TeamFileSchema = z.object({
   admin: z.object({
     name: z.string().min(1),
     description: z.string().min(1),
-    model: z.string().min(1),
+    model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     skills: z.array(z.string().min(1)).default([]),
   }),

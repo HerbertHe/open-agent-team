@@ -13,6 +13,7 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 
 | Field | Required | Type | Default | Purpose |
 | --- | --- | --- | --- | --- |
+| `model` | No | string | - | Global default model (fallback for admin/leader/worker) |
 | `project` | Yes | object | - | Project metadata: used for logs/prompts, git base branch, and repository path |
 | `models` | Yes | record<string, string> | - | Model alias map (used by admin/leader/worker) |
 | `admin` | Yes | object | - | Admin agent definition: prompt, model, and skills |
@@ -36,8 +37,9 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 
 Loader behavior:
 
-- If `admin.model / leader.model / worker.model` value exists as a key in `models`, it is replaced with the mapped value
-- Otherwise, the value is kept as-is
+- Model inheritance chain: `worker.model -> leader.model -> admin.model -> model` (higher-priority left, fallback right)
+- If the final selected model exists as a key in `models`, it is replaced with the mapped value
+- Otherwise, the final selected value is kept as-is
 
 ## 4. `admin`
 
@@ -45,7 +47,7 @@ Loader behavior:
 | --- | --- | --- | --- | --- |
 | `admin.name` | Yes | string | - | Admin agent name (written into workspace agent markdown meta) |
 | `admin.description` | Yes | string | - | Admin responsibility text (you fill it into `team.yaml`) |
-| `admin.model` | Yes | string | - | Model used by Admin (can be an alias) |
+| `admin.model` | No | string | inherit from top-level `model` | Model used by Admin (can be an alias) |
 | `admin.prompt` | Yes | string | - | Admin prompt (supports `*.md` file path) |
 | `admin.skills` | No | string[] | `[]` | Skills to inject into Admin workspace |
 
@@ -104,7 +106,7 @@ Each team contains:
 | --- | --- | --- | --- | --- |
 | `leader.name` | Yes | string | - | Leader’s name inside the team (used when constructing role/prompt context) |
 | `leader.description` | Yes | string | - | Leader responsibility text |
-| `leader.model` | Yes | string | - | Model used by Leader (can be an alias) |
+| `leader.model` | No | string | inherit from `admin.model` (or top-level `model`) | Model used by Leader (can be an alias) |
 | `leader.prompt` | Yes | string | - | Leader prompt (supports `*.md` file path) |
 | `leader.skills` | No | string[] | `[]` | Skills shared with Workers (inherited and injected on spawn) |
 | `leader.repos` | No | string[] | `[]` | sparse-checkout allowlist paths (controls which paths worker workspaces can see) |
@@ -114,7 +116,7 @@ Each team contains:
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `worker.max` | Yes | number(int, >0) | - | Intended max worker count. In the current code, worker count is effectively driven by `tasks.length` |
-| `worker.model` | Yes | string | - | Model used by Worker (can be an alias) |
+| `worker.model` | No | string | inherit from `leader.model` | Model used by Worker (can be an alias) |
 | `worker.prompt` | Yes | string | - | Worker prompt (supports `*.md` file path) |
 | `worker.extra_skills` | No | string[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |
 | `worker.lifecycle` | No | enum | `ephemeral_after_merge_to_main` | Intended cleanup strategy after merging into main (current cleanup logic always executes when the leader completes) |

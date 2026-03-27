@@ -39,6 +39,8 @@ skills/
 下面给一个“最小骨架”示例（你需要把模型与 prompt 换成自己的内容，并填入真实 skills 名称）：
 
 ```yaml
+model: default
+
 project:
   name: open-agent-team-demo
   repo: .
@@ -88,6 +90,7 @@ teams:
 你需要至少保证：
 
 - `admin.prompt`、`leader.prompt`、`worker.prompt` 不为空（也可以写成 `*.md` 文件路径）
+- 模型继承关系清晰：`worker.model -> leader.model -> admin.model -> model`（可只配置顶层 `model`，按需覆写）
 - `teams[]` 至少配置一个 team
 - `leader.repos` 给出你希望 worker 重点关注的路径（对应 sparse-checkout set）
 

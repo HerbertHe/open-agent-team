@@ -13,11 +13,13 @@ Vous déclarez les rôles, modèles, skills partagées et les stratégies worksp
 ### Configuration déclarative (`team.yaml`)
 
 - `team.yaml` définit :
+  - le modèle global par défaut (`model`, optionnel)
   - les métadonnées du projet (`project`)
   - le mapping d'alias de modèles (`models`)
   - la config de l'agent `Admin` (`admin`)
   - les configs par équipe (`teams[]`: `Leader` + `Worker`)
 - Si `admin.prompt` / `leader.prompt` / `worker.prompt` se termine par `.md`, le loader considère qu'il s'agit d'un chemin de fichier et charge le contenu du fichier comme texte de prompt.
+- Chaîne d'héritage des modèles : `worker.model -> leader.model -> admin.model -> model` (surcharge possible à chaque niveau).
 
 Référence détaillée : `oat docs config --lang fr`.
 

@@ -13,11 +13,13 @@ You declare roles, models, shared skills, and workspace/git strategies in `team.
 ### Declarative configuration (`team.yaml`)
 
 - `team.yaml` defines:
+  - global default model (`model`, optional)
   - project metadata (`project`)
   - model alias mapping (`models`)
   - `Admin` agent config (`admin`)
   - team configs (`teams[]`: `Leader` + `Worker`)
 - If `admin.prompt` / `leader.prompt` / `worker.prompt` ends with `.md`, the loader treats it as a file path and loads the file content as prompt text.
+- Model inheritance chain: `worker.model -> leader.model -> admin.model -> model` (you can override at any level).
 
 See the detailed field reference: `oat docs config --lang en`.
 

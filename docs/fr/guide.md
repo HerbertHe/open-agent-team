@@ -39,6 +39,8 @@ Avant de démarrer, vérifiez :
 Voici un exemple “squelette minimal” (remplacez modèles et prompts par les vôtres, et renseignez de vrais noms de skills) :
 
 ```yaml
+model: default
+
 project:
   name: open-agent-team-demo
   repo: .
@@ -88,6 +90,7 @@ teams:
 Au minimum, vérifiez :
 
 - `admin.prompt`, `leader.prompt`, `worker.prompt` ne sont pas vides (ou utilisez des chemins `*.md`)
+- l'héritage des modèles est clair : `worker.model -> leader.model -> admin.model -> model` (vous pouvez ne définir que le `model` global puis surcharger au besoin)
 - `teams[]` contient au moins une équipe
 - `leader.repos` liste les chemins sur lesquels vous voulez que les workers se concentrent (mappé vers sparse-checkout allowlist)
 

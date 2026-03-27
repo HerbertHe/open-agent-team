@@ -13,11 +13,13 @@
 ### 宣言的な設定（`team.yaml`）
 
 - `team.yaml` は以下を定義します：
+  - 全体のデフォルトモデル（`model`、任意）
   - プロジェクトメタ情報（`project`）
   - モデル alias のマッピング（`models`）
   - `Admin` agent の設定（`admin`）
   - チームごとの設定（`teams[]`: `Leader` + `Worker`）
 - `admin.prompt` / `leader.prompt` / `worker.prompt` が `.md` で終わる場合、loader はファイルパスとして扱い、ファイル内容を prompt テキストとして読み込みます。
+- モデル継承チェーン：`worker.model -> leader.model -> admin.model -> model`（どの階層でも上書き可能）。
 
 詳細なフィールド参照：`oat docs config --lang ja`。
 

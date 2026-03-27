@@ -228,7 +228,9 @@ The runtime behavior is primarily bound to these `team.yaml` fields:
   - `admin.prompt`, `teams[].leader.prompt`, `teams[].worker.prompt`
   - prompt value can be `*.md` file path (loader reads and substitutes file content)
 - Models:
-  - `models` is used for alias mapping (for example: `default -> anthropic/...`)
+  - top-level `model` provides a global default model
+  - model inheritance chain: `worker.model -> leader.model -> admin.model -> model`
+  - `models` is used for alias mapping of the final selected model (for example: `default -> anthropic/...`)
   - if a model string does not contain `/`, the provider defaults to `anthropic`
 - Workspace:
   - `workspace.root_dir` determines where worktrees are created

@@ -13,11 +13,13 @@
 ### 声明式配置（`team.yaml`）
 
 - `team.yaml` 定义：
+  - 全局默认模型（`model`，可选）
   - 项目元信息（`project`）
   - 模型别名映射（`models`）
   - `Admin` 配置（`admin`）
   - team 配置（`teams[]`: `Leader` + `Worker`）
 - 如果 `admin.prompt` / `leader.prompt` / `worker.prompt` 以 `.md` 结尾，loader 会把它当作文件路径读取文件内容作为 prompt 文本。
+- 模型继承链路：`worker.model -> leader.model -> admin.model -> model`（任意层都可覆盖）。
 
 详细字段说明：`oat docs config --lang zh-CN`。
 

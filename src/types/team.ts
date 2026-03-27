@@ -9,8 +9,8 @@ export interface TeamConfigLeader {
   name: string;
   /** Leader 的职责描述（用于构建提示词/约束） */
   description: string;
-  /** Leader 使用的模型（可以是模型别名，如 `default`） */
-  model: string;
+  /** Leader 使用的模型（可选；不填时继承 admin.model 或顶层 model） */
+  model?: string;
   /** Leader 的系统/角色提示词内容（支持字符串或文件路径，由 loader 解析） */
   prompt: string;
   /** Leader 与其下属 Worker 共享的 skills 名称列表 */
@@ -26,8 +26,8 @@ export interface TeamConfigLeader {
 export interface TeamConfigWorker {
   /** 允许同时创建/运行的 Worker 最大数量 */
   max: number;
-  /** Worker 使用的模型（可以是模型别名，如 `fast`） */
-  model: string;
+  /** Worker 使用的模型（可选；不填时继承 leader.model） */
+  model?: string;
   /** Worker 的角色提示词，用于指导执行和回报方式 */
   prompt: string;
   /** 额外附加到 Worker 的 skills（在继承 Leader skills 基础上追加） */

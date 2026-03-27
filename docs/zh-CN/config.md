@@ -13,6 +13,7 @@
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
+| `model` | 否 | string | - | 全局默认模型（admin/leader/worker 的兜底） |
 | `project` | 是 | object | - | 项目元信息：用于日志/提示词，以及 git 操作的根分支与仓库路径 |
 | `models` | 是 | record<string, string> | - | 模型别名到 model id 的映射（供 admin/leader/worker 解析） |
 | `admin` | 是 | object | - | Admin agent 的角色定义：prompt、模型与 skills |
@@ -36,8 +37,9 @@
 
 loader 行为：
 
-- 若 `admin.model / leader.model / worker.model` 的值存在于 `models`，则会被替换为映射值
-- 若不在 `models` 中，则保持原值不变
+- 模型继承链路：`worker.model -> leader.model -> admin.model -> model`（左侧优先，右侧兜底）
+- 最终选中的模型若存在于 `models` 中，则会被替换为映射值
+- 若不在 `models` 中，则保持该最终值不变
 
 ## 4. `admin`
 
@@ -45,7 +47,7 @@ loader 行为：
 | --- | --- | --- | --- | --- |
 | `admin.name` | 是 | string | - | Admin agent 名称（注入到 workspace 的 agent markdown meta） |
 | `admin.description` | 是 | string | - | Admin 的职责描述（写入 prompt/约束构建逻辑，由你在 team.yaml 填写） |
-| `admin.model` | 是 | string | - | Admin 使用的模型（可为别名） |
+| `admin.model` | 否 | string | 继承顶层 `model` | Admin 使用的模型（可为别名） |
 | `admin.prompt` | 是 | string | - | Admin 的系统/角色 prompt（支持 `*.md` 文件路径形式） |
 | `admin.skills` | 否 | string[] | `[]` | Admin 共享给 OpenCode 的 skills 列表（会同步到 Admin workspace） |
 
@@ -104,7 +106,7 @@ home 展开：
 | --- | --- | --- | --- | --- |
 | `leader.name` | 是 | string | - | Leader 在 team 内的名称（用于 prompt/角色构建） |
 | `leader.description` | 是 | string | - | Leader 职责描述（你可放到 prompt 中或由模型自行解读） |
-| `leader.model` | 是 | string | - | Leader 使用的模型（可为别名） |
+| `leader.model` | 否 | string | 继承 `admin.model`（或顶层 `model`） | Leader 使用的模型（可为别名） |
 | `leader.prompt` | 是 | string | - | Leader prompt（支持 `*.md` 文件路径形式） |
 | `leader.skills` | 否 | string[] | `[]` | Leader skills（会继承到 worker，且在动态创建时注入） |
 | `leader.repos` | 否 | string[] | `[]` | sparse-checkout 白名单路径（用于 worker workspace 可见范围） |
@@ -114,7 +116,7 @@ home 展开：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `worker.max` | 是 | number(int, >0) | - | 配置意图：期望的最大 worker 数（当前版本未在代码中硬性限制；worker 数由 `tasks.length` 决定） |
-| `worker.model` | 是 | string | - | Worker 使用的模型（可为别名） |
+| `worker.model` | 否 | string | 继承 `leader.model` | Worker 使用的模型（可为别名） |
 | `worker.prompt` | 是 | string | - | Worker prompt（支持 `*.md` 文件路径形式） |
 | `worker.extra_skills` | 否 | string[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后注入） |
 | `worker.lifecycle` | 否 | enum | `ephemeral_after_merge_to_main` | 配置意图：merge main 后是否回收（当前版本回收逻辑始终执行，未按该字段分支） |

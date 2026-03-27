@@ -39,6 +39,8 @@ Before you start, confirm:
 Here is a “minimal skeleton” example (replace model and prompts with your own content, and fill in real skill names):
 
 ```yaml
+model: default
+
 project:
   name: open-agent-team-demo
   repo: .
@@ -88,6 +90,7 @@ teams:
 At minimum, make sure:
 
 - `admin.prompt`, `leader.prompt`, `worker.prompt` are not empty (or use `*.md` file path forms)
+- model inheritance is clear: `worker.model -> leader.model -> admin.model -> model` (you can define only top-level `model` and override selectively)
 - `teams[]` contains at least one team
 - `leader.repos` lists the paths you want workers to focus on (maps to sparse-checkout allowlist)
 

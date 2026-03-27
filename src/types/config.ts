@@ -9,8 +9,8 @@ export interface TeamFileAdminConfig {
   name: string;
   /** Admin 的职责描述（写入提示/约束） */
   description: string;
-  /** Admin 使用的模型（模型别名/模型 id） */
-  model: string;
+  /** Admin 使用的模型（可选；不填时继承顶层 model） */
+  model?: string;
   /** Admin 的 prompt 内容（支持 loader 读取 .md 文件） */
   prompt: string;
   /** Admin 共享给任务的 skills 列表 */
@@ -21,6 +21,8 @@ export interface TeamFileAdminConfig {
  * team.yaml 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
  */
 export interface TeamFileConfig {
+  /** 全局统一模型（可作为 admin/leader/worker 的默认值） */
+  model?: string;
   project: {
     /** 当前项目名称（用于日志与提示） */
     name: string;

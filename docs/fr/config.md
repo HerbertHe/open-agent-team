@@ -13,6 +13,7 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 
 | Champ | Requis | Type | Valeur par défaut | Description |
 | --- | --- | --- | --- | --- |
+| `model` | Non | string | - | Modèle global par défaut (fallback pour admin/leader/worker) |
 | `project` | Oui | object | - | Méta du projet : utilisé pour logs/prompts, branche git, et chemin du dépôt |
 | `models` | Oui | record<string, string> | - | Mapping d'alias de modèles (utilisé par admin/leader/worker) |
 | `admin` | Oui | object | - | Définition de l'agent Admin : prompt, modèle et skills |
@@ -36,8 +37,9 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 
 Comportement du loader :
 
-- si `admin.model / leader.model / worker.model` correspond à une clé de `models`, il est remplacé par la valeur mappée
-- sinon, la valeur reste telle quelle
+- Chaîne d'héritage des modèles : `worker.model -> leader.model -> admin.model -> model` (priorité à gauche, fallback à droite)
+- Si la valeur finale sélectionnée existe comme clé dans `models`, elle est remplacée par la valeur mappée
+- Sinon, cette valeur finale est conservée telle quelle
 
 ## 4. `admin`
 
@@ -45,7 +47,7 @@ Comportement du loader :
 | --- | --- | --- | --- | --- |
 | `admin.name` | Oui | string | - | Nom de l'agent Admin (écrit dans le meta markdown de l'agent dans le workspace) |
 | `admin.description` | Oui | string | - | Texte de responsabilité Admin (à remplir dans `team.yaml`) |
-| `admin.model` | Oui | string | - | Modèle utilisé par Admin (peut être un alias) |
+| `admin.model` | Non | string | hérite du `model` de niveau supérieur | Modèle utilisé par Admin (peut être un alias) |
 | `admin.prompt` | Oui | string | - | Prompt Admin (accepte un chemin de fichier `*.md`) |
 | `admin.skills` | Non | string[] | `[]` | Skills à injecter dans le workspace Admin |
 
@@ -104,7 +106,7 @@ Chaque équipe contient :
 | --- | --- | --- | --- | --- |
 | `leader.name` | Oui | string | - | Nom du leader dans l'équipe (utilisé pour le contexte du prompt) |
 | `leader.description` | Oui | string | - | Texte de responsabilité du leader |
-| `leader.model` | Oui | string | - | Modèle utilisé par le leader (peut être un alias) |
+| `leader.model` | Non | string | hérite de `admin.model` (ou du `model` global) | Modèle utilisé par le leader (peut être un alias) |
 | `leader.prompt` | Oui | string | - | Prompt du leader (accepte un chemin `*.md`) |
 | `leader.skills` | Non | string[] | `[]` | Skills partagées avec les workers (héritées et injectées lors du spawn) |
 | `leader.repos` | Non | string[] | `[]` | allowlist de chemins sparse-checkout (contrôle ce que le worker peut voir/modifier) |
@@ -114,7 +116,7 @@ Chaque équipe contient :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `worker.max` | Oui | number(int, >0) | - | Nombre maximal de workers attendu. Dans le code actuel, le nombre est surtout piloté par `tasks.length` |
-| `worker.model` | Oui | string | - | Modèle utilisé par les workers (peut être un alias) |
+| `worker.model` | Non | string | hérite de `leader.model` | Modèle utilisé par les workers (peut être un alias) |
 | `worker.prompt` | Oui | string | - | Prompt du worker (accepte un chemin `*.md`) |
 | `worker.extra_skills` | Non | string[] | `[]` | Skills additionnelles ajoutées au moment du spawn, au-dessus de `leader.skills` |
 | `worker.lifecycle` | Non | enum | `ephemeral_after_merge_to_main` | Stratégie de cleanup attendue après merge dans main (actuellement le cleanup s'exécute toujours quand le leader finit) |

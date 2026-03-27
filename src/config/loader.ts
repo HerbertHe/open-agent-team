@@ -52,15 +52,31 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     return validated.models[m] ?? m;
   };
 
+  const resolveInheritedModel = (candidate: string | undefined, fallback: string | undefined, fieldPath: string): string => {
+    const picked = candidate ?? fallback;
+    if (!picked) {
+      throw new Error(
+        `missing model for ${fieldPath}. Please set it explicitly, or provide a parent model (team.worker.model -> team.leader.model -> admin.model -> model).`
+      );
+    }
+    return resolveModelAlias(picked);
+  };
+
+  const globalModel = validated.model ? resolveModelAlias(validated.model) : undefined;
+  const adminModel = resolveInheritedModel(validated.admin.model, globalModel, "admin.model");
+
   const withInheritance: any = {
     ...validated,
+    model: globalModel,
     teams: await Promise.all(
       validated.teams.map(async (t) => {
         const norm = normalizeTeam(t);
+        const leaderModel = resolveInheritedModel(norm.leader.model, adminModel, `teams[${norm.name}].leader.model`);
+        const workerModel = resolveInheritedModel(norm.worker.model, leaderModel, `teams[${norm.name}].worker.model`);
         norm.leader.prompt = await resolvePrompt(norm.leader.prompt);
         norm.worker.prompt = await resolvePrompt(norm.worker.prompt);
-        norm.leader.model = resolveModelAlias(norm.leader.model);
-        norm.worker.model = resolveModelAlias(norm.worker.model);
+        norm.leader.model = leaderModel;
+        norm.worker.model = workerModel;
         return norm;
       }),
     ),
@@ -68,7 +84,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   // admin
   withInheritance.admin.prompt = await resolvePrompt(withInheritance.admin.prompt);
-  withInheritance.admin.model = resolveModelAlias(withInheritance.admin.model);
+  withInheritance.admin.model = adminModel;
 
   const runtimeDefaults = {
     mode: RuntimeModeEnum.LocalProcess,

@@ -228,7 +228,9 @@ Le comportement est principalement lié à ces champs de `team.yaml` :
   - `admin.prompt`, `teams[].leader.prompt`, `teams[].worker.prompt`
   - prompt peut être un chemin `*.md` (le loader lit et substitue)
 - Modèles :
-  - `models` sert à mapper les alias (ex : `default -> anthropic/...`)
+  - le champ top-level `model` fournit un modèle global par défaut
+  - chaîne d'héritage : `worker.model -> leader.model -> admin.model -> model`
+  - `models` sert à mapper l'alias de la valeur de modèle finalement sélectionnée (ex : `default -> anthropic/...`)
   - si un model ne contient pas `/`, le provider par défaut est `anthropic`
 - Workspaces :
   - `workspace.root_dir` détermine où sont créés les worktrees

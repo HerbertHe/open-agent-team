@@ -13,6 +13,7 @@
 
 | フィールド | 必須 | 型 | デフォルト | 用途 |
 | --- | --- | --- | --- | --- |
+| `model` | いいえ | string | - | 全体で共通のデフォルトモデル（admin/leader/worker のフォールバック） |
 | `project` | はい | object | - | プロジェクトのメタ情報：ログ/プロンプト、git のベースブランチ、リポジトリパスに使われます |
 | `models` | はい | record<string, string> | - | モデル alias のマップ（admin/leader/worker で利用） |
 | `admin` | はい | object | - | Admin agent の定義：prompt、model、skills |
@@ -36,8 +37,9 @@
 
 loader の挙動：
 
-- `admin.model / leader.model / worker.model` の値が `models` に存在する場合、その値はマッピング値に置換されます
-- それ以外の場合は、値はそのまま保持されます
+- モデル継承チェーン：`worker.model -> leader.model -> admin.model -> model`（左が優先、右がフォールバック）
+- 最終的に選ばれたモデル値が `models` に存在する場合、その値はマッピング値に置換されます
+- それ以外の場合は、最終値はそのまま保持されます
 
 ## 4. `admin`
 
@@ -45,7 +47,7 @@ loader の挙動：
 | --- | --- | --- | --- | --- |
 | `admin.name` | はい | string | - | Admin agent の名前（workspace 内の agent markdown meta に書かれます） |
 | `admin.description` | はい | string | - | Admin の責務テキスト（`team.yaml` に記入します） |
-| `admin.model` | はい | string | - | Admin が使う model（alias でも可） |
+| `admin.model` | いいえ | string | トップレベル `model` を継承 | Admin が使う model（alias でも可） |
 | `admin.prompt` | はい | string | - | Admin の prompt（`*.md` ファイルパスを受け付けます） |
 | `admin.skills` | いいえ | string[] | `[]` | Admin workspace に注入する skills |
 
@@ -104,7 +106,7 @@ loader の挙動：
 | --- | --- | --- | --- | --- |
 | `leader.name` | はい | string | - | チーム内の leader 名（prompt コンテキスト構築に使われます） |
 | `leader.description` | はい | string | - | leader の責務テキスト |
-| `leader.model` | はい | string | - | leader が使う model（alias でも可） |
+| `leader.model` | いいえ | string | `admin.model`（またはトップレベル `model`）を継承 | leader が使う model（alias でも可） |
 | `leader.prompt` | はい | string | - | leader の prompt（`*.md` のファイルパスを受け付けます） |
 | `leader.skills` | いいえ | string[] | `[]` | worker と共有する skills（spawn 時に継承し注入されます） |
 | `leader.repos` | いいえ | string[] | `[]` | sparse-checkout の allowlist パス（worker が見たり変更できる範囲） |
@@ -114,7 +116,7 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `worker.max` | はい | number(int, >0) | - | 期待される最大 worker 数。現状は `tasks.length` によって実質的に決まります |
-| `worker.model` | はい | string | - | Worker が使う model（alias でも可） |
+| `worker.model` | いいえ | string | `leader.model` を継承 | Worker が使う model（alias でも可） |
 | `worker.prompt` | はい | string | - | worker の prompt（`*.md` ファイルパスも可） |
 | `worker.extra_skills` | いいえ | string[] | `[]` | spawn 時に leader.skills の上に追加される skills |
 | `worker.lifecycle` | いいえ | enum | `ephemeral_after_merge_to_main` | main へマージした後の cleanup 戦略（実装上は leader 完了時に常に cleanup されます） |
