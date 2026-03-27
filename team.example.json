@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/HerbertHe/open-agent-team/main/schema/v1.json",
   "model": "default",
   "models": {
     "default": "openai/gpt-4o-mini"

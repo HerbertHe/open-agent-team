@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://open-agent-team.local/schema.json",
+  "$id": "https://raw.githubusercontent.com/HerbertHe/open-agent-team/main/schema/v1.json",
   "title": "Open Agent Team Config",
   "type": "object",
   "required": ["project", "models", "admin", "teams"],
