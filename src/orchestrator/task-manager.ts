@@ -50,14 +50,14 @@ export class TaskManager {
 
   getAgent(agentId: string): AgentRuntimeState {
     const a = this.agents.get(agentId);
-    if (!a) throw new Error(`agent not found: ${agentId}`);
+    if (!a) throw new Error(t("agent_not_found", { agentId }));
     return a;
   }
 
   private resolveTeam(teamName: string): TeamConfig {
-    const t = this.config.teams.find((x) => x.name === teamName);
-    if (!t) throw new Error(`team not found: ${teamName}`);
-    return t;
+    const team = this.config.teams.find((x) => x.name === teamName);
+    if (!team) throw new Error(t("team_not_found", { teamName }));
+    return team;
   }
 
   async startAdminAndLeaders(adm: { sessionId: string; spec: AgentInstanceSpec }, leaders: Array<{ sessionId: string; spec: AgentInstanceSpec; team: TeamConfig }>) {
@@ -90,10 +90,19 @@ export class TaskManager {
   async requestWorkers(leaderId: string, body: ToolRequestWorkersBody): Promise<SpawnWorkersResult> {
     const leader = this.getAgent(leaderId);
     const team = leader.leaderTeam;
-    if (!team) throw new Error(`leader has no team: ${leaderId}`);
+    if (!team) throw new Error(t("leader_has_no_team", { leaderId }));
 
     const tasks = body.tasks ?? [];
     const workerCount = tasks.length;
+    if (workerCount > team.worker.max) {
+      throw new Error(
+        t("requested_workers_exceed_max", {
+          workerCount,
+          teamName: team.name,
+          max: team.worker.max,
+        })
+      );
+    }
     const workerIds: string[] = [];
 
     const leaderSkills = this.getSkillsForLeader(team);
@@ -103,6 +112,10 @@ export class TaskManager {
       const workerIndex = i;
       const workerId = `${team.name}-worker-${workerIndex}`;
       workerIds.push(workerId);
+      const workerModel = team.worker.model ?? team.leader.model ?? this.config.admin.model ?? this.config.model;
+      if (!workerModel) {
+        throw new Error(t("worker_model_missing", { teamName: team.name }));
+      }
 
       const branch = `${team.branch_prefix}/worker-${workerIndex}`;
       const port = this.allocatePort();
@@ -115,7 +128,7 @@ export class TaskManager {
         branch,
         workspacePath: path.join(this.config.workspace.root_dir, workerId),
         port,
-        model: team.worker.model,
+        model: workerModel,
         skills: this.computeWorkerSkills(team),
       };
 
@@ -207,7 +220,7 @@ export class TaskManager {
     const leader = Array.from(this.agents.values()).find(
       (a) => a.spec.role === AgentRoleEnum.Leader && a.spec.teamName === team.name
     );
-    if (!leader) throw new Error(`leader not found for team: ${team.name}`);
+    if (!leader) throw new Error(t("leader_not_found_for_team", { teamName: team.name }));
 
     // merge worker -> leader
     await this.mergeManager.mergeBranch(leader.spec.workspacePath, worker.spec.branch, leader.spec.branch);
@@ -225,14 +238,14 @@ export class TaskManager {
       { agent: leader.spec.name }
     );
 
-    logger.info(t("worker_merged_into_leader"), { workerId, leaderId: leader.spec.id });
+    logger.success(t("worker_merged_into_leader"), { workerId, leaderId: leader.spec.id });
     return { ok: true, mergedToLeader: true };
   }
 
   private async handleLeaderComplete(leaderId: string, changelog?: string): Promise<any> {
     const leader = this.getAgent(leaderId);
     const team = leader.leaderTeam;
-    if (!team) throw new Error("leader team missing");
+    if (!team) throw new Error(t("leader_team_missing"));
 
     // merge leader -> main
     await this.mergeManager.mergeToMain(
@@ -246,7 +259,7 @@ export class TaskManager {
 
     // notify admin
     const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
-    if (!admin) throw new Error("admin not found");
+    if (!admin) throw new Error(t("admin_not_found"));
     const adminSession = new AgentSession(`http://127.0.0.1:${admin.spec.port}`);
     await adminSession.connect();
     await adminSession.sendPrompt(

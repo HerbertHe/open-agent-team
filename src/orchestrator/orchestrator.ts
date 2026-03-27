@@ -50,7 +50,7 @@ export class Orchestrator {
       if (injectedEnv[targetKey] !== undefined) continue;
       const value = pickEnvValue(sourceEnvName);
       if (!value) {
-        logger.warn(`providers.env_from references missing env: ${sourceEnvName} -> ${targetKey}`);
+        logger.warn(t("providers_env_from_missing", { sourceEnvName, targetKey }));
         continue;
       }
       injectedEnv[targetKey] = value;
@@ -67,7 +67,7 @@ export class Orchestrator {
       // 先 providers.env / env_from，未命中再读系统环境变量
       const key = injectedEnv[name] ?? pickEnvValue(name);
       if (!key) {
-        logger.warn(`providers.openai_compatible.api_key_env not found: ${name}`);
+        logger.warn(t("providers_openai_api_key_env_not_found", { name }));
       } else {
         injectedEnv.OPENAI_API_KEY = key;
       }
@@ -138,7 +138,7 @@ export class Orchestrator {
 
   private buildAdminSpec(): AgentInstanceSpec {
     const adminModel = this.config.admin.model;
-    if (!adminModel) throw new Error("resolved config missing admin.model");
+    if (!adminModel) throw new Error(t("admin_model_missing"));
     const base = this.config.runtime.ports.base;
     return {
       id: AgentRoleEnum.Admin,
@@ -155,7 +155,7 @@ export class Orchestrator {
 
   private buildLeaderSpec(team: TeamConfig, index: number): AgentInstanceSpec {
     const leaderModel = team.leader.model;
-    if (!leaderModel) throw new Error(`resolved config missing teams[${team.name}].leader.model`);
+    if (!leaderModel) throw new Error(t("leader_model_missing", { teamName: team.name }));
     const base = this.config.runtime.ports.base + 1 + index;
     return {
       id: `${team.name}-lead`,

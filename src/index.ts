@@ -37,7 +37,7 @@ program
     await ensureDir(stateDir);
     const orch = new Orchestrator(cfg, { goal, port: Number(options.port) });
     await orch.start();
-    logger.info(t("orchestrator_started"));
+    logger.success(t("orchestrator_started"));
   });
 
 program
@@ -81,7 +81,7 @@ program
       return;
     }
     process.kill(pid, "SIGTERM");
-    logger.info(t("stop_signal_sent"));
+    logger.success(t("stop_signal_sent"));
   });
 
 program
