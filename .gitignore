@@ -24,4 +24,6 @@ yarn-error.log*
 # misc
 .DS_Store
 
+# test files
 __test__/
+team.json

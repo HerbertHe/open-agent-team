@@ -61,7 +61,7 @@ loader の挙動：
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | いいえ | enum (`local_process` \| `flue`) | `local_process` | runtime モード（現状は `local_process` のみ実装） |
 | `runtime.opencode.executable` | いいえ | string | `"opencode"` | `opencode` の実行ファイル名/パス |
-| `runtime.ports.base` | いいえ | number | `4096` | agent サーバのベースポート（Admin は base、Leader は base + 1 + index） |
+| `runtime.ports.base` | いいえ | number | `8848` | agent サーバのベースポート（Admin は base、Leader は base + 1 + index） |
 | `runtime.ports.max_agents` | いいえ | number | `10` | 現行コードでは厳密に適用されない（placeholder/設定意図） |
 | `runtime.persistence.state_dir` | いいえ | string | `"~/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
 

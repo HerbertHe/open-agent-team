@@ -23,7 +23,7 @@
       "executable": "opencode"
     },
     "ports": {
-      "base": 4096,
+      "base": 8848,
       "max_agents": 10
     },
     "persistence": {

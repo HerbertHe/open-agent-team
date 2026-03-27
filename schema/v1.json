@@ -97,7 +97,7 @@
             "base": {
               "type": "integer",
               "minimum": 1,
-              "default": 4096
+              "default": 8848
             },
             "max_agents": {
               "type": "integer",

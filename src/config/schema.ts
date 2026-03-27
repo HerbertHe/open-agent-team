@@ -57,10 +57,10 @@ export const TeamFileSchema = z.object({
         .default({ executable: "opencode" }),
       ports: z
         .object({
-          base: z.number().int().positive().default(4096),
+          base: z.number().int().positive().default(8848),
           max_agents: z.number().int().positive().default(10),
         })
-        .default({ base: 4096, max_agents: 10 }),
+        .default({ base: 8848, max_agents: 10 }),
       persistence: z
         .object({
           state_dir: z.string().min(1).default("~/.oat/state"),

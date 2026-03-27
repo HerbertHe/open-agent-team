@@ -61,7 +61,7 @@ loader 行为：
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | 否 | enum (`local_process` \| `flue`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
 | `runtime.opencode.executable` | 否 | string | `"opencode"` | `opencode` 可执行文件/命令名 |
-| `runtime.ports.base` | 否 | number | `4096` | agent 端口起始基线：Admin 使用 base，Leader 为 base+1+index |
+| `runtime.ports.base` | 否 | number | `8848` | agent 端口起始基线：Admin 使用 base，Leader 为 base+1+index |
 | `runtime.ports.max_agents` | 否 | number | `10` | 当前版本未参与硬性并发控制（预留配置位） |
 | `runtime.persistence.state_dir` | 否 | string | `"~/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 

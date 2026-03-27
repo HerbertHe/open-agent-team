@@ -61,7 +61,7 @@ Loader behavior:
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | No | enum (`local_process` \| `flue`) | `local_process` | Runtime mode (currently only implements `local_process`) |
 | `runtime.opencode.executable` | No | string | `"opencode"` | `opencode` executable name/path |
-| `runtime.ports.base` | No | number | `4096` | Base port for agent servers (Admin uses `base`, Leader uses `base + 1 + index`) |
+| `runtime.ports.base` | No | number | `8848` | Base port for agent servers (Admin uses `base`, Leader uses `base + 1 + index`) |
 | `runtime.ports.max_agents` | No | number | `10` | The current code does not strictly enforce this (placeholder/preference) |
 | `runtime.persistence.state_dir` | No | string | `"~/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
 

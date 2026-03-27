@@ -88,7 +88,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   const runtimeDefaults = {
     mode: RuntimeModeEnum.LocalProcess,
     opencode: { executable: "opencode" },
-    ports: { base: 4096, max_agents: 10 },
+    ports: { base: 8848, max_agents: 10 },
     persistence: { state_dir: "~/.oat/state" },
   };
   const providersDefaults = {

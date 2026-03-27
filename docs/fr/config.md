@@ -61,7 +61,7 @@ Comportement du loader :
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | Non | enum (`local_process` \| `flue`) | `local_process` | Mode runtime (implémente actuellement seulement `local_process`) |
 | `runtime.opencode.executable` | Non | string | `"opencode"` | Nom/chemin de l'exécutable `opencode` |
-| `runtime.ports.base` | Non | number | `4096` | Port de base pour serveurs d'agents (Admin utilise `base`, Leader utilise `base + 1 + index`) |
+| `runtime.ports.base` | Non | number | `8848` | Port de base pour serveurs d'agents (Admin utilise `base`, Leader utilise `base + 1 + index`) |
 | `runtime.ports.max_agents` | Non | number | `10` | Non appliqué strictement dans le code actuel (placeholder/préférence) |
 | `runtime.persistence.state_dir` | Non | string | `"~/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
 
