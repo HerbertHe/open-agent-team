@@ -1,6 +1,7 @@
-# Référence de configuration `team.yaml` (dictionnaire complet de paramètres)
+# Référence de configuration `team.json` (dictionnaire complet de paramètres)
 
-`team.yaml` est l'entrée de la configuration déclarative de votre équipe d'agents. Orchestrator lit et analyse ce fichier, démarre `Admin / Leader` statiques, puis crée dynamiquement des agents `Worker` lorsqu'ils sont demandés par `Leader`.
+`team.json` est l'entrée de la configuration déclarative de votre équipe d'agents. Orchestrator lit et analyse ce fichier, démarre `Admin / Leader` statiques, puis crée dynamiquement des agents `Worker` lorsqu'ils sont demandés par `Leader`.
+Vous pouvez valider ce fichier avec le `schema.json` à la racine du projet.
 
 En parallèle, le loader effectue deux types de complétion/parsing à l'exécution :
 
@@ -14,6 +15,7 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 | Champ | Requis | Type | Valeur par défaut | Description |
 | --- | --- | --- | --- | --- |
 | `model` | Non | string | - | Modèle global par défaut (fallback pour admin/leader/worker) |
+| `providers` | Non | object | Voir ci-dessous | Configuration globale d'intégration provider (entrée recommandée) |
 | `project` | Oui | object | - | Méta du projet : utilisé pour logs/prompts, branche git, et chemin du dépôt |
 | `models` | Oui | record<string, string> | - | Mapping d'alias de modèles (utilisé par admin/leader/worker) |
 | `admin` | Oui | object | - | Définition de l'agent Admin : prompt, modèle et skills |
@@ -46,7 +48,7 @@ Comportement du loader :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `admin.name` | Oui | string | - | Nom de l'agent Admin (écrit dans le meta markdown de l'agent dans le workspace) |
-| `admin.description` | Oui | string | - | Texte de responsabilité Admin (à remplir dans `team.yaml`) |
+| `admin.description` | Oui | string | - | Texte de responsabilité Admin (à remplir dans `team.json`) |
 | `admin.model` | Non | string | hérite du `model` de niveau supérieur | Modèle utilisé par Admin (peut être un alias) |
 | `admin.prompt` | Oui | string | - | Prompt Admin (accepte un chemin de fichier `*.md`) |
 | `admin.skills` | Non | string[] | `[]` | Skills à injecter dans le workspace Admin |
@@ -66,6 +68,21 @@ Comportement du loader :
 Expansion de `~` :
 
 - `runtime.persistence.state_dir` supporte le préfixe `~` ; le loader l'étend vers le home utilisateur réel
+
+## 5.1 `providers` (intégration provider globale)
+
+| Champ | Requis | Type | Valeur par défaut | Signification |
+| --- | --- | --- | --- | --- |
+| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans chaque processus `opencode serve` |
+| `providers.env_from` | Non | record<string, string> | `{}` | Mapping d'environnement (clé injectée -> nom de variable source du process courant) |
+| `providers.openai_compatible.base_url` | Non | string | - | Mapping pratique vers `OPENAI_BASE_URL` |
+| `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) |
+| `providers.openai_compatible.api_key_env` | Non | string | - | Lit la clé depuis l'environnement courant et l'injecte en `OPENAI_API_KEY` |
+
+Notes :
+
+- Priorité d'injection : `providers.openai_compatible.*` > `providers.env_from` > `providers.env`
+- Pour les secrets, préférez `env_from` / `api_key_env`
 
 ## 6. `workspace`
 

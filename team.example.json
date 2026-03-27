@@ -1,0 +1,73 @@
+{
+  "model": "default",
+  "models": {
+    "default": "openai/gpt-4o-mini"
+  },
+  "providers": {
+    "openai_compatible": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "env": {},
+    "env_from": {}
+  },
+  "project": {
+    "name": "open-agent-team-demo",
+    "repo": ".",
+    "base_branch": "main"
+  },
+  "runtime": {
+    "mode": "local_process",
+    "opencode": {
+      "executable": "opencode"
+    },
+    "ports": {
+      "base": 4096,
+      "max_agents": 10
+    },
+    "persistence": {
+      "state_dir": "~/.oat/state"
+    }
+  },
+  "workspace": {
+    "provider": "worktree",
+    "root_dir": "~/.oat/workspaces",
+    "persistent": true,
+    "git": {
+      "remote": "origin",
+      "lfs": "pull"
+    },
+    "sparse_checkout": {
+      "enabled": true
+    }
+  },
+  "admin": {
+    "name": "admin",
+    "description": "Project manager responsible for global coordination and final delivery summary.",
+    "prompt": "You are the Admin agent.\nCoordinate team leads, track overall progress, and produce the final delivery summary.",
+    "skills": []
+  },
+  "teams": [
+    {
+      "name": "platform",
+      "branch_prefix": "team/platform",
+      "leader": {
+        "name": "platform-lead",
+        "description": "Platform lead responsible for task decomposition and worker coordination.",
+        "prompt": "You are the Leader agent for the platform team.\nBreak work into parallel tasks and call request-workers with tasks.\nAggregate worker CHANGELOGs into your own CHANGELOG.",
+        "skills": [],
+        "repos": [
+          "src/",
+          "package.json"
+        ]
+      },
+      "worker": {
+        "max": 3,
+        "prompt": "You are a Worker engineer.\nImplement assigned tasks, update CHANGELOG.md at workspace root,\nthen call notify-complete with changelog content.",
+        "extra_skills": [],
+        "lifecycle": "ephemeral_after_merge_to_main",
+        "skill_sync": "inherit_and_inject_on_spawn"
+      }
+    }
+  ]
+}

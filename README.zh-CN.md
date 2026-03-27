@@ -4,22 +4,24 @@
 
 `Admin -> Leader -> Worker`
 
-你在 `team.yaml` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动静态 agent（`Admin` 与所有 `Leader`），并在 `Leader` 请求时动态生成 `Worker`。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
+你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动静态 agent（`Admin` 与所有 `Leader`），并在 `Leader` 请求时动态生成 `Worker`。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> 最终 `Admin` 总结。
 
 ## 关键概念
 
-### 声明式配置（`team.yaml`）
+### 声明式配置（`team.json`）
 
-- `team.yaml` 定义：
+- `team.json` 定义：
   - 全局默认模型（`model`，可选）
+  - 全局供应商接入配置（`providers`，可选）
   - 项目元信息（`project`）
   - 模型别名映射（`models`）
   - `Admin` 配置（`admin`）
   - team 配置（`teams[]`: `Leader` + `Worker`）
 - 如果 `admin.prompt` / `leader.prompt` / `worker.prompt` 以 `.md` 结尾，loader 会把它当作文件路径读取文件内容作为 prompt 文本。
 - 模型继承链路：`worker.model -> leader.model -> admin.model -> model`（任意层都可覆盖）。
+- 可在顶层 `providers` 下集中注入 OpenAI 兼容 API 参数（`base_url`、`api_key_env` 等）到所有 agent 的 `opencode` 进程。
 
 详细字段说明：`oat docs config --lang zh-CN`。
 
@@ -53,7 +55,7 @@ skills 遵循 OpenCode 的 `SKILL.md` 约定：
 
 `skills/<skill-name>/SKILL.md`
 
-### 2) 编写 `team.yaml`
+### 2) 编写 `team.json`
 
 参考：
 
@@ -63,13 +65,13 @@ skills 遵循 OpenCode 的 `SKILL.md` 约定：
 ### 3) 启动 Orchestrator
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 选择输出/文档语言：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ### 4) 常用命令

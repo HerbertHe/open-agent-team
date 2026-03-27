@@ -1,6 +1,22 @@
 import type { RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
 import type { TeamConfig } from "./team";
 
+export interface TeamFileProvidersConfig {
+  /** 直接注入到 opencode 进程的环境变量（明文）。 */
+  env?: Record<string, string>;
+  /** 环境变量映射：key 为注入名，value 为当前系统中的源环境变量名。 */
+  env_from?: Record<string, string>;
+  /** OpenAI 兼容网关的便捷配置（会自动映射到 OPENAI_* 环境变量）。 */
+  openai_compatible?: {
+    /** 对应 OPENAI_BASE_URL */
+    base_url?: string;
+    /** 对应 OPENAI_API_KEY（不建议明文，建议改用 api_key_env） */
+    api_key?: string;
+    /** 从当前进程环境变量读取 key（例如 OPENROUTER_API_KEY） */
+    api_key_env?: string;
+  };
+}
+
 /**
  * Admin agent 的声明式配置。
  */
@@ -18,11 +34,13 @@ export interface TeamFileAdminConfig {
 }
 
 /**
- * team.yaml 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
+ * team.json 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
  */
 export interface TeamFileConfig {
   /** 全局统一模型（可作为 admin/leader/worker 的默认值） */
   model?: string;
+  /** 全局模型供应商接入配置（推荐入口） */
+  providers?: TeamFileProvidersConfig;
   project: {
     /** 当前项目名称（用于日志与提示） */
     name: string;
@@ -79,6 +97,9 @@ export interface TeamFileConfig {
  * loader 解析后的最终配置（所有必要字段已补齐）。
  */
 export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace"> {
+  providers: Required<Omit<TeamFileProvidersConfig, "openai_compatible">> & {
+    openai_compatible: TeamFileProvidersConfig["openai_compatible"];
+  };
   runtime: {
     /** 解析后的运行时模式（必填） */
     mode: RuntimeModeEnum;

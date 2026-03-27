@@ -29,6 +29,19 @@ export const TeamSchema = z.object({
 
 export const TeamFileSchema = z.object({
   model: z.string().min(1).optional(),
+  providers: z
+    .object({
+      env: z.record(z.string(), z.string()).default({}),
+      env_from: z.record(z.string(), z.string().min(1)).default({}),
+      openai_compatible: z
+        .object({
+          base_url: z.string().min(1).optional(),
+          api_key: z.string().min(1).optional(),
+          api_key_env: z.string().min(1).optional(),
+        })
+        .default({}),
+    })
+    .optional(),
   project: z.object({
     name: z.string().min(1),
     repo: z.string().min(1),

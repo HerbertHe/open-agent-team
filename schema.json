@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-agent-team.local/schema.json",
+  "title": "Open Agent Team Config",
+  "type": "object",
+  "required": ["project", "models", "admin", "teams"],
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "env_from": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": {}
+        },
+        "openai_compatible": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_key_env": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "default": {}
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": ["name", "repo", "base_branch"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_branch": {
+          "type": "string",
+          "minLength": 1,
+          "default": "main"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["local_process", "flue"],
+          "default": "local_process"
+        },
+        "opencode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1,
+              "default": "opencode"
+            }
+          }
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "base": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 4096
+            },
+            "max_agents": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10
+            }
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state_dir": {
+              "type": "string",
+              "minLength": 1,
+              "default": "~/.oat/state"
+            }
+          }
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["worktree", "shared_clone", "full_clone"],
+          "default": "worktree"
+        },
+        "root_dir": {
+          "type": "string",
+          "minLength": 1,
+          "default": "~/.oat/workspaces"
+        },
+        "persistent": {
+          "type": "boolean",
+          "default": true
+        },
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "remote": {
+              "type": "string",
+              "minLength": 1,
+              "default": "origin"
+            },
+            "lfs": {
+              "type": "string",
+              "enum": ["pull", "skip", "allow_pull_deny_change"],
+              "default": "pull"
+            }
+          }
+        },
+        "sparse_checkout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "admin": {
+      "type": "object",
+      "required": ["name", "description", "prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        }
+      }
+    },
+    "teams": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "branch_prefix", "leader", "worker"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branch_prefix": {
+            "type": "string",
+            "minLength": 1
+          },
+          "leader": {
+            "type": "object",
+            "required": ["name", "description", "prompt"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "default": []
+              },
+              "repos": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "default": []
+              }
+            }
+          },
+          "worker": {
+            "type": "object",
+            "required": ["max", "prompt"],
+            "additionalProperties": false,
+            "properties": {
+              "max": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "extra_skills": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "default": []
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": ["ephemeral_after_merge_to_main", "persistent"],
+                "default": "ephemeral_after_merge_to_main"
+              },
+              "skill_sync": {
+                "type": "string",
+                "enum": ["inherit_and_inject_on_spawn", "manual"],
+                "default": "inherit_and_inject_on_spawn"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

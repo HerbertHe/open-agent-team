@@ -18,6 +18,12 @@ function parseBaseDir(input: string): string {
   return input;
 }
 
+function pickEnvValue(keyName: string): string | undefined {
+  const value = process.env[keyName];
+  if (!value) return undefined;
+  return value;
+}
+
 export class Orchestrator {
   private readonly app = express();
   private readonly taskManager: TaskManager;
@@ -33,7 +39,38 @@ export class Orchestrator {
     this.port = args.port;
     this.stateDir = parseBaseDir(config.runtime.persistence.state_dir);
     this.stateFile = path.join(this.stateDir, "orchestrator.json");
-    this.runtimeProvider = new LocalProcessProvider(config.runtime.opencode.executable ?? "opencode");
+    const injectedEnv: Record<string, string> = {};
+    const opencodeCfg = config.runtime.opencode;
+    const providersCfg = config.providers;
+
+    for (const [k, v] of Object.entries(providersCfg.env ?? {})) {
+      injectedEnv[k] = v;
+    }
+    for (const [targetKey, sourceEnvName] of Object.entries(providersCfg.env_from ?? {})) {
+      const value = pickEnvValue(sourceEnvName);
+      if (!value) {
+        logger.warn(`providers.env_from references missing env: ${sourceEnvName} -> ${targetKey}`);
+        continue;
+      }
+      injectedEnv[targetKey] = value;
+    }
+
+    const openaiCompat = providersCfg.openai_compatible ?? {};
+    if (openaiCompat.base_url) {
+      injectedEnv.OPENAI_BASE_URL = openaiCompat.base_url;
+    }
+    if (openaiCompat.api_key) {
+      injectedEnv.OPENAI_API_KEY = openaiCompat.api_key;
+    } else if (openaiCompat.api_key_env) {
+      const key = pickEnvValue(openaiCompat.api_key_env);
+      if (!key) {
+        logger.warn(`providers.openai_compatible.api_key_env not found: ${openaiCompat.api_key_env}`);
+      } else {
+        injectedEnv.OPENAI_API_KEY = key;
+      }
+    }
+
+    this.runtimeProvider = new LocalProcessProvider(config.runtime.opencode.executable ?? "opencode", injectedEnv);
 
     const workspaceProvider = new WorkspaceProviderFactory(config).getProvider();
     this.workspaceProvider = workspaceProvider;
@@ -97,6 +134,8 @@ export class Orchestrator {
   }
 
   private buildAdminSpec(): AgentInstanceSpec {
+    const adminModel = this.config.admin.model;
+    if (!adminModel) throw new Error("resolved config missing admin.model");
     const base = this.config.runtime.ports.base;
     return {
       id: AgentRoleEnum.Admin,
@@ -106,12 +145,14 @@ export class Orchestrator {
       branch: this.config.project.base_branch,
       workspacePath: path.join(this.config.workspace.root_dir, AgentRoleEnum.Admin),
       port: base,
-      model: this.config.admin.model,
+      model: adminModel,
       skills: this.config.admin.skills,
     };
   }
 
   private buildLeaderSpec(team: TeamConfig, index: number): AgentInstanceSpec {
+    const leaderModel = team.leader.model;
+    if (!leaderModel) throw new Error(`resolved config missing teams[${team.name}].leader.model`);
     const base = this.config.runtime.ports.base + 1 + index;
     return {
       id: `${team.name}-lead`,
@@ -122,7 +163,7 @@ export class Orchestrator {
       branch: team.branch_prefix,
       workspacePath: path.join(this.config.workspace.root_dir, `${team.name}-lead`),
       port: base,
-      model: team.leader.model,
+      model: leaderModel,
       skills: team.leader.skills,
     };
   }

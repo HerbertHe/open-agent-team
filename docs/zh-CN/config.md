@@ -1,6 +1,7 @@
-# team.yaml 配置说明（完整参数字典）
+# team.json 配置说明（完整参数字典）
 
-`team.yaml` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader`（静态），并在 `Leader` 请求时动态创建 `Worker`（临时）。
+`team.json` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader`（静态），并在 `Leader` 请求时动态创建 `Worker`（临时）。
+你可以使用项目根目录的 `schema.json` 对该文件做校验。
 
 同时，loader 会做两类“运行时补齐/解析”：
 
@@ -14,6 +15,7 @@
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `model` | 否 | string | - | 全局默认模型（admin/leader/worker 的兜底） |
+| `providers` | 否 | object | 见下文 | 全局模型供应商接入配置（推荐入口，集中配置 base_url/key 注入） |
 | `project` | 是 | object | - | 项目元信息：用于日志/提示词，以及 git 操作的根分支与仓库路径 |
 | `models` | 是 | record<string, string> | - | 模型别名到 model id 的映射（供 admin/leader/worker 解析） |
 | `admin` | 是 | object | - | Admin agent 的角色定义：prompt、模型与 skills |
@@ -46,7 +48,7 @@ loader 行为：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `admin.name` | 是 | string | - | Admin agent 名称（注入到 workspace 的 agent markdown meta） |
-| `admin.description` | 是 | string | - | Admin 的职责描述（写入 prompt/约束构建逻辑，由你在 team.yaml 填写） |
+| `admin.description` | 是 | string | - | Admin 的职责描述（写入 prompt/约束构建逻辑，由你在 team.json 填写） |
 | `admin.model` | 否 | string | 继承顶层 `model` | Admin 使用的模型（可为别名） |
 | `admin.prompt` | 是 | string | - | Admin 的系统/角色 prompt（支持 `*.md` 文件路径形式） |
 | `admin.skills` | 否 | string[] | `[]` | Admin 共享给 OpenCode 的 skills 列表（会同步到 Admin workspace） |
@@ -66,6 +68,24 @@ loader 行为：
 home 展开：
 
 - `runtime.persistence.state_dir` 支持 `~` 前缀，loader 会展开为实际用户目录
+
+## 5.1 `providers`（全局供应商接入）
+
+> 推荐将模型供应商参数放在顶层 `providers`，与 `model/models` 放在一起，降低配置学习成本。
+
+| 字段 | 必填 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- | --- |
+| `providers.env` | 否 | record<string, string> | `{}` | 直接注入到每个 `opencode serve` 进程的环境变量（明文，不建议放敏感 key） |
+| `providers.env_from` | 否 | record<string, string> | `{}` | 环境变量映射：key 是注入名，value 是当前系统环境变量名（推荐用它传 key） |
+| `providers.openai_compatible.base_url` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_BASE_URL` 注入 `opencode` 进程 |
+| `providers.openai_compatible.api_key` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_API_KEY`（不推荐明文） |
+| `providers.openai_compatible.api_key_env` | 否 | string | - | 便捷配置：从当前环境变量读取 key 并注入为 `OPENAI_API_KEY` |
+
+注入说明：
+
+- 注入优先级（高 -> 低）：`providers.openai_compatible.*` / `providers.env_from` / `providers.env`
+- 推荐把真实 key 放在系统环境变量里，再通过 `env_from` 或 `api_key_env` 引用，避免明文写进 `team.json`
+- 如果 `env_from` 或 `api_key_env` 指向的系统环境变量不存在，运行时会给出 warning，`opencode` 可能因缺少 key 而调用失败
 
 ## 6. `workspace`
 

@@ -4,16 +4,17 @@ This project lets you build a declarative **agent team** with a 3-layer hierarch
 
 `Admin -> Leader -> Worker`
 
-You declare roles, models, shared skills, and workspace/git strategies in `team.yaml`. At runtime, the Orchestrator starts static agents (`Admin`, all `Leader`s) and dynamically spawns `Worker`s when a `Leader` requests them. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
+You declare roles, models, shared skills, and workspace/git strategies in `team.json`. At runtime, the Orchestrator starts static agents (`Admin`, all `Leader`s) and dynamically spawns `Worker`s when a `Leader` requests them. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> final `Admin` summary.
 
 ## Key concepts
 
-### Declarative configuration (`team.yaml`)
+### Declarative configuration (`team.json`)
 
-- `team.yaml` defines:
+- `team.json` defines:
   - global default model (`model`, optional)
+  - global provider integration (`providers`, optional)
   - project metadata (`project`)
   - model alias mapping (`models`)
   - `Admin` agent config (`admin`)
@@ -53,7 +54,7 @@ In your git repository root, create:
 
 `skills/<skill-name>/SKILL.md`
 
-### 2) Create `team.yaml`
+### 2) Create `team.json`
 
 Refer to:
 
@@ -63,13 +64,13 @@ Refer to:
 ### 3) Start Orchestrator
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 Choose output/docs language:
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ### 4) Useful commands

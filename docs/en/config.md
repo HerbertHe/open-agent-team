@@ -1,6 +1,7 @@
-# team.yaml Configuration Reference (complete parameter dictionary)
+# team.json Configuration Reference (complete parameter dictionary)
 
-`team.yaml` is the entry point for declaring your agent team configuration. Orchestrator reads and parses it, starts static `Admin / Leader`, and dynamically creates `Worker` agents when requested by `Leader`.
+`team.json` is the entry point for declaring your agent team configuration. Orchestrator reads and parses it, starts static `Admin / Leader`, and dynamically creates `Worker` agents when requested by `Leader`.
+You can validate this file against the root-level `schema.json`.
 
 At the same time, the loader performs two kinds of runtime “completion/parsing”:
 
@@ -14,6 +15,7 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 | Field | Required | Type | Default | Purpose |
 | --- | --- | --- | --- | --- |
 | `model` | No | string | - | Global default model (fallback for admin/leader/worker) |
+| `providers` | No | object | See below | Global model-provider integration config (recommended entry) |
 | `project` | Yes | object | - | Project metadata: used for logs/prompts, git base branch, and repository path |
 | `models` | Yes | record<string, string> | - | Model alias map (used by admin/leader/worker) |
 | `admin` | Yes | object | - | Admin agent definition: prompt, model, and skills |
@@ -46,7 +48,7 @@ Loader behavior:
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `admin.name` | Yes | string | - | Admin agent name (written into workspace agent markdown meta) |
-| `admin.description` | Yes | string | - | Admin responsibility text (you fill it into `team.yaml`) |
+| `admin.description` | Yes | string | - | Admin responsibility text (you fill it into `team.json`) |
 | `admin.model` | No | string | inherit from top-level `model` | Model used by Admin (can be an alias) |
 | `admin.prompt` | Yes | string | - | Admin prompt (supports `*.md` file path) |
 | `admin.skills` | No | string[] | `[]` | Skills to inject into Admin workspace |
@@ -66,6 +68,21 @@ Loader behavior:
 Home expansion:
 
 - `runtime.persistence.state_dir` supports `~` prefix; loader expands it to a real user home path
+
+## 5.1 `providers` (global provider integration)
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `providers.env` | No | record<string, string> | `{}` | Plain env vars injected into every `opencode serve` process |
+| `providers.env_from` | No | record<string, string> | `{}` | Env mapping: key is injected env name, value is source env name from current process |
+| `providers.openai_compatible.base_url` | No | string | - | Convenience mapping to `OPENAI_BASE_URL` |
+| `providers.openai_compatible.api_key` | No | string | - | Convenience mapping to `OPENAI_API_KEY` (plain text; not recommended) |
+| `providers.openai_compatible.api_key_env` | No | string | - | Read key from current process env and map to `OPENAI_API_KEY` |
+
+Notes:
+
+- Injection priority: `providers.openai_compatible.*` > `providers.env_from` > `providers.env`
+- Prefer `env_from` or `api_key_env` for secrets
 
 ## 6. `workspace`
 

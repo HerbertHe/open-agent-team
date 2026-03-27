@@ -2,7 +2,7 @@
 
 ## 1. Vue d'ensemble : comment l'équipe déclarative est concrétisée
 
-Ce projet fournit un flux de travail « équipe d'agents déclarative » : vous déclarez les rôles `Admin / Leader / Worker`, les modèles, les skills, ainsi que les stratégies de branche/du workspace pour chaque équipe dans `team.yaml`. À l'exécution, l'Orchestrateur lit la configuration et réalise :
+Ce projet fournit un flux de travail « équipe d'agents déclarative » : vous déclarez les rôles `Admin / Leader / Worker`, les modèles, les skills, ainsi que les stratégies de branche/du workspace pour chaque équipe dans `team.json`. À l'exécution, l'Orchestrateur lit la configuration et réalise :
 
 - Démarrer `Admin` statique et le `Leader` de chaque équipe (ils restent en cours d'exécution jusqu'à ce qu'un leader termine et déclenche le nettoyage)
 - Quand un `Leader` a besoin de « plus d'exécutants de type ingénieur », il demande à l'Orchestrateur de créer dynamiquement des agents `Worker` via des outils
@@ -84,7 +84,7 @@ Ci-dessous le « flux principal » :
 
 ```mermaid
 flowchart TD
-  U[Utilisateur] --> CLI[oat start team.yaml "<goal>" --port PORT]
+  U[Utilisateur] --> CLI[oat start team.json "<goal>" --port PORT]
   CLI --> O[Orchestrator.start()]
   O --> A[Démarrer l'agent Admin]
   O --> L[Démarrer l'agent Leader]
@@ -222,7 +222,7 @@ Après démarrage, Orchestrator écoute `--port <PORT>` et enregistre les routes
 
 ## 6. Points de pilotage de configuration et valeurs clés
 
-Le comportement est principalement lié à ces champs de `team.yaml` :
+Le comportement est principalement lié à ces champs de `team.json` :
 
 - Rôles et prompts :
   - `admin.prompt`, `teams[].leader.prompt`, `teams[].worker.prompt`
@@ -231,6 +231,7 @@ Le comportement est principalement lié à ces champs de `team.yaml` :
   - le champ top-level `model` fournit un modèle global par défaut
   - chaîne d'héritage : `worker.model -> leader.model -> admin.model -> model`
   - `models` sert à mapper l'alias de la valeur de modèle finalement sélectionnée (ex : `default -> anthropic/...`)
+  - le champ top-level `providers` fournit l'intégration provider globale (injection d'env base_url/key dans `opencode serve`)
   - si un model ne contient pas `/`, le provider par défaut est `anthropic`
 - Workspaces :
   - `workspace.root_dir` détermine où sont créés les worktrees

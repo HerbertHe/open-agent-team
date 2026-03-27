@@ -4,7 +4,7 @@
 
 ## 1. skills を準備（必須）
 
-Orchestrator は `team.yaml` の `project.repo` のパスから skill 定義を読み取り、各 agent の workspace に注入します。
+Orchestrator は `team.json` の `project.repo` のパスから skill 定義を読み取り、各 agent の workspace に注入します。
 
 Git リポジトリのルートで次を用意してください：
 
@@ -28,63 +28,50 @@ skills/
 
 開始前に確認：
 
-- `team.yaml -> project.repo` は git リポジトリを指していること（通常 `.`）
+- `team.json -> project.repo` は git リポジトリを指していること（通常 `.`）
 - `project.base_branch` が存在すること（例：`main`）
 - リポジトリが `git worktree` をサポートしていること
 
-## 3. `team.yaml` を作成（コア）
+## 3. `team.json` を作成（コア）
 
-`team.yaml` はどこに置いてもよいですが、管理しやすいようリポジトリのルートに置くのがおすすめです。
+`team.json` はどこに置いてもよいですが、管理しやすいようリポジトリのルートに置くのがおすすめです。
 
 以下は「最小スケルトン」例です（モデルと prompt は自分の内容に置き換え、skill 名は実在するものを指定してください）：
 
-```yaml
-model: default
-
-project:
-  name: open-agent-team-demo
-  repo: .
-  base_branch: main
-
-models:
-  default: anthropic/claude-3-5-sonnet-20240620
-
-admin:
-  name: admin
-  description: 最終集約と納品を担当するプロジェクトマネージャ
-  model: default
-  prompt: |
-    You are the project manager (Admin).
-    Your job is to summarize the final delivery and review team changelogs.
-  skills: []
-
-teams:
-  - name: frontend
-    branch_prefix: team/frontend
-    leader:
-      name: frontend-lead
-      description: フロントリード。タスクを分解し worker に実行を依頼する
-      model: default
-      prompt: |
-        You are the Leader agent for the frontend team.
-        When you need engineers to implement tasks in parallel, call tool request-workers with a JSON body:
-        { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
-
-        After workers finish, summarize all worker CHANGELOGs into your own CHANGELOG.
-      skills: []
-      repos:
-        - src/
-        - package.json
-    worker:
-      max: 3
-      model: default
-      prompt: |
-        You are a Worker engineer.
-        For your assigned task:
-        1) Modify code in this workspace.
-        2) Update CHANGELOG.md at the workspace root with what you did and why.
-        3) Call tool notify-complete with changelog set to the CHANGELOG content.
-      extra_skills: []
+```json
+{
+  "model": "default",
+  "project": { "name": "open-agent-team-demo", "repo": ".", "base_branch": "main" },
+  "models": { "default": "anthropic/claude-3-5-sonnet-20240620" },
+  "providers": { "openai_compatible": { "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY" } },
+  "admin": {
+    "name": "admin",
+    "description": "最終集約と納品を担当するプロジェクトマネージャ",
+    "model": "default",
+    "prompt": "You are the project manager (Admin).\\nYour job is to summarize the final delivery and review team changelogs.",
+    "skills": []
+  },
+  "teams": [
+    {
+      "name": "frontend",
+      "branch_prefix": "team/frontend",
+      "leader": {
+        "name": "frontend-lead",
+        "description": "フロントリード。タスクを分解し worker に実行を依頼する",
+        "model": "default",
+        "prompt": "You are the Leader agent for the frontend team.",
+        "skills": [],
+        "repos": ["src/", "package.json"]
+      },
+      "worker": {
+        "max": 3,
+        "model": "default",
+        "prompt": "You are a Worker engineer.",
+        "extra_skills": []
+      }
+    }
+  ]
+}
 ```
 
 最低限、次を満たしてください：
@@ -99,7 +86,7 @@ teams:
 実行：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 - `--port`：Orchestrator の HTTP ポート（ツールコールバックで使われます）
@@ -108,7 +95,7 @@ oat start team.yaml "<goal>" --port 3100
 出力/ログの言語を指定する場合：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ## 5. 実行結果で確認すること

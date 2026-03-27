@@ -5,13 +5,18 @@ import type { RuntimeHandle, RuntimeProvider } from "./interface";
 export class LocalProcessProvider implements RuntimeProvider {
   private readonly handles = new Map<string, { handle: RuntimeHandle; kill: () => void }>();
 
-  constructor(private readonly executable: string) {}
+  constructor(private readonly executable: string, private readonly injectedEnv: Record<string, string> = {}) {}
 
   async start(spec: AgentInstanceSpec): Promise<RuntimeHandle> {
     const child = spawn(
       this.executable,
       ["serve", "--port", String(spec.port), "--hostname", "127.0.0.1"],
-      { cwd: spec.workspacePath, stdio: "ignore", detached: false }
+      {
+        cwd: spec.workspacePath,
+        stdio: "ignore",
+        detached: false,
+        env: { ...process.env, ...this.injectedEnv },
+      }
     );
     const handle: RuntimeHandle = { agentId: spec.id, port: spec.port, pid: child.pid };
     this.handles.set(spec.id, {

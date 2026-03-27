@@ -4,16 +4,17 @@ Ce projet vous permet de construire une équipe d'agents **déclarative** avec u
 
 `Admin -> Leader -> Worker`
 
-Vous déclarez les rôles, modèles, skills partagées et les stratégies workspace/git dans `team.yaml`. À l'exécution, l'Orchestrateur démarre les agents statiques (`Admin` et tous les `Leader`) puis crée dynamiquement des `Worker` lorsque un `Leader` les demande. Chaque `Worker` doit mettre à jour un `CHANGELOG.md`, qui est fusionné vers le haut :
+Vous déclarez les rôles, modèles, skills partagées et les stratégies workspace/git dans `team.json`. À l'exécution, l'Orchestrateur démarre les agents statiques (`Admin` et tous les `Leader`) puis crée dynamiquement des `Worker` lorsque un `Leader` les demande. Chaque `Worker` doit mettre à jour un `CHANGELOG.md`, qui est fusionné vers le haut :
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> résumé final de `Admin`.
 
 ## Concepts clés
 
-### Configuration déclarative (`team.yaml`)
+### Configuration déclarative (`team.json`)
 
-- `team.yaml` définit :
+- `team.json` définit :
   - le modèle global par défaut (`model`, optionnel)
+  - l'intégration provider globale (`providers`, optionnel)
   - les métadonnées du projet (`project`)
   - le mapping d'alias de modèles (`models`)
   - la config de l'agent `Admin` (`admin`)
@@ -53,7 +54,7 @@ Dans la racine de votre dépôt git, créez :
 
 `skills/<skill-name>/SKILL.md`
 
-### 2) Écrire `team.yaml`
+### 2) Écrire `team.json`
 
 Référez-vous à :
 
@@ -63,13 +64,13 @@ Référez-vous à :
 ### 3) Démarrer l'Orchestrateur
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 Choisir la langue de sortie/docs :
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ### 4) Commandes utiles

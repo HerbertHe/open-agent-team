@@ -2,7 +2,7 @@
 
 ## 1. Overview: How the declarative team is realized
 
-This project provides a “declarative agent team” workflow: you declare `Admin / Leader / Worker` roles, models, skills, and team branch/workspace strategies in `team.yaml`; at runtime the Orchestrator reads the config and does the following:
+This project provides a “declarative agent team” workflow: you declare `Admin / Leader / Worker` roles, models, skills, and team branch/workspace strategies in `team.json`; at runtime the Orchestrator reads the config and does the following:
 
 - Start static `Admin` and each Team’s `Leader` (these remain running until a leader finishes and triggers cleanup)
 - When a `Leader` needs more “engineer-level executors”, it requests Orchestrator to dynamically create `Worker` agents via tools
@@ -84,7 +84,7 @@ Below is the end-to-end “main flow”:
 
 ```mermaid
 flowchart TD
-  U[User] --> CLI[oat start team.yaml "<goal>" --port PORT]
+  U[User] --> CLI[oat start team.json "<goal>" --port PORT]
   CLI --> O[Orchestrator.start()]
   O --> A[Start Admin agent]
   O --> L[Start Leader agent(s)]
@@ -222,7 +222,7 @@ After Orchestrator starts, it listens on `--port <PORT>` (provided by the CLI) a
 
 ## 6. Configuration driver points and key defaults
 
-The runtime behavior is primarily bound to these `team.yaml` fields:
+The runtime behavior is primarily bound to these `team.json` fields:
 
 - Roles and prompts:
   - `admin.prompt`, `teams[].leader.prompt`, `teams[].worker.prompt`
@@ -231,6 +231,7 @@ The runtime behavior is primarily bound to these `team.yaml` fields:
   - top-level `model` provides a global default model
   - model inheritance chain: `worker.model -> leader.model -> admin.model -> model`
   - `models` is used for alias mapping of the final selected model (for example: `default -> anthropic/...`)
+  - top-level `providers` provides global provider integration (base_url/key env injection into `opencode serve`)
   - if a model string does not contain `/`, the provider defaults to `anthropic`
 - Workspace:
   - `workspace.root_dir` determines where worktrees are created

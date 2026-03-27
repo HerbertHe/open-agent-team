@@ -4,16 +4,17 @@
 
 `Admin -> Leader -> Worker`
 
-`team.yaml` でロール、モデル、共有スキル、workspace/git の方針を宣言します。実行時、Orchestrator は静的エージェント（`Admin` と全ての `Leader`）を起動し、`Leader` の要求に応じて `Worker` を動的に生成します。各 `Worker` は `CHANGELOG.md` を更新し、その内容は上位へ次のように集約されます：
+`team.json` でロール、モデル、共有スキル、workspace/git の方針を宣言します。実行時、Orchestrator は静的エージェント（`Admin` と全ての `Leader`）を起動し、`Leader` の要求に応じて `Worker` を動的に生成します。各 `Worker` は `CHANGELOG.md` を更新し、その内容は上位へ次のように集約されます：
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> 最終的な `Admin` のサマリー。
 
 ## 重要な概念
 
-### 宣言的な設定（`team.yaml`）
+### 宣言的な設定（`team.json`）
 
-- `team.yaml` は以下を定義します：
+- `team.json` は以下を定義します：
   - 全体のデフォルトモデル（`model`、任意）
+  - グローバルなプロバイダ接続設定（`providers`、任意）
   - プロジェクトメタ情報（`project`）
   - モデル alias のマッピング（`models`）
   - `Admin` agent の設定（`admin`）
@@ -53,7 +54,7 @@ git リポジトリのルートで次を作成します：
 
 `skills/<skill-name>/SKILL.md`
 
-### 2) `team.yaml` を作成
+### 2) `team.json` を作成
 
 参照：
 
@@ -63,13 +64,13 @@ git リポジトリのルートで次を作成します：
 ### 3) Orchestrator を起動
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 言語指定：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ### 4) よく使うコマンド

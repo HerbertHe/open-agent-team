@@ -4,7 +4,7 @@
 
 ## 1. 准备 skills（必须）
 
-Orchestrator 会从 `team.yaml` 的 `project.repo` 路径下读取 skill 定义，并把它们注入到各 agent workspace 中。
+Orchestrator 会从 `team.json` 的 `project.repo` 路径下读取 skill 定义，并把它们注入到各 agent workspace 中。
 
 请在你的 git 仓库根目录准备：
 
@@ -28,63 +28,50 @@ skills/
 
 建议你确认：
 
-- `team.yaml -> project.repo` 指向一个 git 仓库（通常写 `.`）
+- `team.json -> project.repo` 指向一个 git 仓库（通常写 `.`）
 - `project.base_branch` 对应的分支存在（例如 `main`）
 - 你的仓库支持 `git worktree`（大多数情况下开箱即用）
 
-## 3. 编写 `team.yaml`（核心）
+## 3. 编写 `team.json`（核心）
 
-`team.yaml` 位于仓库任意位置均可，但推荐放到仓库根目录或你容易管理的路径。
+`team.json` 位于仓库任意位置均可，但推荐放到仓库根目录或你容易管理的路径。
 
 下面给一个“最小骨架”示例（你需要把模型与 prompt 换成自己的内容，并填入真实 skills 名称）：
 
-```yaml
-model: default
-
-project:
-  name: open-agent-team-demo
-  repo: .
-  base_branch: main
-
-models:
-  default: anthropic/claude-3-5-sonnet-20240620
-
-admin:
-  name: admin
-  description: 项目经理，负责最终汇总交付
-  model: default
-  prompt: |
-    You are the project manager (Admin).
-    Your job is to summarize the final delivery and review team changelogs.
-  skills: []
-
-teams:
-  - name: frontend
-    branch_prefix: team/frontend
-    leader:
-      name: frontend-lead
-      description: 前端负责人，负责拆分任务并请求 worker 执行
-      model: default
-      prompt: |
-        You are the Leader agent for the frontend team.
-        When you need engineers to implement tasks in parallel, call tool request-workers with a JSON body:
-        { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
-
-        After workers finish, summarize all worker CHANGELOGs into your own CHANGELOG.
-      skills: []
-      repos:
-        - src/
-        - package.json
-    worker:
-      max: 3
-      model: default
-      prompt: |
-        You are a Worker engineer.
-        For your assigned task:
-        1) Modify code in this workspace.
-        2) Update CHANGELOG.md at workspace root with what you did and why.
-        3) Call tool notify-complete with changelog set to the CHANGELOG content.
-      extra_skills: []
+```json
+{
+  "model": "default",
+  "project": { "name": "open-agent-team-demo", "repo": ".", "base_branch": "main" },
+  "models": { "default": "anthropic/claude-3-5-sonnet-20240620" },
+  "providers": { "openai_compatible": { "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY" } },
+  "admin": {
+    "name": "admin",
+    "description": "项目经理，负责最终汇总交付",
+    "model": "default",
+    "prompt": "You are the project manager (Admin).\\nYour job is to summarize the final delivery and review team changelogs.",
+    "skills": []
+  },
+  "teams": [
+    {
+      "name": "frontend",
+      "branch_prefix": "team/frontend",
+      "leader": {
+        "name": "frontend-lead",
+        "description": "前端负责人，负责拆分任务并请求 worker 执行",
+        "model": "default",
+        "prompt": "You are the Leader agent for the frontend team.",
+        "skills": [],
+        "repos": ["src/", "package.json"]
+      },
+      "worker": {
+        "max": 3,
+        "model": "default",
+        "prompt": "You are a Worker engineer.",
+        "extra_skills": []
+      }
+    }
+  ]
+}
 ```
 
 你需要至少保证：
@@ -99,7 +86,7 @@ teams:
 在你的终端执行：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100
+oat start team.json "<goal>" --port 3100
 ```
 
 - `--port`：Orchestrator HTTP 服务端口（工具回调使用）
@@ -108,7 +95,7 @@ oat start team.yaml "<goal>" --port 3100
 如果你要指定输出语言：
 
 ```bash
-oat start team.yaml "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --port 3100 --lang zh-CN
 ```
 
 ## 5. 观察执行结果（你应该看到什么）

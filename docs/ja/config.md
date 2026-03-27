@@ -1,6 +1,7 @@
-# team.yaml 設定リファレンス（完全なパラメータ辞書）
+# team.json 設定リファレンス（完全なパラメータ辞書）
 
-`team.yaml` は宣言的に agent チーム設定を記述するための入口です。Orchestrator はこれを読み取り、解析し、静的な `Admin / Leader` を起動した上で、`Leader` の要求に応じて動的に `Worker` agent を作成します。
+`team.json` は宣言的に agent チーム設定を記述するための入口です。Orchestrator はこれを読み取り、解析し、静的な `Admin / Leader` を起動した上で、`Leader` の要求に応じて動的に `Worker` agent を作成します。
+このファイルはプロジェクトルートの `schema.json` で検証できます。
 
 同時に loader は、実行時に次の2種類の「補完/解析」を行います：
 
@@ -14,6 +15,7 @@
 | フィールド | 必須 | 型 | デフォルト | 用途 |
 | --- | --- | --- | --- | --- |
 | `model` | いいえ | string | - | 全体で共通のデフォルトモデル（admin/leader/worker のフォールバック） |
+| `providers` | いいえ | object | 下記参照 | モデルプロバイダ接続の全体設定（推奨エントリ） |
 | `project` | はい | object | - | プロジェクトのメタ情報：ログ/プロンプト、git のベースブランチ、リポジトリパスに使われます |
 | `models` | はい | record<string, string> | - | モデル alias のマップ（admin/leader/worker で利用） |
 | `admin` | はい | object | - | Admin agent の定義：prompt、model、skills |
@@ -46,7 +48,7 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `admin.name` | はい | string | - | Admin agent の名前（workspace 内の agent markdown meta に書かれます） |
-| `admin.description` | はい | string | - | Admin の責務テキスト（`team.yaml` に記入します） |
+| `admin.description` | はい | string | - | Admin の責務テキスト（`team.json` に記入します） |
 | `admin.model` | いいえ | string | トップレベル `model` を継承 | Admin が使う model（alias でも可） |
 | `admin.prompt` | はい | string | - | Admin の prompt（`*.md` ファイルパスを受け付けます） |
 | `admin.skills` | いいえ | string[] | `[]` | Admin workspace に注入する skills |
@@ -66,6 +68,21 @@ loader の挙動：
 `~` の展開：
 
 - `runtime.persistence.state_dir` は `~` プレフィックスをサポートし、loader が実ユーザーの home に展開します
+
+## 5.1 `providers`（グローバル接続設定）
+
+| フィールド | 必須 | 型 | デフォルト | 意味 |
+| --- | --- | --- | --- | --- |
+| `providers.env` | いいえ | record<string, string> | `{}` | 各 `opencode serve` プロセスに注入する環境変数（平文） |
+| `providers.env_from` | いいえ | record<string, string> | `{}` | 環境変数マッピング（key: 注入名, value: 現在プロセスの環境変数名） |
+| `providers.openai_compatible.base_url` | いいえ | string | - | `OPENAI_BASE_URL` へ自動マッピング |
+| `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨） |
+| `providers.openai_compatible.api_key_env` | いいえ | string | - | 現在プロセスの環境変数から key を読み取り `OPENAI_API_KEY` に注入 |
+
+注記：
+
+- 注入優先度：`providers.openai_compatible.*` > `providers.env_from` > `providers.env`
+- 秘密情報は `env_from` / `api_key_env` の利用を推奨
 
 ## 6. `workspace`
 

@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import yaml from "js-yaml";
 import { TeamFileSchema } from "./schema";
 import {
   RuntimeModeEnum,
@@ -31,8 +30,8 @@ function normalizeTeam(team: TeamConfig): TeamConfig {
 export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   const raw = await fs.readFile(configPath, "utf8");
   const baseDir = path.dirname(configPath);
-  const parsedYaml = yaml.load(raw) as TeamFileConfig;
-  const validated = TeamFileSchema.parse(parsedYaml);
+  const parsedJson = JSON.parse(raw) as TeamFileConfig;
+  const validated = TeamFileSchema.parse(parsedJson);
 
   const resolvePrompt = async (p: string): Promise<string> => {
     // 允许把 prompt 写成 ./path/to/file.md
@@ -92,6 +91,15 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     ports: { base: 4096, max_agents: 10 },
     persistence: { state_dir: "~/.oat/state" },
   };
+  const providersDefaults = {
+    env: {} as Record<string, string>,
+    env_from: {} as Record<string, string>,
+    openai_compatible: {} as {
+      base_url?: string;
+      api_key?: string;
+      api_key_env?: string;
+    },
+  };
 
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
@@ -103,9 +111,25 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   const runtime = { ...runtimeDefaults, ...(withInheritance.runtime ?? {}) };
   const workspace = { ...workspaceDefaults, ...(withInheritance.workspace ?? {}) };
+  const topProviderCfg = withInheritance.providers ?? {};
+  const providers = {
+    env: {
+      ...(topProviderCfg.env ?? {}),
+    },
+    env_from: {
+      ...(topProviderCfg.env_from ?? {}),
+    },
+    openai_compatible: {
+      ...(topProviderCfg.openai_compatible ?? {}),
+    },
+  };
 
   return {
     ...withInheritance,
+    providers: {
+      ...providersDefaults,
+      ...providers,
+    },
     runtime: {
       mode: runtime.mode,
       opencode: runtime.opencode,

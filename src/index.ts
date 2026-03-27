@@ -19,7 +19,7 @@ program.option("--lang <lang>", "Output language: en | zh-CN | fr | ja");
 
 program
   .command("start")
-  .argument("[configPath]", "team.yaml path", "team.yaml")
+  .argument("[configPath]", "team.json path", "team.json")
   .argument("<goal>", "project goal prompt")
   .option("--port <number>", "orchestrator HTTP port", "3100")
   .action(async (configPath: string, goal: string, options: { port: string }) => {
