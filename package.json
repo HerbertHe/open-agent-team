@@ -18,10 +18,10 @@
   "homepage": "https://github.com/herberthe/open-agent-team",
   "repository": {
     "type": "git",
-    "url": "https://github.com/herberthe/open-agent-team.git"
+    "url": "git+https://github.com/herberthe/open-agent-team.git"
   },
   "bin": {
-    "oat": "./dist/index.js"
+    "oat": "dist/index.js"
   },
   "scripts": {
     "build": "tsup",
