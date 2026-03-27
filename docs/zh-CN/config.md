@@ -1,7 +1,7 @@
 # team.json 配置说明（完整参数字典）
 
 `team.json` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader`（静态），并在 `Leader` 请求时动态创建 `Worker`（临时）。
-你可以使用项目根目录的 `schema.json` 对该文件做校验。
+你可以使用项目根目录的 `schema/v1.json` 对该文件做校验。
 
 同时，loader 会做两类“运行时补齐/解析”：
 

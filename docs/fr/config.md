@@ -1,7 +1,7 @@
 # Référence de configuration `team.json` (dictionnaire complet de paramètres)
 
 `team.json` est l'entrée de la configuration déclarative de votre équipe d'agents. Orchestrator lit et analyse ce fichier, démarre `Admin / Leader` statiques, puis crée dynamiquement des agents `Worker` lorsqu'ils sont demandés par `Leader`.
-Vous pouvez valider ce fichier avec le `schema.json` à la racine du projet.
+Vous pouvez valider ce fichier avec le `schema/v1.json` à la racine du projet.
 
 En parallèle, le loader effectue deux types de complétion/parsing à l'exécution :
 

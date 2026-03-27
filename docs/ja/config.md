@@ -1,7 +1,7 @@
 # team.json 設定リファレンス（完全なパラメータ辞書）
 
 `team.json` は宣言的に agent チーム設定を記述するための入口です。Orchestrator はこれを読み取り、解析し、静的な `Admin / Leader` を起動した上で、`Leader` の要求に応じて動的に `Worker` agent を作成します。
-このファイルはプロジェクトルートの `schema.json` で検証できます。
+このファイルはプロジェクトルートの `schema/v1.json` で検証できます。
 
 同時に loader は、実行時に次の2種類の「補完/解析」を行います：
 

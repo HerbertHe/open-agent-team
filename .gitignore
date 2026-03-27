@@ -12,7 +12,7 @@ yarn-error.log*
 
 # env files
 .env
-.env.* 
+.env.*
 
 # runtime / state (generated)
 .oat/
@@ -24,3 +24,4 @@ yarn-error.log*
 # misc
 .DS_Store
 
+__test__/
