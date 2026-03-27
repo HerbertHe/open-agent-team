@@ -1,0 +1,121 @@
+# team.yaml Configuration Reference (complete parameter dictionary)
+
+`team.yaml` is the entry point for declaring your agent team configuration. Orchestrator reads and parses it, starts static `Admin / Leader`, and dynamically creates `Worker` agents when requested by `Leader`.
+
+At the same time, the loader performs two kinds of runtime “completion/parsing”:
+
+- `prompt` fields accept either prompt text directly or a file path ending with `*.md` (loader reads the file and substitutes the content)
+- `model` fields accept aliases; aliases are resolved from the top-level `models` mapping (loader replaces them with real model ids)
+
+Below is a field-by-field dictionary (type / requiredness / default / purpose).
+
+## 1. Top-level configuration
+
+| Field | Required | Type | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `project` | Yes | object | - | Project metadata: used for logs/prompts, git base branch, and repository path |
+| `models` | Yes | record<string, string> | - | Model alias map (used by admin/leader/worker) |
+| `admin` | Yes | object | - | Admin agent definition: prompt, model, and skills |
+| `teams` | Yes | array | - | Each team contains one Leader and one Worker definition |
+| `runtime` | No | object | See tables below | Execution mode, base ports, and state directory |
+| `workspace` | No | object | See tables below | Workspace strategy, root dir, git lfs/sparse-checkout behavior |
+
+## 2. `project`
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `project.name` | Yes | string | - | Project name (used in prompts/logs) |
+| `project.repo` | Yes | string | - | Git repository path (used by workspace management and skill loading) |
+| `project.base_branch` | No | string | `"main"` | Branch target for `leader -> main` merge |
+
+## 3. `models` (model alias mapping)
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `models` | Yes | record<string, string> | - | Key is alias (e.g. `default`), value is real model id (e.g. `anthropic/...`) |
+
+Loader behavior:
+
+- If `admin.model / leader.model / worker.model` value exists as a key in `models`, it is replaced with the mapped value
+- Otherwise, the value is kept as-is
+
+## 4. `admin`
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `admin.name` | Yes | string | - | Admin agent name (written into workspace agent markdown meta) |
+| `admin.description` | Yes | string | - | Admin responsibility text (you fill it into `team.yaml`) |
+| `admin.model` | Yes | string | - | Model used by Admin (can be an alias) |
+| `admin.prompt` | Yes | string | - | Admin prompt (supports `*.md` file path) |
+| `admin.skills` | No | string[] | `[]` | Skills to inject into Admin workspace |
+
+## 5. `runtime`
+
+> `runtime` is optional; if it is not provided, the loader uses the defaults below.
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `runtime.mode` | No | enum (`local_process` \| `flue`) | `local_process` | Runtime mode (currently only implements `local_process`) |
+| `runtime.opencode.executable` | No | string | `"opencode"` | `opencode` executable name/path |
+| `runtime.ports.base` | No | number | `4096` | Base port for agent servers (Admin uses `base`, Leader uses `base + 1 + index`) |
+| `runtime.ports.max_agents` | No | number | `10` | The current code does not strictly enforce this (placeholder/preference) |
+| `runtime.persistence.state_dir` | No | string | `"~/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
+
+Home expansion:
+
+- `runtime.persistence.state_dir` supports `~` prefix; loader expands it to a real user home path
+
+## 6. `workspace`
+
+> `workspace` is optional; if it is not provided, the loader uses the defaults below.
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `workspace.provider` | No | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | Workspace strategy (only `worktree` implemented today) |
+| `workspace.root_dir` | No | string | `"~/.oat/workspaces"` | Root directory where workspaces are created |
+| `workspace.persistent` | No | boolean | `true` | Currently not implemented as differentiated behavior (placeholder) |
+| `workspace.git.remote` | No | string | `"origin"` | Placeholder: current code does not directly use remote name when creating worktrees |
+| `workspace.git.lfs` | No | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | For the `worktree` provider, run `git lfs pull` only when set to `pull` |
+| `workspace.sparse_checkout.enabled` | No | boolean | `true` | Enable sparse-checkout (requires `teams[].leader.repos` to set paths) |
+
+Home expansion:
+
+- `workspace.root_dir` supports `~` prefix; loader expands it to a real user home path
+
+## 7. `teams[]`
+
+Each team contains:
+
+- `team.name`: team identifier
+- `team.branch_prefix`: prefix used to build leader/worker branch names
+- `team.leader`: Leader agent definition (started statically)
+- `team.worker`: Worker agent definition (created dynamically during Leader runtime)
+
+### 7.1 team basic fields
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `teams[].name` | Yes | string | - | Team name (used for workspace/scope identifiers and agent naming) |
+| `teams[].branch_prefix` | Yes | string | - | Branch naming base used for worker/leader |
+
+### 7.2 `teams[].leader`
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `leader.name` | Yes | string | - | Leader’s name inside the team (used when constructing role/prompt context) |
+| `leader.description` | Yes | string | - | Leader responsibility text |
+| `leader.model` | Yes | string | - | Model used by Leader (can be an alias) |
+| `leader.prompt` | Yes | string | - | Leader prompt (supports `*.md` file path) |
+| `leader.skills` | No | string[] | `[]` | Skills shared with Workers (inherited and injected on spawn) |
+| `leader.repos` | No | string[] | `[]` | sparse-checkout allowlist paths (controls which paths worker workspaces can see) |
+
+### 7.3 `teams[].worker`
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `worker.max` | Yes | number(int, >0) | - | Intended max worker count. In the current code, worker count is effectively driven by `tasks.length` |
+| `worker.model` | Yes | string | - | Model used by Worker (can be an alias) |
+| `worker.prompt` | Yes | string | - | Worker prompt (supports `*.md` file path) |
+| `worker.extra_skills` | No | string[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |
+| `worker.lifecycle` | No | enum | `ephemeral_after_merge_to_main` | Intended cleanup strategy after merging into main (current cleanup logic always executes when the leader completes) |
+| `worker.skill_sync` | No | enum | `inherit_and_inject_on_spawn` | Intended skill sync strategy for dynamic spawn (current behavior is “inherit and inject”; `manual` is not fully implemented) |
