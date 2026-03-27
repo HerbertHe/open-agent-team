@@ -12,6 +12,7 @@ type MessageKey =
   | "orchestrator_json_not_found"
   | "orchestrator_pid_not_found"
   | "git_lfs_pull_failed"
+  | "git_repo_auto_initialized"
   | "worker_spawned"
   | "worker_merged_into_leader"
   | "docs_file_not_found";
@@ -24,6 +25,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     orchestrator_json_not_found: "orchestrator.json not found.",
     orchestrator_pid_not_found: "No pid found in orchestrator.json.",
     git_lfs_pull_failed: "git lfs pull failed. Continuing anyway.",
+    git_repo_auto_initialized:
+      "No Git repo at {repo}; initialized with an empty commit on branch {branch}.",
     worker_spawned: "Worker spawned.",
     worker_merged_into_leader: "Worker merged into leader.",
     docs_file_not_found: "Docs file not found: {file}",
@@ -35,6 +38,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     orchestrator_json_not_found: "未找到 orchestrator.json。",
     orchestrator_pid_not_found: "在 orchestrator.json 中未找到 pid。",
     git_lfs_pull_failed: "git lfs pull 失败，将继续运行。",
+    git_repo_auto_initialized: "路径 {repo} 未检测到 Git 仓库；已 git init 并完成分支 {branch} 上的空初始提交。",
     worker_spawned: "已生成 Worker。",
     worker_merged_into_leader: "Worker 已合并到 Leader。",
     docs_file_not_found: "未找到文档文件：{file}",
@@ -46,6 +50,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     orchestrator_json_not_found: "Fichier orchestrator.json introuvable.",
     orchestrator_pid_not_found: "Aucun pid trouvé dans orchestrator.json.",
     git_lfs_pull_failed: "git lfs pull a échoué. Continuer quand même.",
+    git_repo_auto_initialized:
+      "Aucun dépôt Git dans {repo} ; initialisation avec un commit vide sur la branche {branch}.",
     worker_spawned: "Worker démarré.",
     worker_merged_into_leader: "Worker fusionné dans le leader.",
     docs_file_not_found: "Fichier de documentation introuvable : {file}",
@@ -57,6 +63,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     orchestrator_json_not_found: "orchestrator.json が見つかりません。",
     orchestrator_pid_not_found: "orchestrator.json に pid が見つかりません。",
     git_lfs_pull_failed: "git lfs pull に失敗しました。それでも続行します。",
+    git_repo_auto_initialized:
+      "{repo} に Git リポジトリがありません。git init を実行し、ブランチ {branch} で空の初期コミットを作成しました。",
     worker_spawned: "Worker を起動しました。",
     worker_merged_into_leader: "Worker をリーダーにマージしました。",
     docs_file_not_found: "ドキュメントファイルが見つかりません: {file}",
