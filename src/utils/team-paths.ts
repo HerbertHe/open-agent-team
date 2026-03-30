@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { t } from "../i18n/i18n";
 
 /** 展开 ~/ 为家目录；其余原样返回。 */
 export function expandHomePath(input: string): string {
@@ -27,8 +28,8 @@ export async function resolveTeamJsonPath(teamJsonExplicit?: string): Promise<st
   } catch {
     throw new Error(
       fromEnv && !teamJsonExplicit
-        ? `team.json not found (OAT_TEAM_JSON): ${candidate}`
-        : `team.json not found: ${candidate} (cd to project dir or set OAT_TEAM_JSON)`
+        ? t("team_json_not_found_oat_env", { path: candidate })
+        : t("team_json_not_found", { path: candidate })
     );
   }
   return path.resolve(candidate);

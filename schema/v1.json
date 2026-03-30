@@ -261,10 +261,10 @@
           },
           "worker": {
             "type": "object",
-            "required": ["max", "prompt"],
+            "required": ["total", "prompt"],
             "additionalProperties": false,
             "properties": {
-              "max": {
+              "total": {
                 "type": "integer",
                 "minimum": 1
               },

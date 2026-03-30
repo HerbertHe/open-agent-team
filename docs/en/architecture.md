@@ -246,7 +246,7 @@ To avoid “documentation promises beyond implementation”, here are the curren
 
 - `runtime.mode`: currently only implements `local_process`; `flue` is not fully implemented
 - `workspace.provider`: currently only implements `worktree`; other strategies are not implemented yet
-- `team.worker.max`: worker count is determined by `Leader`’s `tasks.length` today; `worker.max` is not enforced as a hard runtime limit in the current version
-- `team.worker.lifecycle` / `team.worker.skill_sync`: although schema/loader define default values, the current dynamic worker creation/cleanup logic is not fully branched on these fields (today Orchestrator cleans up workers when a leader completes)
+- `team.worker.total`: worker pool size; workers are pre-created at team startup and stopped/deleted only when the orchestrator exits (`stopAll`)
+- `team.worker.lifecycle` / `team.worker.skill_sync`: although schema/loader define default values, the current implementation does not branch on these fields yet (leader completion no longer cleans up the worker pool)
 
-If you want these “configuration intents” to be enforced in code, I can help extend `TaskManager` to apply worker limits, lifecycle behavior, and skill_sync logic.
+If you want these “configuration intents” to be fully enforced in code, I can help extend `TaskManager` to apply `lifecycle` behavior and `skill_sync` logic.

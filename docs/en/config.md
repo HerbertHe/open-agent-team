@@ -139,7 +139,7 @@ Each team contains:
 
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `worker.max` | Yes | number(int, >0) | - | Intended max worker count. In the current code, worker count is effectively driven by `tasks.length` |
+| `worker.total` | Yes | number(int, >0) | - | Intended worker pool size. Workers are pre-created when starting a team and stopped only when the orchestrator exits (`stopAll`) |
 | `worker.model` | No | string | inherit from `leader.model` | Model used by Worker (can be an alias) |
 | `worker.prompt` | Yes | string | - | Worker prompt (supports `*.md` file path) |
 | `worker.extra_skills` | No | string[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |

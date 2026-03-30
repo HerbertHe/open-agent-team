@@ -66,7 +66,7 @@ skills/
         "repos": ["src/", "package.json"]
       },
       "worker": {
-        "max": 3,
+        "total": 3,
         "model": "default",
         "prompt": "You are a Worker engineer.",
         "extra_skills": []

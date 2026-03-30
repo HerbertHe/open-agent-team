@@ -88,21 +88,20 @@ oat docs guide --lang zh-CN
 
 1. Orchestrator 注入 skills/tools/plugins，并启动 `Admin` 与每个 `Leader`。
 2. `Leader` 调用工具 `request-workers`，提交 `tasks` 列表。
-3. Orchestrator 为每个 task 生成 1 个 `Worker`：
-   - 创建/确保 git worktree workspace
-   - 注入 leader skills + `worker.extra_skills`
-   - 启动 `opencode serve` 并发送任务 prompt
+3. Orchestrator 将任务发送到已预先创建好的 `Worker` 池（size = `teams[].worker.total`）：
+   - 连接到目标 worker
+   - 发送任务 prompt
 4. `Worker` 必须：
    - 更新 workspace 根目录的 `CHANGELOG.md`
    - 调用 `notify-complete` 并传递准备好的 `CHANGELOG.md`
 5. Orchestrator 执行 `Worker -> Leader` 合并，要求 `Leader` 汇总，然后执行 `Leader -> project.base_branch` 合并。
-6. Orchestrator 清理 leader 与其 workers（进程 + workspace）。
+6. Orchestrator 会保持 worker 池直到 shutdown；只有编排器退出时的 `stopAll` 才会停止/销毁进程。
 
 ## 当前实现要点（与代码对齐）
 
 - Runtime mode：实现了 `local_process`（Orchestrator 会启动多个 `opencode serve` 进程并分配不同端口）。
 - Workspaces：实现了 `worktree` provider；其它 providers 为占位。
-- `teams[].worker.max` 的“意图”与生命周期字段在动态 worker 逻辑中当前并未作为严格运行时限制来执行（leader 完成后会清理 workers）。
+- `teams[].worker.total` 的 worker 池规模会在启动 team 时被预先创建并生效；leader 完成后不会清理 worker 池（仅在 orchestrator 退出时销毁）。
 
 ## LICENSE
 

@@ -2,7 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AgentRoleEnum } from "../types";
 
-export type ToolNames = "request_workers" | "notify_complete" | "report_progress" | "generate_changelog";
+export type ToolNames =
+  | "request_workers"
+  | "register_workers"
+  | "dispatch_worker_tasks"
+  | "assign_leader_task"
+  | "notify_complete"
+  | "report_progress"
+  | "generate_changelog";
 
 function normalizeJson(v: unknown): string {
   return JSON.stringify(v, null, 2);
@@ -49,6 +56,14 @@ export async function writeAgentMarkdown(args: {
     `  write: ${toolsAllowed.write ? "true" : "false"}`,
     `  edit: ${toolsAllowed.edit ? "true" : "false"}`,
     `  bash: ${toolsAllowed.bash ? "true" : "false"}`,
+    // Enable custom orchestrator tools so the model can call them.
+    `  request-workers: true`,
+    `  register-workers: true`,
+    `  dispatch-worker-tasks: true`,
+    `  assign-leader-task: true`,
+    `  notify-complete: true`,
+    `  report-progress: true`,
+    `  generate-changelog: true`,
     "---",
   ].join("\n");
 
@@ -62,7 +77,9 @@ export async function writeAgentMarkdown(args: {
       "\n\n## System constraint: CHANGELOG.md (Worker must follow)",
       "- Create or update `CHANGELOG.md` at the workspace root.",
       "- Clearly describe what you did, which key files/modules were involved, and a brief conclusion.",
-      "- After finishing, call tool `notify-complete` and set the `changelog` argument to the CHANGELOG content you prepared (copy the text directly).",
+      "- After finishing, MUST call tool `notify-complete` exactly once.",
+      `- You MUST provide required args: { "agentRole": "worker", "agentId": "${args.agentName}" } (you may omit \`changelog\`).`,
+      "- You may omit the `changelog` argument: orchestrator will read `CHANGELOG.md` from the workspace automatically.",
       "- If there were no code changes, you must still record the reason/analysis in `CHANGELOG.md`.",
     ].join("\n");
   })();
@@ -88,14 +105,61 @@ async function getOrchestratorBaseUrl(context: any): Promise<string> {
 }
 `;
 
-  const requestWorkers = `
+  const registerWorkers = `
 export default tool({
-  description: "Request new worker agents and dispatch tasks to them.",
+  description: "Register N worker agents (spawn runtimes) without assigning tasks yet. Call dispatch-worker-tasks next.",
+  args: {
+    leaderId: tool.schema.string().optional().describe("The caller leader agent id (optional; will fallback to context.agent)"),
+    count: tool.schema.number().int().min(1).describe("How many workers to register (indices 0 .. count-1)")
+  },
+  async execute(args, context) {
+    const baseUrl = await getOrchestratorBaseUrl(context);
+    const leaderId = args.leaderId ?? context?.agent ?? "";
+    const res = await fetch(\`\${baseUrl}/tool/register_workers\`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leaderId, count: args.count })
+    });
+    if (!res.ok) throw new Error(\`register_workers failed: \${res.status}\`);
+    return await res.json();
+  }
+});
+`;
+
+  const dispatchWorkerTasks = `
+export default tool({
+  description: "Dispatch task prompts to already-registered workers (after register-workers).",
   args: {
     leaderId: tool.schema.string().optional().describe("The caller leader agent id (optional; will fallback to context.agent)"),
     tasks: tool.schema.array(
       tool.schema.object({
-        index: tool.schema.number().int().describe("Worker index (0-based)"),
+        index: tool.schema.number().int().optional().describe("Worker index (0-based); defaults to task order"),
+        prompt: tool.schema.string().describe("Task prompt for this worker")
+      })
+    ).describe("Tasks to assign to workers")
+  },
+  async execute(args, context) {
+    const baseUrl = await getOrchestratorBaseUrl(context);
+    const leaderId = args.leaderId ?? context?.agent ?? "";
+    const res = await fetch(\`\${baseUrl}/tool/dispatch_worker_tasks\`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leaderId, tasks: args.tasks ?? [] })
+    });
+    if (!res.ok) throw new Error(\`dispatch_worker_tasks failed: \${res.status}\`);
+    return await res.json();
+  }
+});
+`;
+
+  const requestWorkers = `
+export default tool({
+  description: "Shortcut: register workers and dispatch tasks in one call. Prefer register-workers then dispatch-worker-tasks for two-phase flow.",
+  args: {
+    leaderId: tool.schema.string().optional().describe("The caller leader agent id (optional; will fallback to context.agent)"),
+    tasks: tool.schema.array(
+      tool.schema.object({
+        index: tool.schema.number().int().optional().describe("Worker index (0-based)"),
         prompt: tool.schema.string().describe("Worker prompt for this task")
       })
     ).describe("Worker tasks to run")
@@ -109,6 +173,26 @@ export default tool({
       body: JSON.stringify({ ...args, leaderId })
     });
     if (!res.ok) throw new Error(\`request_workers failed: \${res.status}\`);
+    return await res.json();
+  }
+});
+`;
+
+  const assignLeaderTask = `
+export default tool({
+  description: "Assign a task prompt to a specific leader. Admin uses this to decide which leader should handle the work.",
+  args: {
+    leaderId: tool.schema.string().describe("Target leader agent id"),
+    prompt: tool.schema.string().describe("Task prompt to send to the leader (orchestration instruction)")
+  },
+  async execute(args, context) {
+    const baseUrl = await getOrchestratorBaseUrl(context);
+    const res = await fetch(\`\${baseUrl}/tool/assign_leader_task\`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ leaderId: args.leaderId, prompt: args.prompt })
+    });
+    if (!res.ok) throw new Error(\`assign_leader_task failed: \${res.status}\`);
     return await res.json();
   }
 });
@@ -176,6 +260,21 @@ export default tool({
 `;
 
   // Important：OpenCode tool name is based on filename.
+  await fs.writeFile(
+    path.join(toolsDir, "register-workers.ts"),
+    `${commonHeader}\n${orchestratorFetch}\n${registerWorkers}`,
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(toolsDir, "dispatch-worker-tasks.ts"),
+    `${commonHeader}\n${orchestratorFetch}\n${dispatchWorkerTasks}`,
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(toolsDir, "assign-leader-task.ts"),
+    `${commonHeader}\n${orchestratorFetch}\n${assignLeaderTask}`,
+    "utf8"
+  );
   await fs.writeFile(
     path.join(toolsDir, "request-workers.ts"),
     `${commonHeader}\n${orchestratorFetch}\n${requestWorkers}`,

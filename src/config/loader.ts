@@ -9,6 +9,7 @@ import {
   WorkerSkillSyncEnum,
 } from "../types";
 import type { ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
+import { t } from "../i18n/i18n";
 
 function normalizeTeam(team: TeamConfig): TeamConfig {
   return {
@@ -50,9 +51,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   const resolveInheritedModel = (candidate: string | undefined, fallback: string | undefined, fieldPath: string): string => {
     const picked = candidate ?? fallback;
     if (!picked) {
-      throw new Error(
-        `missing model for ${fieldPath}. Please set it explicitly, or provide a parent model (team.worker.model -> team.leader.model -> admin.model -> model).`
-      );
+      throw new Error(t("model_inheritance_missing", { fieldPath }));
     }
     return resolveModelAlias(picked);
   };

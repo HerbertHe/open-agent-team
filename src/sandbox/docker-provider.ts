@@ -1,9 +1,10 @@
 import type { AgentInstanceSpec } from "../types";
 import type { RuntimeHandle, RuntimeProvider } from "./interface";
+import { t } from "../i18n/i18n";
 
 export class DockerProvider implements RuntimeProvider {
   async start(_spec: AgentInstanceSpec): Promise<RuntimeHandle> {
-    throw new Error("DockerProvider 暂未启用。当前推荐 local_process 运行时。");
+    throw new Error(t("provider_docker_disabled"));
   }
   async stop(_agentId: string): Promise<void> {
     return;

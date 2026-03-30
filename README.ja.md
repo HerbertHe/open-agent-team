@@ -87,21 +87,20 @@ oat docs guide --lang ja
 
 1. Orchestrator はスキル/ツール/プラグインを注入し、`Admin` と各 `Leader` を起動します。
 2. `Leader` は `tasks` のリストを含めて `request-workers` ツールを呼び出します。
-3. Orchestrator は task ごとに 1 つの `Worker` を起動します：
-   - git worktree workspace を作成/確保
-   - leader skills + `worker.extra_skills` を注入
-   - `opencode serve` を起動して task prompt を送信
+3. Orchestrator は、あらかじめ作成された `Worker` プール（size = `teams[].worker.total`）にタスクを送信します：
+   - 対象 worker に接続
+   - タスク prompt を送信
 4. `Worker` は：
    - workspace ルートの `CHANGELOG.md` を更新
    - `notify-complete` を呼び、用意した `CHANGELOG.md` を渡す
 5. Orchestrator は `Worker -> Leader` をマージし、`Leader` に要約させた後 `Leader -> project.base_branch` をマージします。
-6. Orchestrator は leader とその workers（プロセス + workspace）をクリーンアップします。
+6. Orchestrator は worker プールを shutdown まで保持します。オーケストレーター終了時の `stopAll` のみがプロセスを停止/破棄します。
 
 ## 現在の実装要点（コードに合わせて）
 
 - runtime mode：`local_process` が実装済み（異なるポートで複数の `opencode serve` を起動）
 - workspaces：`worktree` provider が実装済み。他 provider は placeholder です。
-- `teams[].worker.max` の意図や lifecycle フィールドは、動的 worker のロジック内で現時点では厳密な実行時制限として適用されません（leader が完了すると worker をクリーンアップします）。
+- `teams[].worker.total` の worker プールサイズは起動時の事前作成で反映されます。leader 完了後も worker はクリーンアップされず、オーケストレーター終了時にのみ破棄されます。
 
 ## LICENSE
 

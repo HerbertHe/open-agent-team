@@ -59,7 +59,7 @@ program
     const cfg = await loadConfig(abs);
     const stateDir = cfg.runtime.persistence.state_dir;
     await ensureDir(stateDir);
-    logger.info("startup context", {
+    logger.info(t("log_startup_context"), {
       configPath: abs,
       projectRepo: cfg.project.repo,
       baseBranch: cfg.project.base_branch,
@@ -70,14 +70,27 @@ program
     });
     const link = await ensureHomeProjectLink(abs, cfg.project.name);
     if (link.ok) {
-      logger.info("home project link", { linkPath: link.linkPath, target: link.target });
+      logger.info(t("log_home_project_link"), { linkPath: link.linkPath, target: link.target });
     } else {
-      logger.warn("home project link skipped", { reason: link.reason });
+      logger.warn(t("log_home_project_link_skipped"), { reason: link.reason });
     }
 
-    const orch = new Orchestrator(cfg, { goal, port: Number(options.port) });
+    const port = Number(options.port);
+    const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const dashboardDist = path.join(packageRoot, "dashboard", "dist");
+    const dashboardIndex = path.join(dashboardDist, "index.html");
+    const hasDashboard = await fileExists(dashboardIndex);
+    if (!hasDashboard) {
+      logger.warn(t("dashboard_dist_missing", { path: dashboardDist }));
+    }
+    const orch = new Orchestrator(cfg, {
+      goal,
+      port,
+      dashboardDist: hasDashboard ? dashboardDist : undefined,
+    });
     await orch.start();
     logger.success(t("orchestrator_started"));
+    logger.info(t("start_observability_hint", { port }));
   });
 
 program
@@ -95,7 +108,7 @@ program
     const p = path.join(dir, "orchestrator.json");
     try {
       const raw = await fs.readFile(p, "utf8");
-      logger.info("orchestrator.json", JSON.parse(raw));
+      logger.info(t("log_orchestrator_json"), JSON.parse(raw));
     } catch {
       logger.warn(t("orchestrator_json_not_found"), { path: p });
     }
@@ -149,15 +162,14 @@ program
       try {
         const raw = await fs.readFile(orchFile, "utf8");
         const orch = JSON.parse(raw);
-        logger.info("orchestrator", {
+        logger.info(t("log_orchestrator_state"), {
           stateFile: orchFile,
           pid: orch?.pid,
           port: orch?.orchestratorPort,
           startedAt: orch?.startedAt,
         });
       } catch (e) {
-        logger.warn("orchestrator state parse failed", {
-          stateFile: orchFile,
+        logger.warn(t("orchestrator_state_parse_failed", { stateFile: orchFile }), {
           error: e instanceof Error ? e.message : String(e),
         });
       }
@@ -166,7 +178,7 @@ program
     }
 
     if (!(await fileExists(resolvedWorkspaceRoot))) {
-      logger.warn("workspace root not found", { workspaceRoot: resolvedWorkspaceRoot });
+      logger.warn(t("workspace_root_not_found", { workspaceRoot: resolvedWorkspaceRoot }));
       return;
     }
 
@@ -197,7 +209,7 @@ program
     });
 
     const shown = inspections.slice(0, limit);
-    logger.info("workspace inspection", {
+    logger.info(t("workspace_inspection"), {
       workspaceRoot: resolvedWorkspaceRoot,
       totalAgents: inspections.length,
       shownAgents: shown.length,

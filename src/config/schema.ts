@@ -18,7 +18,7 @@ export const TeamSchema = z.object({
     repos: z.array(z.string().min(1)).default([]),
   }),
   worker: z.object({
-    max: z.number().int().positive(),
+    total: z.number().int().positive(),
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     extra_skills: z.array(z.string().min(1)).default([]),

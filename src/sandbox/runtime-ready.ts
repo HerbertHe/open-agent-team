@@ -1,4 +1,5 @@
 import type { RuntimeProvider } from "./interface";
+import { t } from "../i18n/i18n";
 
 /**
  * 轮询 {@link RuntimeProvider.health}，直到 opencode HTTP 可访问或超时。
@@ -16,7 +17,5 @@ export async function waitForRuntimeReady(
     if (await provider.health(port)) return;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  throw new Error(
-    `Timed out waiting for opencode HTTP on 127.0.0.1:${port} (${timeoutMs}ms). The process may have exited; ensure "opencode serve" runs and check workspace logs.`
-  );
+  throw new Error(t("runtime_ready_timeout", { port, timeoutMs }));
 }

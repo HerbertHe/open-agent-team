@@ -63,7 +63,7 @@
         ]
       },
       "worker": {
-        "max": 3,
+        "total": 3,
         "prompt": "You are a Worker engineer.\nImplement assigned tasks, update CHANGELOG.md at workspace root,\nthen call notify-complete with changelog content.",
         "extra_skills": [],
         "lifecycle": "ephemeral_after_merge_to_main",

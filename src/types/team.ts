@@ -24,8 +24,8 @@ export interface TeamConfigLeader {
  * Worker 负责具体实现，并在完成后生成/更新 CHANGELOG.md 并提交合并。
  */
 export interface TeamConfigWorker {
-  /** 允许同时创建/运行的 Worker 最大数量 */
-  max: number;
+  /** 需要在启动时一次性创建的 Worker 数量 */
+  total: number;
   /** Worker 使用的模型（可选；不填时继承 leader.model） */
   model?: string;
   /** Worker 的角色提示词，用于指导执行和回报方式 */

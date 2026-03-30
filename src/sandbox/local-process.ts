@@ -1,11 +1,41 @@
 import { spawn } from "node:child_process";
+import type { Readable } from "node:stream";
 import type { AgentInstanceSpec } from "../types";
 import type { RuntimeHandle, RuntimeProvider } from "./interface";
+
+export type ProcessLogLine = { agentId: string; line: string; stream: "stdout" | "stderr" };
+
+function attachLineStream(
+  stream: Readable | null,
+  streamName: "stdout" | "stderr",
+  agentId: string,
+  onLine: (info: ProcessLogLine) => void
+): void {
+  if (!stream) return;
+  let buf = "";
+  stream.on("data", (chunk: Buffer | string) => {
+    buf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    const parts = buf.split("\n");
+    buf = parts.pop() ?? "";
+    for (const line of parts) {
+      onLine({ agentId, line, stream: streamName });
+    }
+  });
+  stream.on("end", () => {
+    if (buf.trim()) {
+      onLine({ agentId, line: buf, stream: streamName });
+    }
+  });
+}
 
 export class LocalProcessProvider implements RuntimeProvider {
   private readonly handles = new Map<string, { handle: RuntimeHandle; kill: () => void }>();
 
-  constructor(private readonly executable: string, private readonly injectedEnv: Record<string, string> = {}) {}
+  constructor(
+    private readonly executable: string,
+    private readonly injectedEnv: Record<string, string> = {},
+    private readonly onProcessLog?: (info: ProcessLogLine) => void
+  ) {}
 
   async start(spec: AgentInstanceSpec): Promise<RuntimeHandle> {
     const child = spawn(
@@ -13,11 +43,29 @@ export class LocalProcessProvider implements RuntimeProvider {
       ["serve", "--port", String(spec.port), "--hostname", "127.0.0.1"],
       {
         cwd: spec.workspacePath,
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
         detached: false,
         env: { ...process.env, ...this.injectedEnv },
       }
     );
+    if (this.onProcessLog) {
+      attachLineStream(child.stdout, "stdout", spec.id, this.onProcessLog);
+      attachLineStream(child.stderr, "stderr", spec.id, this.onProcessLog);
+    }
+    child.on("error", (err: Error) => {
+      this.onProcessLog?.({
+        agentId: spec.id,
+        line: `spawn error: ${err.message}`,
+        stream: "stderr",
+      });
+    });
+    child.on("exit", (code, signal) => {
+      this.onProcessLog?.({
+        agentId: spec.id,
+        line: `process exited: code=${code ?? "null"} signal=${signal ?? "null"}`,
+        stream: "stderr",
+      });
+    });
     const handle: RuntimeHandle = { agentId: spec.id, port: spec.port, pid: child.pid };
     this.handles.set(spec.id, {
       handle,

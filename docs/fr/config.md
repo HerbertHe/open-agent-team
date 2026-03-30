@@ -139,7 +139,7 @@ Chaque équipe contient :
 
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
-| `worker.max` | Oui | number(int, >0) | - | Nombre maximal de workers attendu. Dans le code actuel, le nombre est surtout piloté par `tasks.length` |
+| `worker.total` | Oui | number(int, >0) | - | Taille du pool de workers. Workers pré-créés au démarrage de l'équipe et arrêt uniquement à la sortie de l'orchestrateur (`stopAll`) |
 | `worker.model` | Non | string | hérite de `leader.model` | Modèle utilisé par les workers (peut être un alias) |
 | `worker.prompt` | Oui | string | - | Prompt du worker (accepte un chemin `*.md`) |
 | `worker.extra_skills` | Non | string[] | `[]` | Skills additionnelles ajoutées au moment du spawn, au-dessus de `leader.skills` |

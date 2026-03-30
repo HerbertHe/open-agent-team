@@ -87,21 +87,20 @@ oat docs guide --lang en
 
 1. Orchestrator injects skills/tools/plugins and starts `Admin` and each `Leader`.
 2. A `Leader` calls the tool `request-workers` with a list of `tasks`.
-3. Orchestrator spawns one `Worker` per task:
-   - creates/ensures a git worktree workspace
-   - injects leader skills + `worker.extra_skills`
-   - starts `opencode serve` and sends the task prompt
+3. Orchestrator dispatches tasks to an already pre-created `Worker` pool (size = `teams[].worker.total`):
+   - connects to the target worker
+   - sends the task prompt
 4. A `Worker` must:
    - update `CHANGELOG.md` at the workspace root
    - call `notify-complete` with the prepared `CHANGELOG.md` content
 5. Orchestrator merges `Worker -> Leader`, asks `Leader` to summarize, then merges `Leader -> project.base_branch`.
-6. Orchestrator cleans up the leader and its workers (processes + workspaces).
+6. Orchestrator keeps the worker pool until shutdown; only `stopAll` on orchestrator exit stops/destroys processes.
 
 ## Current implementation notes (aligned with code)
 
 - Runtime mode: `local_process` is implemented (Orchestrator starts multiple `opencode serve` processes on different ports).
 - Workspaces: `worktree` provider is implemented; other providers are placeholders.
-- Worker count intent (`teams[].worker.max`) and lifecycle fields are currently not enforced as strict runtime limits in the dynamic worker logic (workers are cleaned up after a leader completes).
+- Worker pool size intent (`teams[].worker.total`) is enforced by pre-spawning workers at team startup; workers are not cleaned up after a leader completes (only on orchestrator shutdown).
 
 ## LICENSE
 

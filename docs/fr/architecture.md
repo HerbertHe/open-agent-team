@@ -246,7 +246,7 @@ Pour éviter des promesses qui dépassent l'implémentation, voici les limites a
 
 - `runtime.mode` : seule `local_process` est pleinement implémentée ; `flue` n'est pas déployé
 - `workspace.provider` : seule `worktree` est implémentée ; autres stratégies non implémentées
-- `team.worker.max` : le nombre de workers dépend de `tasks.length` envoyé par `Leader` ; `worker.max` n'est pas appliqué comme une limite stricte
-- `team.worker.lifecycle` / `team.worker.skill_sync` : valeurs par défaut existent, mais la logique de création/nettoyage des workers ne se branche pas encore correctement sur ces champs
+- `team.worker.total` : taille du pool de workers ; workers pré-créés au démarrage de l'équipe et arrêt/suppression uniquement à la sortie de l'orchestrateur (`stopAll`)
+- `team.worker.lifecycle` / `team.worker.skill_sync` : valeurs par défaut existent, mais l'implémentation actuelle ne branche pas encore correctement sur ces champs (la fin du leader ne nettoie plus le pool worker)
 
-Si vous voulez que ces intentions de config soient réellement appliquées côté code, je peux aider à étendre `TaskManager` pour gérer les limites, le lifecycle, et la logique `skill_sync`.
+Si vous voulez que ces intentions de config soient appliquées pleinement côté code, je peux aider à étendre `TaskManager` pour gérer le `lifecycle` et la logique `skill_sync`.

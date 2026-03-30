@@ -87,21 +87,20 @@ oat docs guide --lang fr
 
 1. L'Orchestrateur injecte les skills/outils/plugins et démarre `Admin` ainsi que chaque `Leader`.
 2. Un `Leader` appelle l'outil `request-workers` avec une liste de `tasks`.
-3. L'Orchestrateur démarre un `Worker` par task :
-   - crée/assure un workspace git worktree
-   - injecte les skills du leader + `worker.extra_skills`
-   - lance `opencode serve` et envoie le prompt de la tâche
+3. L'Orchestrateur envoie les tâches à un pool de `Worker` déjà pré-créé (taille = `teams[].worker.total`) :
+   - se connecte au worker ciblé
+   - envoie le prompt de la tâche
 4. Un `Worker` doit :
    - mettre à jour `CHANGELOG.md` à la racine du workspace
    - appeler `notify-complete` avec le contenu préparé de `CHANGELOG.md`
 5. L'Orchestrateur fusionne `Worker -> Leader`, demande au `Leader` de résumer, puis fusionne `Leader -> project.base_branch`.
-6. L'Orchestrateur nettoie le leader et ses workers (processus + workspaces).
+6. L'Orchestrateur conserve le pool de workers jusqu'au shutdown ; seul `stopAll` à la sortie de l'orchestrateur arrête/détruit les processus.
 
 ## Notes actuelles (alignées avec le code)
 
 - Runtime mode : `local_process` est implémenté (démarrage de plusieurs `opencode serve` sur des ports différents).
 - Workspaces : le provider `worktree` est implémenté ; les autres providers sont des placeholders.
-- Les intentions de `teams[].worker.max` et les champs lifecycle ne sont pas (encore) appliqués comme limites strictes dans la logique de worker dynamique (les workers sont nettoyés après la fin d'un leader).
+- La taille du pool de workers (`teams[].worker.total`) est appliquée via un pré-démarrage au lancement de l'équipe ; les workers ne sont pas nettoyés après la fin d'un leader (uniquement à la sortie de l'orchestrateur).
 
 ## LICENSE
 

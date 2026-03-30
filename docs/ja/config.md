@@ -139,7 +139,7 @@ loader の挙動：
 
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
-| `worker.max` | はい | number(int, >0) | - | 期待される最大 worker 数。現状は `tasks.length` によって実質的に決まります |
+| `worker.total` | はい | number(int, >0) | - | 期待される worker プール数。team 起動時に事前作成し、停止は orchestrator 終了時 (`stopAll`) |
 | `worker.model` | いいえ | string | `leader.model` を継承 | Worker が使う model（alias でも可） |
 | `worker.prompt` | はい | string | - | worker の prompt（`*.md` ファイルパスも可） |
 | `worker.extra_skills` | いいえ | string[] | `[]` | spawn 時に leader.skills の上に追加される skills |

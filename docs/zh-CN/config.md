@@ -141,9 +141,9 @@ home 展开：
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
-| `worker.max` | 是 | number(int, >0) | - | 配置意图：期望的最大 worker 数（当前版本未在代码中硬性限制；worker 数由 `tasks.length` 决定） |
+| `worker.total` | 是 | number(int, >0) | - | 配置意图：启动 team 时预先创建并常驻的 worker 数量（仅在 orchestrator 退出时统一 stopAll 销毁） |
 | `worker.model` | 否 | string | 继承 `leader.model` | Worker 使用的模型（可为别名） |
 | `worker.prompt` | 是 | string | - | Worker prompt（支持 `*.md` 文件路径形式） |
 | `worker.extra_skills` | 否 | string[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后注入） |
-| `worker.lifecycle` | 否 | enum | `ephemeral_after_merge_to_main` | 配置意图：merge main 后是否回收（当前版本回收逻辑始终执行，未按该字段分支） |
+| `worker.lifecycle` | 否 | enum | `ephemeral_after_merge_to_main` | 配置意图：当前实现中 worker 池在 orchestrator 退出前不回收（生命周期字段未用于提前清理） |
 | `worker.skill_sync` | 否 | enum | `inherit_and_inject_on_spawn` | 配置意图：动态 spawn 时 skill 注入策略（当前版本实际行为是“继承并注入”，未实现手动模式分支） |
