@@ -28,7 +28,7 @@ Référence détaillée : `oat docs config --lang fr`.
 
 Par défaut, chaque agent s'exécute dans un workspace isolé créé via `git worktree`, sous :
 
-- `workspace.root_dir` (par défaut : `~/.oat/workspaces`)
+- `workspace.root_dir` (par défaut : `<répertoire de team.json>/workspaces`)
 
 Pour les dépôts volumineux, vous pouvez activer sparse-checkout ; les chemins de sparse-checkout côté worker viennent de `teams[].leader.repos`.
 
@@ -36,7 +36,7 @@ Pour les dépôts volumineux, vous pouvez activer sparse-checkout ; les chemins 
 
 Les skills suivent la convention OpenCode `SKILL.md` :
 
-- Source : `skills/<skill-name>/SKILL.md` à la racine du dépôt (`project.repo`)
+- Source : `skills/<skill-name>/SKILL.md` à la racine du dépôt (`project.repo` ; s'il est relatif, il est résolu depuis le répertoire de `team.json`)
 - Injecté dans chaque workspace à : `.opencode/skills/<skill-name>/SKILL.md`
 
 ### Collaboration basée sur `CHANGELOG.md`
@@ -50,7 +50,7 @@ Lorsqu'un `Worker` est créé, l'Orchestrateur injecte une contrainte système d
 
 ### 1) Préparer les skills
 
-Dans la racine de votre dépôt git, créez :
+Dans la racine du dépôt résolue depuis `project.repo`, créez :
 
 `skills/<skill-name>/SKILL.md`
 
@@ -76,8 +76,8 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 ### 4) Commandes utiles
 
 ```bash
-oat status "~/.oat/state"
-oat stop "~/.oat/state"
+oat status
+oat stop
 oat docs architecture --lang fr
 oat docs config --lang fr
 oat docs guide --lang fr

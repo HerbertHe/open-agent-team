@@ -33,6 +33,18 @@ export class LocalProcessProvider implements RuntimeProvider {
     this.handles.delete(agentId);
   }
 
+  /** 仅终止本 Provider 实例通过 {@link start} 注册的子进程，不会按名称扫描或结束其它 opencode 进程。 */
+  async stopAll(): Promise<void> {
+    for (const { kill } of this.handles.values()) {
+      try {
+        kill();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.handles.clear();
+  }
+
   async health(port: number): Promise<boolean> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);

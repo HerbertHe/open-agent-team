@@ -29,7 +29,7 @@
 
 默认情况下，每个 agent 会在隔离的 workspace 中运行，workspace 创建于：
 
-- `workspace.root_dir`（默认：`~/.oat/workspaces`）
+- `workspace.root_dir`（默认：`<team.json目录>/workspaces`）
 
 对于较大的仓库，可启用 sparse-checkout；worker 的 sparse-checkout 路径来自 `teams[].leader.repos`。
 
@@ -37,7 +37,7 @@
 
 skills 遵循 OpenCode 的 `SKILL.md` 约定：
 
-- 源文件：仓库根目录下 `skills/<skill-name>/SKILL.md`（对应 `project.repo`）
+- 源文件：仓库根目录下 `skills/<skill-name>/SKILL.md`（对应 `project.repo`；若为相对路径则按 `team.json` 所在目录解析）
 - 注入到每个 agent workspace：`.opencode/skills/<skill-name>/SKILL.md`
 
 ### 基于 CHANGELOG 的协作
@@ -51,7 +51,7 @@ skills 遵循 OpenCode 的 `SKILL.md` 约定：
 
 ### 1) 准备 skills
 
-在你的 git 仓库根目录创建：
+在 `project.repo` 解析出的仓库根目录创建：
 
 `skills/<skill-name>/SKILL.md`
 
@@ -77,8 +77,8 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 ### 4) 常用命令
 
 ```bash
-oat status "~/.oat/state"
-oat stop "~/.oat/state"
+oat status
+oat stop
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 oat docs guide --lang zh-CN

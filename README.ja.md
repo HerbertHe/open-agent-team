@@ -28,7 +28,7 @@
 
 デフォルトでは各 agent は `git worktree` を使って隔離された workspace 上で動作し、作成先は：
 
-- `workspace.root_dir`（デフォルト：`~/.oat/workspaces`）
+- `workspace.root_dir`（デフォルト：`<team.json のディレクトリ>/workspaces`）
 
 大規模リポジトリでは sparse-checkout を有効にできます。worker 側の sparse-checkout paths は `teams[].leader.repos` から取得します。
 
@@ -36,7 +36,7 @@
 
 スキルは OpenCode の `SKILL.md` 規約に従います：
 
-- 元データ：リポジトリルート（`project.repo`）配下の `skills/<skill-name>/SKILL.md`
+- 元データ：リポジトリルート（`project.repo`。相対パスの場合は `team.json` のディレクトリ基準で解決）配下の `skills/<skill-name>/SKILL.md`
 - 各 workspace への注入先：`.opencode/skills/<skill-name>/SKILL.md`
 
 ### CHANGELOG に基づく協業
@@ -50,7 +50,7 @@
 
 ### 1) skills を準備
 
-git リポジトリのルートで次を作成します：
+`project.repo` から解決されるリポジトリルートで次を作成します：
 
 `skills/<skill-name>/SKILL.md`
 
@@ -76,8 +76,8 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 ### 4) よく使うコマンド
 
 ```bash
-oat status "~/.oat/state"
-oat stop "~/.oat/state"
+oat status
+oat stop
 oat docs architecture --lang ja
 oat docs config --lang ja
 oat docs guide --lang ja

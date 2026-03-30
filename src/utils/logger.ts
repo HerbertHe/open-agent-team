@@ -13,15 +13,15 @@ export class Logger {
   }
 
   warn(msg: string, extra?: Record<string, unknown>): void {
-    console.warn(chalk.hex("#FF9800")(`[WARN] ${msg}`) + formatExtra(extra));
+    console.warn(`${chalk.hex("#FF9800")("[WARN]")} ${msg}` + formatExtra(extra));
   }
 
   error(msg: string, extra?: Record<string, unknown>): void {
-    console.error(chalk.red(`[ERROR] ${msg}`) + formatExtra(extra));
+    console.error(`${chalk.red("[ERROR]")} ${msg}` + formatExtra(extra));
   }
 
   success(msg: string, extra?: Record<string, unknown>): void {
-    console.log(chalk.green(`[SUCCESS] ${msg}`) + formatExtra(extra));
+    console.log(`${chalk.green("[SUCCESS]")} ${msg}` + formatExtra(extra));
   }
 }
 

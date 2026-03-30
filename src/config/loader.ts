@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { TeamFileSchema } from "./schema";
+import { resolvePathFromTeamRoot } from "../utils/team-paths";
 import {
   RuntimeModeEnum,
   WorkspaceProviderTypeEnum,
@@ -9,11 +9,6 @@ import {
   WorkerSkillSyncEnum,
 } from "../types";
 import type { ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
-
-function expandHome(p: string): string {
-  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
-  return p;
-}
 
 function normalizeTeam(team: TeamConfig): TeamConfig {
   return {
@@ -28,8 +23,9 @@ function normalizeTeam(team: TeamConfig): TeamConfig {
 }
 
 export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
-  const raw = await fs.readFile(configPath, "utf8");
-  const baseDir = path.dirname(configPath);
+  const configPathAbs = path.resolve(configPath);
+  const raw = await fs.readFile(configPathAbs, "utf8");
+  const baseDir = path.dirname(configPathAbs);
   const parsedJson = JSON.parse(raw) as TeamFileConfig;
   const validated = TeamFileSchema.parse(parsedJson);
 
@@ -89,7 +85,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     mode: RuntimeModeEnum.LocalProcess,
     opencode: { executable: "opencode" },
     ports: { base: 8848, max_agents: 10 },
-    persistence: { state_dir: "~/.oat/state" },
+    persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
   const providersDefaults = {
     env: {} as Record<string, string>,
@@ -103,7 +99,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
-    root_dir: "~/.oat/workspaces",
+    root_dir: path.join(baseDir, "workspaces"),
     persistent: true,
     git: { remote: "origin", lfs: "pull" as const },
     sparse_checkout: { enabled: true },
@@ -126,6 +122,11 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   return {
     ...withInheritance,
+    project: {
+      ...withInheritance.project,
+      // Resolve repo relative to team.json location, not process.cwd().
+      repo: resolvePathFromTeamRoot(configPathAbs, withInheritance.project.repo),
+    },
     providers: {
       ...providersDefaults,
       ...providers,
@@ -135,12 +136,12 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
       opencode: runtime.opencode,
       ports: runtime.ports,
       persistence: {
-        state_dir: expandHome(runtime.persistence.state_dir),
+        state_dir: resolvePathFromTeamRoot(configPathAbs, runtime.persistence.state_dir),
       },
     },
     workspace: {
       provider: workspace.provider,
-      root_dir: expandHome(workspace.root_dir),
+      root_dir: resolvePathFromTeamRoot(configPathAbs, workspace.root_dir),
       persistent: workspace.persistent,
       git: workspace.git,
       sparse_checkout: workspace.sparse_checkout,

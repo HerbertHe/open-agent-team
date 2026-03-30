@@ -28,7 +28,7 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `project.name` | Oui | string | - | Nom du projet (utilisé pour prompts/logs) |
-| `project.repo` | Oui | string | - | Chemin du dépôt git (utilisé par la gestion workspace et le chargement des skills) |
+| `project.repo` | Oui | string | - | Chemin du dépôt git (utilisé par la gestion workspace et le chargement des skills ; les chemins relatifs sont résolus depuis le répertoire de `team.json`) |
 | `project.base_branch` | Non | string | `"main"` | Branche cible pour la fusion `leader -> main` |
 
 ## 3. `models` (mappage d'alias de modèles)
@@ -63,11 +63,13 @@ Comportement du loader :
 | `runtime.opencode.executable` | Non | string | `"opencode"` | Nom/chemin de l'exécutable `opencode` |
 | `runtime.ports.base` | Non | number | `8848` | Port de base pour serveurs d'agents (Admin utilise `base`, Leader utilise `base + 1 + index`) |
 | `runtime.ports.max_agents` | Non | number | `10` | Non appliqué strictement dans le code actuel (placeholder/préférence) |
-| `runtime.persistence.state_dir` | Non | string | `"~/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
+| `runtime.persistence.state_dir` | Non | string | `"<répertoire de team.json>/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
 
 Expansion de `~` :
 
+- Si `runtime.persistence.state_dir` est omis, la valeur par défaut est `.oat/state` dans le même répertoire que `team.json`
 - `runtime.persistence.state_dir` supporte le préfixe `~` ; le loader l'étend vers le home utilisateur réel
+- Si `runtime.persistence.state_dir` est un chemin relatif, il est résolu par rapport au répertoire de `team.json`
 
 ## 5.1 `providers` (intégration provider globale)
 
@@ -94,7 +96,7 @@ Notes (ordre de fusion) :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | Non | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | Stratégie workspace (seul `worktree` est implémenté aujourd'hui) |
-| `workspace.root_dir` | Non | string | `"~/.oat/workspaces"` | Répertoire racine où les workspaces sont créés |
+| `workspace.root_dir` | Non | string | `"<répertoire de team.json>/workspaces"` | Répertoire racine où les workspaces sont créés |
 | `workspace.persistent` | Non | boolean | `true` | Non implémenté comme comportement différencié (placeholder) |
 | `workspace.git.remote` | Non | string | `"origin"` | Placeholder : le code actuel ne réutilise pas directement remote pour créer les worktrees |
 | `workspace.git.lfs` | Non | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | Pour le provider `worktree`, lance `git lfs pull` uniquement quand `pull` est choisi |
@@ -102,7 +104,9 @@ Notes (ordre de fusion) :
 
 Expansion de `~` :
 
+- Si `workspace.root_dir` est omis, la valeur par défaut est `workspaces` dans le même répertoire que `team.json`
 - `workspace.root_dir` supporte le préfixe `~` ; le loader l'étend vers le home utilisateur réel
+- Si `workspace.root_dir` est un chemin relatif, il est résolu par rapport au répertoire de `team.json`
 
 ## 7. `teams[]`
 

@@ -28,7 +28,7 @@ See the detailed field reference: `oat docs config --lang en`.
 
 By default, each agent runs in an isolated workspace created via `git worktree`, under:
 
-- `workspace.root_dir` (default: `~/.oat/workspaces`)
+- `workspace.root_dir` (default: `<team.json dir>/workspaces`)
 
 For large repos, sparse-checkout can be enabled; worker sparse-checkout paths come from `teams[].leader.repos`.
 
@@ -36,7 +36,7 @@ For large repos, sparse-checkout can be enabled; worker sparse-checkout paths co
 
 Skills follow the OpenCode `SKILL.md` convention:
 
-- Source: `skills/<skill-name>/SKILL.md` at the repo root (`project.repo`)
+- Source: `skills/<skill-name>/SKILL.md` at the repo root (`project.repo`; if relative, resolved from the `team.json` directory)
 - Injected into each agent workspace at: `.opencode/skills/<skill-name>/SKILL.md`
 
 ### CHANGELOG-driven collaboration
@@ -50,7 +50,7 @@ When a `Worker` is created, the orchestrator injects a system constraint into th
 
 ### 1) Prepare skills
 
-In your git repository root, create:
+In the repository root resolved from `project.repo`, create:
 
 `skills/<skill-name>/SKILL.md`
 
@@ -76,8 +76,8 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 ### 4) Useful commands
 
 ```bash
-oat status "~/.oat/state"
-oat stop "~/.oat/state"
+oat status
+oat stop
 oat docs architecture --lang en
 oat docs config --lang en
 oat docs guide --lang en

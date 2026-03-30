@@ -28,7 +28,7 @@
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `project.name` | 是 | string | - | 项目名称（用于构建提示词/日志） |
-| `project.repo` | 是 | string | - | git 仓库路径（workspace 与 skills 解析都依赖该路径） |
+| `project.repo` | 是 | string | - | git 仓库路径（workspace 与 skills 解析都依赖该路径；相对路径会按 `team.json` 所在目录解析） |
 | `project.base_branch` | 否 | string | `"main"` | leader->main 的合并目标分支 |
 
 ## 3. `models`（模型别名映射）
@@ -63,11 +63,13 @@ loader 行为：
 | `runtime.opencode.executable` | 否 | string | `"opencode"` | `opencode` 可执行文件/命令名 |
 | `runtime.ports.base` | 否 | number | `8848` | agent 端口起始基线：Admin 使用 base，Leader 为 base+1+index |
 | `runtime.ports.max_agents` | 否 | number | `10` | 当前版本未参与硬性并发控制（预留配置位） |
-| `runtime.persistence.state_dir` | 否 | string | `"~/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
+| `runtime.persistence.state_dir` | 否 | string | `"<team.json目录>/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 
 home 展开：
 
+- `runtime.persistence.state_dir` 若未配置，默认解析为 `team.json` 同目录下的 `.oat/state`
 - `runtime.persistence.state_dir` 支持 `~` 前缀，loader 会展开为实际用户目录
+- `runtime.persistence.state_dir` 若配置相对路径，会相对 `team.json` 所在目录解析
 
 ## 5.1 `providers`（全局供应商接入）
 
@@ -96,7 +98,7 @@ home 展开：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | 否 | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | workspace 策略（当前仅实现 `worktree`） |
-| `workspace.root_dir` | 否 | string | `"~/.oat/workspaces"` | workspace 根目录（每个 agent workspace 会落在该目录下） |
+| `workspace.root_dir` | 否 | string | `"<team.json目录>/workspaces"` | workspace 根目录（每个 agent workspace 会落在该目录下） |
 | `workspace.persistent` | 否 | boolean | `true` | 目前在工作空间创建/清理逻辑中未被实现为差异化行为（预留配置位） |
 | `workspace.git.remote` | 否 | string | `"origin"` | 预留：当前代码仅创建 worktree、未直接使用 remote 名称 |
 | `workspace.git.lfs` | 否 | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | 当前 `worktree` provider 仅在值为 `pull` 时执行 `git lfs pull` |
@@ -104,7 +106,9 @@ home 展开：
 
 home 展开：
 
+- `workspace.root_dir` 若未配置，默认解析为 `team.json` 同目录下的 `workspaces`
 - `workspace.root_dir` 支持 `~` 前缀，loader 会展开为实际用户目录
+- `workspace.root_dir` 若配置相对路径，会相对 `team.json` 所在目录解析
 
 ## 7. `teams[]`
 

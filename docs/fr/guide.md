@@ -5,8 +5,9 @@ Ce guide vous aide à lancer localement la structure déclarative `Admin -> Lead
 ## 1. Préparer les skills (obligatoire)
 
 Orchestrator lit les définitions de skills depuis le chemin `project.repo` de `team.json`, puis les injecte dans les workspaces de chaque agent.
+Si `project.repo` est un chemin relatif, il est résolu par rapport au répertoire de `team.json`.
 
-Dans la racine de votre dépôt git, préparez :
+Dans la racine du dépôt définie par `project.repo`, préparez :
 
 - `skills/<skill-name>/SKILL.md`
 
@@ -29,6 +30,7 @@ Ce projet fusionne vers `project.base_branch` (par défaut `main`) et crée un w
 Avant de démarrer, vérifiez :
 
 - `team.json -> project.repo` pointe vers un dépôt git (souvent `.`)
+- si `project.repo` est relatif, il est résolu depuis le répertoire de `team.json`
 - `project.base_branch` existe (par exemple `main`)
 - votre dépôt supporte `git worktree`
 
@@ -103,7 +105,7 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 Points de contrôle courants :
 
 - Orchestrator démarre et écoute sur le port indiqué
-- Les workspaces worker apparaissent sous `workspace.root_dir` (par défaut `~/.oat/workspaces/<agentId>`)
+- Les workspaces worker apparaissent sous `workspace.root_dir` (par défaut `<répertoire de team.json>/workspaces/<agentId>`)
 - Chaque worker met à jour le `CHANGELOG.md` à la racine lorsqu'il termine
 - Les branches des workers sont fusionnées dans les branches correspondantes des leaders
 - Après fusion du leader vers `project.base_branch`, Orchestrator nettoie le leader et ses workers (processus + workspace)
@@ -113,13 +115,15 @@ Points de contrôle courants :
 Vérifier l'état de l'Orchestrateur (lire `orchestrator.json` dans `state_dir`) :
 
 ```bash
-oat status "~/.oat/state"
+oat status
 ```
+
+Sans argument, la commande déduit `state_dir` depuis `team.json` du dossier courant (même niveau `.oat/state`) ; si `team.json` est introuvable, une erreur est levée.
 
 Arrêt (envoyer SIGTERM au pid de l'Orchestrateur) :
 
 ```bash
-oat stop "~/.oat/state"
+oat stop
 ```
 
 ## 7. Afficher la documentation (multi-langue)

@@ -5,8 +5,9 @@ This guide helps you run the declarative `Admin -> Leader -> Worker` agent manag
 ## 1. Prepare skills (required)
 
 Orchestrator reads skill definitions from `team.json`’s `project.repo` path and injects them into each agent workspace.
+If `project.repo` is a relative path, it is resolved relative to the `team.json` directory.
 
-In your git repository root, prepare:
+In your repository root defined by `project.repo`, prepare:
 
 - `skills/<skill-name>/SKILL.md`
 
@@ -29,6 +30,7 @@ This project merges into `project.base_branch` (default `main`) and creates a gi
 Before you start, confirm:
 
 - `team.json -> project.repo` points to a git repository (usually `.`)
+- if `project.repo` is relative, it is resolved from the `team.json` directory
 - `project.base_branch` exists (for example `main`)
 - your repo supports `git worktree` (works out-of-the-box in most environments)
 
@@ -103,7 +105,7 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 Common observation points:
 
 - Orchestrator starts and listens on the port you provided
-- worker workspaces appear under `workspace.root_dir` (default `~/.oat/workspaces/<agentId>`)
+- worker workspaces appear under `workspace.root_dir` (default `<team.json dir>/workspaces/<agentId>`)
 - each worker updates its workspace root `CHANGELOG.md` when finished
 - worker branches are merged into the corresponding leader branches
 - after a leader merges into `project.base_branch`, Orchestrator cleans up that leader and its workers (process + workspace)
@@ -113,13 +115,15 @@ Common observation points:
 Check orchestrator state (read `orchestrator.json` under `state_dir`):
 
 ```bash
-oat status "~/.oat/state"
+oat status
 ```
+
+Without arguments, it infers `state_dir` from `team.json` in the current directory (same-level `.oat/state`); if `team.json` is not found, it throws an error.
 
 Stop (send SIGTERM to the orchestrator pid):
 
 ```bash
-oat stop "~/.oat/state"
+oat stop
 ```
 
 ## 7. View docs (multi-language)

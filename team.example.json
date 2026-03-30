@@ -27,12 +27,12 @@
       "max_agents": 10
     },
     "persistence": {
-      "state_dir": "~/.oat/state"
+      "state_dir": ".oat/state"
     }
   },
   "workspace": {
     "provider": "worktree",
-    "root_dir": "~/.oat/workspaces",
+    "root_dir": "workspaces",
     "persistent": true,
     "git": {
       "remote": "origin",

@@ -8,6 +8,9 @@ export class DockerProvider implements RuntimeProvider {
   async stop(_agentId: string): Promise<void> {
     return;
   }
+  async stopAll(): Promise<void> {
+    return;
+  }
   async health(_port: number): Promise<boolean> {
     return false;
   }

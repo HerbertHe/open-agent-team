@@ -63,15 +63,15 @@ export const TeamFileSchema = z.object({
         .default({ base: 8848, max_agents: 10 }),
       persistence: z
         .object({
-          state_dir: z.string().min(1).default("~/.oat/state"),
+          state_dir: z.string().min(1).optional(),
         })
-        .default({ state_dir: "~/.oat/state" }),
+        .default({}),
     })
     .optional(),
   workspace: z
     .object({
       provider: z.nativeEnum(WorkspaceProviderTypeEnum).default(WorkspaceProviderTypeEnum.Worktree),
-      root_dir: z.string().min(1).default("~/.oat/workspaces"),
+      root_dir: z.string().min(1).optional(),
       persistent: z.boolean().default(true),
       git: z
         .object({

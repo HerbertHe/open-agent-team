@@ -1,4 +1,5 @@
 import express from "express";
+import type { Server } from "node:http";
 import { AgentRoleEnum } from "../types";
 import type { OrchestratorCtorArgs, ResolvedConfig, AgentInstanceSpec, TeamConfig } from "../types";
 import path from "node:path";
@@ -231,12 +232,35 @@ export class Orchestrator {
     // register agents in TaskManager
     await this.taskManager.startAdminAndLeaders({ sessionId: adminS.sessionId, spec: adminSpec }, leaders);
 
-    const appServer = this.app.listen(this.port, "0.0.0.0", () => {
+    const appServer: Server = this.app.listen(this.port, "0.0.0.0", () => {
       logger.info(t("orchestrator_listening_on", { port: this.port }));
     });
+    this.registerShutdownHandlers(appServer);
+  }
 
-    // Keep running
-    void appServer;
+  private registerShutdownHandlers(httpServer: Server): void {
+    let shuttingDown = false;
+    const shutdown = (signal: NodeJS.Signals) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(t("orchestrator_shutting_down", { signal }));
+      void (async () => {
+        try {
+          await this.runtimeProvider.stopAll();
+        } catch (e) {
+          logger.warn("runtimeProvider.stopAll failed", {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+        httpServer.close(() => {
+          process.exit(0);
+        });
+        const forceExit = setTimeout(() => process.exit(0), 10_000);
+        forceExit.unref();
+      })();
+    };
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
   }
 
   private async injectBaseOpenCodeForAgent(spec: AgentInstanceSpec, prompt: string, role: AgentRoleEnum.Admin | AgentRoleEnum.Leader): Promise<void> {

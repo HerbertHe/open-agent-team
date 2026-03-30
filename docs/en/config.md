@@ -28,7 +28,7 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `project.name` | Yes | string | - | Project name (used in prompts/logs) |
-| `project.repo` | Yes | string | - | Git repository path (used by workspace management and skill loading) |
+| `project.repo` | Yes | string | - | Git repository path (used by workspace management and skill loading; relative paths are resolved from the `team.json` directory) |
 | `project.base_branch` | No | string | `"main"` | Branch target for `leader -> main` merge |
 
 ## 3. `models` (model alias mapping)
@@ -63,11 +63,13 @@ Loader behavior:
 | `runtime.opencode.executable` | No | string | `"opencode"` | `opencode` executable name/path |
 | `runtime.ports.base` | No | number | `8848` | Base port for agent servers (Admin uses `base`, Leader uses `base + 1 + index`) |
 | `runtime.ports.max_agents` | No | number | `10` | The current code does not strictly enforce this (placeholder/preference) |
-| `runtime.persistence.state_dir` | No | string | `"~/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
+| `runtime.persistence.state_dir` | No | string | `"<team.json dir>/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
 
 Home expansion:
 
+- If `runtime.persistence.state_dir` is omitted, it defaults to `.oat/state` under the same directory as `team.json`
 - `runtime.persistence.state_dir` supports `~` prefix; loader expands it to a real user home path
+- If `runtime.persistence.state_dir` is a relative path, it is resolved relative to the `team.json` directory
 
 ## 5.1 `providers` (global provider integration)
 
@@ -94,7 +96,7 @@ Notes (merge order):
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | No | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | Workspace strategy (only `worktree` implemented today) |
-| `workspace.root_dir` | No | string | `"~/.oat/workspaces"` | Root directory where workspaces are created |
+| `workspace.root_dir` | No | string | `"<team.json dir>/workspaces"` | Root directory where workspaces are created |
 | `workspace.persistent` | No | boolean | `true` | Currently not implemented as differentiated behavior (placeholder) |
 | `workspace.git.remote` | No | string | `"origin"` | Placeholder: current code does not directly use remote name when creating worktrees |
 | `workspace.git.lfs` | No | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | For the `worktree` provider, run `git lfs pull` only when set to `pull` |
@@ -102,7 +104,9 @@ Notes (merge order):
 
 Home expansion:
 
+- If `workspace.root_dir` is omitted, it defaults to `workspaces` under the same directory as `team.json`
 - `workspace.root_dir` supports `~` prefix; loader expands it to a real user home path
+- If `workspace.root_dir` is a relative path, it is resolved relative to the `team.json` directory
 
 ## 7. `teams[]`
 

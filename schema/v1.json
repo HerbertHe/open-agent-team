@@ -113,7 +113,7 @@
             "state_dir": {
               "type": "string",
               "minLength": 1,
-              "default": "~/.oat/state"
+              "default": ".oat/state"
             }
           }
         }
@@ -131,7 +131,7 @@
         "root_dir": {
           "type": "string",
           "minLength": 1,
-          "default": "~/.oat/workspaces"
+          "default": "workspaces"
         },
         "persistent": {
           "type": "boolean",

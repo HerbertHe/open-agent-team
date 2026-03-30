@@ -8,6 +8,7 @@ export type Lang = "en" | "zh-CN" | "fr" | "ja";
 type MessageKey =
   | "orchestrator_started"
   | "orchestrator_listening_on"
+  | "orchestrator_shutting_down"
   | "stop_signal_sent"
   | "orchestrator_json_not_found"
   | "orchestrator_pid_not_found"
@@ -33,6 +34,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
   en: {
     orchestrator_started: "Orchestrator started.",
     orchestrator_listening_on: "Orchestrator listening on {port}",
+    orchestrator_shutting_down: "Shutting down (signal: {signal}); stopping agent runtimes.",
     stop_signal_sent: "Stop signal sent.",
     orchestrator_json_not_found: "orchestrator.json not found.",
     orchestrator_pid_not_found: "No pid found in orchestrator.json.",
@@ -58,6 +60,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
   "zh-CN": {
     orchestrator_started: "编排器已启动。",
     orchestrator_listening_on: "编排器正在监听端口 {port}",
+    orchestrator_shutting_down: "正在关闭（信号：{signal}），正在停止各 Agent 运行时进程。",
     stop_signal_sent: "已发送停止信号。",
     orchestrator_json_not_found: "未找到 orchestrator.json。",
     orchestrator_pid_not_found: "在 orchestrator.json 中未找到 pid。",
@@ -82,6 +85,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
   fr: {
     orchestrator_started: "Orchestrateur démarré.",
     orchestrator_listening_on: "Orchestrateur à l'écoute sur le port {port}",
+    orchestrator_shutting_down: "Arrêt (signal : {signal}) ; arrêt des runtimes d'agents.",
     stop_signal_sent: "Signal d'arrêt envoyé.",
     orchestrator_json_not_found: "Fichier orchestrator.json introuvable.",
     orchestrator_pid_not_found: "Aucun pid trouvé dans orchestrator.json.",
@@ -107,6 +111,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
   ja: {
     orchestrator_started: "オーケストレーターを開始しました。",
     orchestrator_listening_on: "オーケストレーターはポート {port} で待機中です。",
+    orchestrator_shutting_down: "シャットダウン中（シグナル: {signal}）。エージェントのランタイムを停止します。",
     stop_signal_sent: "停止シグナルを送信しました。",
     orchestrator_json_not_found: "orchestrator.json が見つかりません。",
     orchestrator_pid_not_found: "orchestrator.json に pid が見つかりません。",

@@ -162,11 +162,12 @@ Orchestrator は `TaskManager.requestWorkers()` 内で `POST /tool/request_worke
 
 デフォルトの workspace provider は `worktree` です。workspace ディレクトリは次の配下に作成されます：
 
-- `<workspace.root_dir>/<agentId>`（例：`~/.oat/workspaces/frontend-worker-0`）
+- `<workspace.root_dir>/<agentId>`（例：`<team.json のディレクトリ>/workspaces/frontend-worker-0`）
 
 各 agent の workspace は同じ git リポジトリから作られます：
 
 - `config.project.repo` が git リポジトリのルート
+- `config.project.repo` が相対パスの場合は `team.json` のディレクトリ基準で解決
 - workspace が存在しない場合：
   - 既存ブランチなら `git worktree add <path> <branch>`
   - 存在しないブランチなら `git worktree add <path> -b <branch>`（現在の HEAD から作成）

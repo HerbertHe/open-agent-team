@@ -5,8 +5,9 @@
 ## 1. 准备 skills（必须）
 
 Orchestrator 会从 `team.json` 的 `project.repo` 路径下读取 skill 定义，并把它们注入到各 agent workspace 中。
+若 `project.repo` 是相对路径，会相对 `team.json` 所在目录解析。
 
-请在你的 git 仓库根目录准备：
+请在 `project.repo` 指向的仓库根目录准备：
 
 - `skills/<skill-name>/SKILL.md`
 
@@ -29,6 +30,7 @@ skills/
 建议你确认：
 
 - `team.json -> project.repo` 指向一个 git 仓库（通常写 `.`）
+- 若 `project.repo` 为相对路径，会按 `team.json` 所在目录解析
 - `project.base_branch` 对应的分支存在（例如 `main`）
 - 你的仓库支持 `git worktree`（大多数情况下开箱即用）
 
@@ -103,7 +105,7 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 常见观察点：
 
 - Orchestrator 启动后会监听你指定的端口
-- worker workspace 会出现在 `workspace.root_dir`（默认 `~/.oat/workspaces/<agentId>`）
+- worker workspace 会出现在 `workspace.root_dir`（默认 `<team.json目录>/workspaces/<agentId>`）
 - 每个 worker 在完成后会更新其 workspace 根目录 `CHANGELOG.md`
 - worker 的分支会被合并进对应 leader 分支
 - leader 合并进入 `project.base_branch` 后，Orchestrator 会清理对应 leader 与 worker（进程 + workspace）
@@ -113,13 +115,15 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 查看 orchestrator 状态（读取 `state_dir` 下的 `orchestrator.json`）：
 
 ```bash
-oat status "~/.oat/state"
+oat status
 ```
+
+不传参数时会默认按当前目录下的 `team.json` 推导 `state_dir`（即同级 `.oat/state`）；若未检测到 `team.json` 会直接报错。
 
 停止（向 orchestrator pid 发 SIGTERM）：
 
 ```bash
-oat stop "~/.oat/state"
+oat stop
 ```
 
 ## 7. 查看文档（多语言）

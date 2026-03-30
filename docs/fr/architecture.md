@@ -162,11 +162,12 @@ Quand `Worker` appelle `POST /tool/notify_complete` :
 
 Le provider par défaut est `worktree`. Les workspaces sont créés sous :
 
-- `<workspace.root_dir>/<agentId>` (par exemple: `~/.oat/workspaces/frontend-worker-0`)
+- `<workspace.root_dir>/<agentId>` (par exemple: `<répertoire de team.json>/workspaces/frontend-worker-0`)
 
 Chaque workspace d'agent provient du même dépôt git :
 
 - `config.project.repo` définit la racine du dépôt git
+- si `config.project.repo` est relatif, il est résolu depuis le répertoire de `team.json`
 - Si le workspace n'existe pas :
   - pour une branche existante : `git worktree add <path> <branch>`
   - pour une branche inexistante : `git worktree add <path> -b <branch>` (créée depuis le HEAD courant)

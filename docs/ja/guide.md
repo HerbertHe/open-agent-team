@@ -5,8 +5,9 @@
 ## 1. skills を準備（必須）
 
 Orchestrator は `team.json` の `project.repo` のパスから skill 定義を読み取り、各 agent の workspace に注入します。
+`project.repo` が相対パスの場合は、`team.json` のディレクトリ基準で解決されます。
 
-Git リポジトリのルートで次を用意してください：
+`project.repo` が指すリポジトリルートで次を用意してください：
 
 - `skills/<skill-name>/SKILL.md`
 
@@ -29,6 +30,7 @@ skills/
 開始前に確認：
 
 - `team.json -> project.repo` は git リポジトリを指していること（通常 `.`）
+- `project.repo` が相対パスなら `team.json` のディレクトリ基準で解決されること
 - `project.base_branch` が存在すること（例：`main`）
 - リポジトリが `git worktree` をサポートしていること
 
@@ -103,7 +105,7 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 よくある確認ポイント：
 
 - Orchestrator が起動し、指定したポートで listen していること
-- worker の workspace が `workspace.root_dir` 配下に出現すること（デフォルト `~/.oat/workspaces/<agentId>`）
+- worker の workspace が `workspace.root_dir` 配下に出現すること（デフォルト `<team.json のディレクトリ>/workspaces/<agentId>`）
 - worker が完了すると workspace ルートの `CHANGELOG.md` を更新すること
 - worker のブランチが該当する leader ブランチにマージされること
 - leader が `project.base_branch` にマージされた後、Orchestrator がその leader と workers をクリーンアップ（プロセス + workspace）
@@ -113,13 +115,15 @@ oat start team.json "<goal>" --port 3100 --lang zh-CN
 orchestrator 状態を確認（`state_dir` 配下の `orchestrator.json`）：
 
 ```bash
-oat status "~/.oat/state"
+oat status
 ```
+
+引数を省略した場合、現在ディレクトリの `team.json` から `state_dir`（同階層の `.oat/state`）を推定します。`team.json` が見つからない場合はエラーになります。
 
 停止（orchestrator の pid に SIGTERM を送る）：
 
 ```bash
-oat stop "~/.oat/state"
+oat stop
 ```
 
 ## 7. ドキュメント表示（多言語）

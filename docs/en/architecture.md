@@ -162,11 +162,12 @@ When `Worker` calls `POST /tool/notify_complete`:
 
 The default workspace provider is `worktree`. Each workspace directory is under:
 
-- `<workspace.root_dir>/<agentId>` (for example: `~/.oat/workspaces/frontend-worker-0`)
+- `<workspace.root_dir>/<agentId>` (for example: `<team.json dir>/workspaces/frontend-worker-0`)
 
 All agent workspaces come from the same git repository:
 
 - `config.project.repo` defines the git repository root directory
+- if `config.project.repo` is relative, it is resolved from the `team.json` directory
 - If a workspace does not exist yet, Orchestrator will:
   - for an existing branch: `git worktree add <path> <branch>`
   - for a missing branch: `git worktree add <path> -b <branch>` (create from current HEAD)

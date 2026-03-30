@@ -28,7 +28,7 @@
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `project.name` | はい | string | - | プロジェクト名（プロンプト/ログで利用） |
-| `project.repo` | はい | string | - | Git リポジトリのパス（workspace 管理と skills 読み込みで利用） |
+| `project.repo` | はい | string | - | Git リポジトリのパス（workspace 管理と skills 読み込みで利用。相対パスは `team.json` のディレクトリ基準で解決） |
 | `project.base_branch` | いいえ | string | `"main"` | `leader -> main` のマージ先ブランチ |
 
 ## 3. `models`（モデル alias マッピング）
@@ -63,11 +63,13 @@ loader の挙動：
 | `runtime.opencode.executable` | いいえ | string | `"opencode"` | `opencode` の実行ファイル名/パス |
 | `runtime.ports.base` | いいえ | number | `8848` | agent サーバのベースポート（Admin は base、Leader は base + 1 + index） |
 | `runtime.ports.max_agents` | いいえ | number | `10` | 現行コードでは厳密に適用されない（placeholder/設定意図） |
-| `runtime.persistence.state_dir` | いいえ | string | `"~/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
+| `runtime.persistence.state_dir` | いいえ | string | `"<team.json のディレクトリ>/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
 
 `~` の展開：
 
+- `runtime.persistence.state_dir` を省略した場合、`team.json` と同じディレクトリ配下の `.oat/state` がデフォルトになります
 - `runtime.persistence.state_dir` は `~` プレフィックスをサポートし、loader が実ユーザーの home に展開します
+- `runtime.persistence.state_dir` が相対パスの場合、`team.json` のディレクトリ基準で解決されます
 
 ## 5.1 `providers`（グローバル接続設定）
 
@@ -94,7 +96,7 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | いいえ | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | workspace 戦略（現在 `worktree` のみ実装） |
-| `workspace.root_dir` | いいえ | string | `"~/.oat/workspaces"` | workspace の root ディレクトリ |
+| `workspace.root_dir` | いいえ | string | `"<team.json のディレクトリ>/workspaces"` | workspace の root ディレクトリ |
 | `workspace.persistent` | いいえ | boolean | `true` | 現時点で区別した挙動として未実装（placeholder） |
 | `workspace.git.remote` | いいえ | string | `"origin"` | placeholder：worktree 作成で remote 名を直接使いません |
 | `workspace.git.lfs` | いいえ | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | `worktree` provider では `pull` のときだけ `git lfs pull` を実行 |
@@ -102,7 +104,9 @@ loader の挙動：
 
 `~` の展開：
 
+- `workspace.root_dir` を省略した場合、`team.json` と同じディレクトリ配下の `workspaces` がデフォルトになります
 - `workspace.root_dir` は `~` プレフィックスをサポートし、loader が実ユーザーの home に展開します
+- `workspace.root_dir` が相対パスの場合、`team.json` のディレクトリ基準で解決されます
 
 ## 7. `teams[]`
 

@@ -162,11 +162,12 @@ Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()`
 
 默认 workspace provider 为 `worktree`，工作空间目录形如：
 
-- `<workspace.root_dir>/<agentId>`（例如：`~/.oat/workspaces/frontend-worker-0`）
+- `<workspace.root_dir>/<agentId>`（例如：`<team.json目录>/workspaces/frontend-worker-0`）
 
 每个 agent 的 workspace 都来自同一个 git 仓库：
 
 - `config.project.repo` 指定 git 仓库根目录
+- 若 `config.project.repo` 为相对路径，会按 `team.json` 所在目录解析
 - 如果工作空间不存在，则会：
   - 对已存在分支使用 `git worktree add <path> <branch>`
   - 对不存在分支使用 `git worktree add <path> -b <branch>`（从当前 HEAD 新建）
