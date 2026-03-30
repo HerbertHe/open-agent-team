@@ -15,7 +15,7 @@ You declare roles, models, shared skills, and workspace/git strategies in `team.
 - `team.json` defines:
   - global default model (`model`, optional)
   - global provider integration (`providers`, optional)
-  - project metadata (`project`)
+  - project metadata (`project`; `project.base_branch` must be `main` or `master`, default `main`)
   - model alias mapping (`models`)
   - `Admin` agent config (`admin`)
   - team configs (`teams[]`: `Leader` + `Worker`)

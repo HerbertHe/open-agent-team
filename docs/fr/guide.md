@@ -25,13 +25,13 @@ skills/
 
 ## 2. Préparer votre dépôt Git et les branches (recommandé)
 
-Ce projet fusionne vers `project.base_branch` (par défaut `main`) et crée un worktree git pour chaque agent.
+Ce projet fusionne vers `project.base_branch` (par défaut `main` ; seules `main` et `master` sont valides) et crée un worktree git pour chaque agent.
 
 Avant de démarrer, vérifiez :
 
 - `team.json -> project.repo` pointe vers un dépôt git (souvent `.`)
 - si `project.repo` est relatif, il est résolu depuis le répertoire de `team.json`
-- `project.base_branch` existe (par exemple `main`)
+- la branche indiquée par `project.base_branch` existe dans le dépôt (`main` ou `master`, selon la config)
 - votre dépôt supporte `git worktree`
 
 ## 3. Écrire `team.json` (cœur du système)

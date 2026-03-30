@@ -9,7 +9,7 @@ import { t } from "../i18n/i18n";
 export class WorktreeWorkspaceProvider implements WorkspaceProvider {
   constructor(private readonly config: ResolvedConfig) {}
 
-  /** 若 project.repo 下无 .git，则 git init（默认分支固定为 main）并做空提交；若 base_branch 不是 main 再重命名分支。 */
+  /** 若 project.repo 下无 .git，则 git init（先创建 main）并做空提交；若 project.base_branch 为 master 则将分支重命名为 master。 */
   private async ensureGitRepository(repoRoot: string): Promise<void> {
     const gitDir = path.join(repoRoot, ".git");
     const hasGit = await fs
@@ -53,6 +53,8 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
       .catch(() => false);
 
     if (!exists) {
+      // 目录已被删但 git 仍登记该 worktree 时，add 会报 “missing but already registered”；先 prune 再 add
+      await git.raw(["worktree", "prune"]).catch(() => undefined);
       // 如果分支已存在则不使用 -b，避免创建失败
       const branchExists = await git
         .raw(["show-ref", "--verify", `refs/heads/${spec.branch}`])

@@ -45,7 +45,7 @@ export const TeamFileSchema = z.object({
   project: z.object({
     name: z.string().min(1),
     repo: z.string().min(1),
-    base_branch: z.string().min(1).default("main"),
+    base_branch: z.enum(["main", "master"]).default("main"),
   }),
   runtime: z
     .object({

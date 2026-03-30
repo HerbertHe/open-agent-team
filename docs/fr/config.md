@@ -29,7 +29,7 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 | --- | --- | --- | --- | --- |
 | `project.name` | Oui | string | - | Nom du projet (utilisé pour prompts/logs) |
 | `project.repo` | Oui | string | - | Chemin du dépôt git (utilisé par la gestion workspace et le chargement des skills ; les chemins relatifs sont résolus depuis le répertoire de `team.json`) |
-| `project.base_branch` | Non | string | `"main"` | Branche cible pour la fusion `leader -> main` |
+| `project.base_branch` | Non | `main` \| `master` | `"main"` | Branche cible après le leader ; seules `main` et `master` sont autorisées (validées par le schéma) |
 
 ## 3. `models` (mappage d'alias de modèles)
 

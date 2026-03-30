@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { TeamFileSchema } from "./schema";
-import { resolvePathFromTeamRoot } from "../utils/team-paths";
+import { resolvePathFromTeamRoot, resolveTeamDataPath } from "../utils/team-paths";
 import {
   RuntimeModeEnum,
   WorkspaceProviderTypeEnum,
@@ -136,12 +136,18 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
       opencode: runtime.opencode,
       ports: runtime.ports,
       persistence: {
-        state_dir: resolvePathFromTeamRoot(configPathAbs, runtime.persistence.state_dir),
+        state_dir: resolveTeamDataPath(
+          configPathAbs,
+          runtime.persistence.state_dir ?? path.join(baseDir, ".oat", "state")
+        ),
       },
     },
     workspace: {
       provider: workspace.provider,
-      root_dir: resolvePathFromTeamRoot(configPathAbs, workspace.root_dir),
+      root_dir: resolveTeamDataPath(
+        configPathAbs,
+        workspace.root_dir ?? path.join(baseDir, "workspaces")
+      ),
       persistent: workspace.persistent,
       git: workspace.git,
       sparse_checkout: workspace.sparse_checkout,

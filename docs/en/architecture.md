@@ -238,7 +238,7 @@ The runtime behavior is primarily bound to these `team.json` fields:
   - `workspace.root_dir` determines where worktrees are created
   - `teams[].leader.repos` determines sparse-checkout paths
 - Merge targets:
-  - `project.base_branch` determines the leader->main merge branch
+  - `project.base_branch` determines the leader merge target; only `main` or `master` are allowed
 
 ## 7. Current implementation boundaries and extension points
 

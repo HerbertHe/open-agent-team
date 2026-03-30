@@ -29,7 +29,7 @@
 | --- | --- | --- | --- | --- |
 | `project.name` | はい | string | - | プロジェクト名（プロンプト/ログで利用） |
 | `project.repo` | はい | string | - | Git リポジトリのパス（workspace 管理と skills 読み込みで利用。相対パスは `team.json` のディレクトリ基準で解決） |
-| `project.base_branch` | いいえ | string | `"main"` | `leader -> main` のマージ先ブランチ |
+| `project.base_branch` | いいえ | `main` \| `master` | `"main"` | Leader 完了後のマージ先；`main` または `master` のみ（スキーマで検証） |
 
 ## 3. `models`（モデル alias マッピング）
 

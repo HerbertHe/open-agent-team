@@ -16,6 +16,7 @@ import {
   writeOatOrchestratorMeta,
 } from "../opencode/workspace-inject";
 import { logger } from "../utils/logger";
+import { waitForRuntimeReady } from "../sandbox/runtime-ready";
 import { t } from "../i18n/i18n";
 import type {
   AgentRuntimeState,
@@ -162,6 +163,7 @@ export class TaskManager {
 
       // 3) start runtime process
       await this.runtimeProvider.start(spec);
+      await waitForRuntimeReady(this.runtimeProvider, port);
 
       // 4) connect and create session
       const session = new AgentSession(`http://127.0.0.1:${port}`);

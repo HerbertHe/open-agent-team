@@ -25,13 +25,13 @@ skills/
 
 ## 2. 准备 Git 仓库与分支（建议）
 
-该项目会基于 `project.base_branch` 执行合并（默认 `main`），并为每个 agent 创建 git worktree workspace。
+该项目会基于 `project.base_branch` 执行合并（默认 `main`；仅允许 `main` 或 `master`），并为每个 agent 创建 git worktree workspace。
 
 建议你确认：
 
 - `team.json -> project.repo` 指向一个 git 仓库（通常写 `.`）
 - 若 `project.repo` 为相对路径，会按 `team.json` 所在目录解析
-- `project.base_branch` 对应的分支存在（例如 `main`）
+- 仓库中存在 `project.base_branch` 所配置的分支（`main` 或 `master`，与配置一致）
 - 你的仓库支持 `git worktree`（大多数情况下开箱即用）
 
 ## 3. 编写 `team.json`（核心）

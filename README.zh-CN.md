@@ -15,7 +15,7 @@
 - `team.json` 定义：
   - 全局默认模型（`model`，可选）
   - 全局供应商接入配置（`providers`，可选）
-  - 项目元信息（`project`）
+  - 项目元信息（`project`；`project.base_branch` 仅允许 `main` 或 `master`，默认 `main`）
   - 模型别名映射（`models`）
   - `Admin` 配置（`admin`）
   - team 配置（`teams[]`: `Leader` + `Worker`）

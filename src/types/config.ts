@@ -33,6 +33,9 @@ export interface TeamFileAdminConfig {
   skills: string[];
 }
 
+/** 主分支名：仅允许 `main` 或 `master`（与常见 Git 默认分支一致）。 */
+export type ProjectBaseBranch = "main" | "master";
+
 /**
  * team.json 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
  */
@@ -46,8 +49,8 @@ export interface TeamFileConfig {
     name: string;
     /** 仓库路径（通常为 `.`） */
     repo: string;
-    /** 汇总代码的主分支（如 main/master） */
-    base_branch: string;
+    /** 汇总代码的主分支：仅 `main` 或 `master` */
+    base_branch: ProjectBaseBranch;
   };
   runtime?: {
     /** 运行时模式：本机进程或 Flue */

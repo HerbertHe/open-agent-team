@@ -238,7 +238,7 @@ Le comportement est principalement lié à ces champs de `team.json` :
   - `workspace.root_dir` détermine où sont créés les worktrees
   - `teams[].leader.repos` détermine les chemins du sparse-checkout
 - Branches cibles :
-  - `project.base_branch` détermine la branche de fusion `leader->main`
+  - `project.base_branch` définit la branche cible après le leader ; seules `main` et `master` sont autorisées
 
 ## 7. Limites actuelles de l'implémentation et points d'extension
 

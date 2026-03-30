@@ -39,13 +39,42 @@ export function teamRootDir(teamJsonAbs: string): string {
 }
 
 /**
- * 与 loadConfig 中一致：相对路径相对于 team.json 所在目录；~/ 展开；绝对路径不变。
+ * 通用路径：相对路径相对于 team.json 所在目录；`~/` 展开为真实 $HOME；已是绝对路径则规范化。
+ * （用于 project.repo 等仍可能指向 home 外任意目录的配置。）
  */
 export function resolvePathFromTeamRoot(teamJsonAbs: string, p: string): string {
   const baseDir = path.dirname(teamJsonAbs);
   const homeExpanded = expandHomePath(p);
   if (path.isAbsolute(homeExpanded)) return path.resolve(homeExpanded);
   return path.resolve(baseDir, homeExpanded);
+}
+
+/**
+ * 仅用于 `runtime.persistence.state_dir` 与 `workspace.root_dir`：
+ * 必须落在 team.json 所在目录下，**不**使用用户主目录。
+ * - 相对路径、`~/xxx` 均相对于 team 根目录解析（此处 `~` 仅作「从 team 根起算」的写法，不表示 $HOME）。
+ * - 若配置成 $HOME 下的绝对路径，则改为 team 根下相同相对后缀（例如曾写 `~/.oat/state` 会得到 `<team>/.oat/state`）。
+ * - 已在 team 根下的绝对路径保持不变；其它绝对路径则归一到 `<team>/<basename>`，避免指到盘符任意位置。
+ */
+export function resolveTeamDataPath(teamJsonAbs: string, p: string): string {
+  const base = teamRootDir(teamJsonAbs);
+  const t = p.trim();
+  if (t.startsWith("~/")) {
+    return path.resolve(base, t.slice(2));
+  }
+  const home = os.homedir();
+  if (path.isAbsolute(t) && (t === home || t.startsWith(home + path.sep))) {
+    const suffix = t === home ? "" : t.slice(home.length + 1);
+    return path.resolve(base, suffix || ".");
+  }
+  if (path.isAbsolute(t)) {
+    const normalized = path.resolve(t);
+    if (normalized === base || normalized.startsWith(base + path.sep)) {
+      return normalized;
+    }
+    return path.resolve(base, path.basename(t));
+  }
+  return path.resolve(base, t);
 }
 
 function sanitizeProjectSlug(name: string): string {

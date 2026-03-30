@@ -15,7 +15,7 @@
 - `team.json` は以下を定義します：
   - 全体のデフォルトモデル（`model`、任意）
   - グローバルなプロバイダ接続設定（`providers`、任意）
-  - プロジェクトメタ情報（`project`）
+  - プロジェクトメタ情報（`project`；`project.base_branch` は `main` または `master` のみ、既定は `main`）
   - モデル alias のマッピング（`models`）
   - `Admin` agent の設定（`admin`）
   - チームごとの設定（`teams[]`: `Leader` + `Worker`）

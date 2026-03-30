@@ -29,7 +29,7 @@
 | --- | --- | --- | --- | --- |
 | `project.name` | 是 | string | - | 项目名称（用于构建提示词/日志） |
 | `project.repo` | 是 | string | - | git 仓库路径（workspace 与 skills 解析都依赖该路径；相对路径会按 `team.json` 所在目录解析） |
-| `project.base_branch` | 否 | string | `"main"` | leader->main 的合并目标分支 |
+| `project.base_branch` | 否 | `main` \| `master` | `"main"` | Leader 完成后合并目标分支；仅允许 `main` 或 `master`（由 schema 校验） |
 
 ## 3. `models`（模型别名映射）
 

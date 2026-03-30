@@ -29,7 +29,7 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 | --- | --- | --- | --- | --- |
 | `project.name` | Yes | string | - | Project name (used in prompts/logs) |
 | `project.repo` | Yes | string | - | Git repository path (used by workspace management and skill loading; relative paths are resolved from the `team.json` directory) |
-| `project.base_branch` | No | string | `"main"` | Branch target for `leader -> main` merge |
+| `project.base_branch` | No | `main` \| `master` | `"main"` | Merge target after leader completes; only `main` or `master` are allowed (schema-enforced) |
 
 ## 3. `models` (model alias mapping)
 

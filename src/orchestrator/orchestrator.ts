@@ -5,6 +5,7 @@ import type { OrchestratorCtorArgs, ResolvedConfig, AgentInstanceSpec, TeamConfi
 import path from "node:path";
 import fs from "node:fs/promises";
 import { LocalProcessProvider } from "../sandbox/local-process";
+import { waitForRuntimeReady } from "../sandbox/runtime-ready";
 import { MergeManager } from "../git/merge-manager";
 import { SkillResolver } from "../skills/skill-resolver";
 import { ChangelogManager } from "../changelog/changelog-manager";
@@ -190,6 +191,7 @@ export class Orchestrator {
     // tools/plugins + agent definition
     await this.injectBaseOpenCodeForAgent(adminSpec, this.config.admin.prompt, AgentRoleEnum.Admin);
     await this.runtimeProvider.start(adminSpec);
+    await waitForRuntimeReady(this.runtimeProvider, adminSpec.port);
     const adminSession = new AgentSession(`http://127.0.0.1:${adminSpec.port}`);
     await adminSession.connect();
     const adminS = await adminSession.createSession(AgentRoleEnum.Admin);
@@ -206,6 +208,7 @@ export class Orchestrator {
 
       await this.injectBaseOpenCodeForAgent(spec, team.leader.prompt, AgentRoleEnum.Leader);
       await this.runtimeProvider.start(spec);
+      await waitForRuntimeReady(this.runtimeProvider, spec.port);
 
       const leaderSession = new AgentSession(`http://127.0.0.1:${spec.port}`);
       await leaderSession.connect();

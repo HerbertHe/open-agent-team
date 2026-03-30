@@ -25,13 +25,13 @@ skills/
 
 ## 2. Git リポジトリとブランチを準備（推奨）
 
-このプロジェクトは `project.base_branch`（デフォルト `main`）へマージし、各 agent のために git worktree workspace を作成します。
+このプロジェクトは `project.base_branch`（デフォルト `main`；指定できるのは `main` または `master` のみ）へマージし、各 agent のために git worktree workspace を作成します。
 
 開始前に確認：
 
 - `team.json -> project.repo` は git リポジトリを指していること（通常 `.`）
 - `project.repo` が相対パスなら `team.json` のディレクトリ基準で解決されること
-- `project.base_branch` が存在すること（例：`main`）
+- リポジトリに `project.base_branch` で指定したブランチが存在すること（`main` または `master`、設定と一致）
 - リポジトリが `git worktree` をサポートしていること
 
 ## 3. `team.json` を作成（コア）

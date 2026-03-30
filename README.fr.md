@@ -15,7 +15,7 @@ Vous déclarez les rôles, modèles, skills partagées et les stratégies worksp
 - `team.json` définit :
   - le modèle global par défaut (`model`, optionnel)
   - l'intégration provider globale (`providers`, optionnel)
-  - les métadonnées du projet (`project`)
+  - les métadonnées du projet (`project` ; `project.base_branch` doit être `main` ou `master`, défaut `main`)
   - le mapping d'alias de modèles (`models`)
   - la config de l'agent `Admin` (`admin`)
   - les configs par équipe (`teams[]`: `Leader` + `Worker`)

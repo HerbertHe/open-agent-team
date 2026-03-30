@@ -25,13 +25,13 @@ skills/
 
 ## 2. Prepare your Git repository and branches (recommended)
 
-This project merges into `project.base_branch` (default `main`) and creates a git worktree workspace for each agent.
+This project merges into `project.base_branch` (default `main`; only `main` or `master` are valid) and creates a git worktree workspace for each agent.
 
 Before you start, confirm:
 
 - `team.json -> project.repo` points to a git repository (usually `.`)
 - if `project.repo` is relative, it is resolved from the `team.json` directory
-- `project.base_branch` exists (for example `main`)
+- the branch named by `project.base_branch` exists in the repo (`main` or `master`, matching your config)
 - your repo supports `git worktree` (works out-of-the-box in most environments)
 
 ## 3. Write `team.json` (core)

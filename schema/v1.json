@@ -65,8 +65,9 @@
         },
         "base_branch": {
           "type": "string",
-          "minLength": 1,
-          "default": "main"
+          "enum": ["main", "master"],
+          "default": "main",
+          "description": "Primary integration branch for leader merges; only main or master."
         }
       }
     },
