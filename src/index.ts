@@ -43,10 +43,19 @@ program.option("--lang <lang>", "Output language: en | zh-CN | fr | ja");
 
 program
   .command("start")
-  .argument("[configPath]", "team.json path", "team.json")
-  .argument("<goal>", "project goal prompt")
+  .description("Start orchestrator (team.json: --config or cwd/team.json / OAT_TEAM_JSON)")
+  .option(
+    "--config <path>",
+    "path to team.json (default: ./team.json under cwd, or OAT_TEAM_JSON when set)",
+  )
+  .option("--goal <text>", "project goal prompt (optional)")
   .option("--port <number>", "orchestrator HTTP port", "3100")
-  .action(async (configPath: string, goal: string, options: { port: string }) => {
+  .action(
+    async (options: {
+      port: string;
+      config?: string;
+      goal?: string;
+    }) => {
     const cliLang = toLang((program.opts() as any).lang);
     if (cliLang) setLang(cliLang);
     if (!cliLang) {
@@ -55,12 +64,17 @@ program
     }
     // default is already English ("en") in i18n.ts
 
-    const abs = path.isAbsolute(configPath) ? configPath : path.resolve(process.cwd(), configPath);
+    const configArg = options.config?.trim();
+    const abs = await resolveTeamJsonPath(
+      configArg && configArg.length > 0 ? configArg : undefined,
+    );
+    const goal = (options.goal ?? "").trim();
     const cfg = await loadConfig(abs);
     const stateDir = cfg.runtime.persistence.state_dir;
     await ensureDir(stateDir);
     logger.info(t("log_startup_context"), {
       configPath: abs,
+      cliGoal: goal.length > 0 ? goal : "(empty)",
       projectRepo: cfg.project.repo,
       baseBranch: cfg.project.base_branch,
       stateDir: cfg.runtime.persistence.state_dir,

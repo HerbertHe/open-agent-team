@@ -38,9 +38,21 @@ export class LocalProcessProvider implements RuntimeProvider {
   ) {}
 
   async start(spec: AgentInstanceSpec): Promise<RuntimeHandle> {
+    // 默认使用 DEBUG，便于在 dashboard/日志中追踪执行过程。
+    const logLevel = "DEBUG";
+
     const child = spawn(
       this.executable,
-      ["serve", "--port", String(spec.port), "--hostname", "127.0.0.1"],
+      [
+        "serve",
+        "--port",
+        String(spec.port),
+        "--hostname",
+        "127.0.0.1",
+        "--print-logs",
+        "--log-level",
+        logLevel,
+      ],
       {
         cwd: spec.workspacePath,
         stdio: ["ignore", "pipe", "pipe"],

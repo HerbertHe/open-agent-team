@@ -13,6 +13,10 @@ export default defineConfig(({ mode }) => {
           target,
           changeOrigin: true,
         },
+        '/tool': {
+          target,
+          changeOrigin: true,
+        },
       },
     },
     build: {

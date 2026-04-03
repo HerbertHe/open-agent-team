@@ -31,4 +31,12 @@ export interface ObservabilityGraph {
   edges: ObservabilityGraphEdge[];
 }
 
-export type AgentStatus = 'idle' | 'busy' | 'tool' | 'error' | 'done';
+/** 拓扑节点描边语义：待命灰 / 已收指令浅蓝 / 处理中深蓝；error、done 单独配色 */
+export type AgentStatus =
+  | 'idle'
+  | 'standby'
+  | 'instructed'
+  | 'busy'
+  | 'tool'
+  | 'error'
+  | 'done';

@@ -144,9 +144,9 @@ export function AgentLogModal({
         readOnly
         value={fullText}
         spellCheck={false}
+        className="agent-log-textarea"
         style={{
           width: '100%',
-          minHeight: 420,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
           fontSize: 12,
           padding: 8,

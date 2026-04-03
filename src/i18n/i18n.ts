@@ -299,7 +299,7 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
   let s = messages[currentLang][key] ?? messages.en[key];
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      s = s.replaceAll(`{${k}}`, String(v));
+      s = s.replaceAll(`{${k}}`, String(v ?? ""));
     }
   }
   return s;

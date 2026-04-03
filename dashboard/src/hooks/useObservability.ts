@@ -52,11 +52,15 @@ function updateStatusFromEvent(
       return next;
     }
     if (ev.type === 'leader.task.assigned') {
-      next[id] = 'busy';
+      next[id] = 'standby';
+      return next;
+    }
+    if (ev.type === 'admin.dashboard_instruction') {
+      next[id] = 'instructed';
       return next;
     }
     if (ev.type === 'worker.task.dispatched') {
-      next[id] = 'busy';
+      next[id] = 'standby';
       return next;
     }
     if (ev.type === 'worker.spawn_aborted') {
@@ -72,7 +76,9 @@ function updateStatusFromEvent(
       return next;
     }
     if (ev.type === 'report_progress') {
-      next[id] = 'busy';
+      const stage = ev.payload?.['stage'];
+      if (stage === 'done') next[id] = 'done';
+      else next[id] = 'busy';
       return next;
     }
     if (ev.type === 'request_workers.error') {
@@ -151,6 +157,7 @@ export function useObservability() {
           t === 'worker.task.prompt_sent' ||
           t === 'worker.notify_complete_timeout' ||
           t === 'leader.task.assigned' ||
+          t === 'admin.dashboard_instruction' ||
           t === 'worker.dispatch_failed' ||
           t === 'agent.cleanup.worker' ||
           t === 'agent.cleanup.leader' ||

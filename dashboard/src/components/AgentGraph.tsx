@@ -15,16 +15,20 @@ function roleFill(role: string, placeholder?: boolean): string {
 function statusStroke(s: AgentStatus, placeholder?: boolean): string {
   if (placeholder) return '#8c8c8c';
   switch (s) {
+    case 'idle':
+    case 'standby':
+      return '#8c8c8c';
+    case 'instructed':
+      return '#91d5ff';
     case 'busy':
-      return '#fa8c16';
     case 'tool':
-      return '#fadb14';
+      return '#0958d9';
     case 'error':
       return '#f5222d';
     case 'done':
       return '#389e0d';
     default:
-      return '#d9d9d9';
+      return '#8c8c8c';
   }
 }
 
@@ -42,7 +46,10 @@ export function AgentGraph({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
   const onClickRef = useRef(onNodeClick);
-  onClickRef.current = onNodeClick;
+
+  useEffect(() => {
+    onClickRef.current = onNodeClick;
+  }, [onNodeClick]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -103,6 +110,21 @@ export function AgentGraph({
     graphRef.current = graph;
     void graph.render();
 
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    const onContainerResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const w = el.clientWidth;
+        const h = el.clientHeight;
+        if (w < 2 || h < 2) return;
+        graph.resize();
+        void graph.fitView();
+      }, 100);
+    };
+    const ro = new ResizeObserver(onContainerResize);
+    ro.observe(el);
+    onContainerResize();
+
     const handler = (evt: { targetType?: string; target?: { id?: string } }) => {
       if (evt.targetType !== 'node') return;
       const id = evt.target?.id;
@@ -111,6 +133,8 @@ export function AgentGraph({
     graph.on(NodeEvent.CLICK, handler as (e: unknown) => void);
 
     return () => {
+      clearTimeout(resizeTimer);
+      ro.disconnect();
       graph.off(NodeEvent.CLICK, handler);
       graph.destroy();
       graphRef.current = null;
@@ -149,7 +173,8 @@ export function AgentGraph({
       style={{
         width: '100%',
         height: '100%',
-        minHeight: 400,
+        minHeight: 0,
+        flex: 1,
         background: '#fafafa',
         borderRadius: 8,
       }}

@@ -40,7 +40,6 @@ export class TaskManager {
   private readonly leaderDispatchStartedAt = new Map<string, number>();
   /** 记录某 worker 是否已经调用 notify-complete */
   private readonly workerNotifyCompleteAt = new Map<string, number>();
-
   constructor(
     private readonly config: ResolvedConfig,
     private readonly workspaceProvider: WorkspaceProvider,
@@ -239,7 +238,16 @@ export class TaskManager {
       toolsAllowed: { write: true, edit: true, bash: true },
     });
 
-    await writeCustomTools(spec.workspacePath, this.orchestratorBaseUrl);
+    await writeCustomTools(spec.workspacePath, this.orchestratorBaseUrl, {
+      workspaceRoot: this.config.workspace.root_dir,
+      workspacePath: spec.workspacePath,
+      role: AgentRoleEnum.Worker,
+      teamName: team.name,
+      teams: this.config.teams.map((t) => ({
+        name: t.name,
+        worker: { total: t.worker.total },
+      })),
+    });
     await writeCustomPlugins(spec.workspacePath, { role: AgentRoleEnum.Worker });
 
     await this.runtimeProvider.start(spec);
@@ -269,6 +277,13 @@ export class TaskManager {
       ``,
       `Rules (MUST follow):`,
       `- Update the workspace root CHANGELOG.md according to the system constraints (if there are no code changes, still record the reason).`,
+      `- Report execution progress using tool report-progress (JSON args):`,
+      `  { "agentId": "${workerId}", "stage": "<stage>", "message": "<short message>" }`,
+      `- You MUST call report-progress at least 3 times:`,
+      `  1) stage="start" (when you begin working),`,
+      `  2) stage="changelog_update" (immediately after finishing CHANGELOG.md update),`,
+      `  3) stage="before_notify_complete" (right before calling notify-complete).`,
+      `- Optionally call stage="done" after notify-complete returns.`,
       `- After updating CHANGELOG.md, MUST call tool notify-complete exactly once with JSON args:`,
       `  { "agentRole": "${AgentRoleEnum.Worker}", "agentId": "${workerId}" }`,
       `- You MUST NOT omit agentId; the orchestrator relies on it to find the correct Worker runtime.`,
@@ -397,7 +412,7 @@ export class TaskManager {
             agentId: workerId,
             role: AgentRoleEnum.Worker,
             sessionId: agent.sessionId,
-            payload: { leaderId, taskIndex: idx },
+            payload: { leaderId, taskIndex: idx, promptPreview },
           });
 
           // 如果 worker 在一定时间内仍未回调 notify-complete，则发出超时事件，便于定位卡点
@@ -479,6 +494,35 @@ export class TaskManager {
     await leaderSession.connect();
     await leaderSession.sendPrompt(leader.spec, leader.sessionId, `ADMIN_TASK:\n${prompt}`, {
       agent: leader.spec.name,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Dashboard：仅向 Admin 会话追加操作员指令（DASHBOARD_INSTRUCTION）。
+   * 由 Admin 模型根据「Available Leaders」自行判断并调用 assign-leader-task；编排器不默认派给任一 Leader。
+   */
+  async sendAdminDashboardInstruction(prompt: string): Promise<{ ok: true }> {
+    const trimmed = prompt.trim();
+    if (!trimmed) throw new Error("admin_instruction: prompt must be non-empty");
+
+    const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
+    if (!admin) throw new Error(t("admin_not_found"));
+
+    const preview = trimmed.length > 250 ? `${trimmed.slice(0, 247)}...` : trimmed;
+    this.observabilityHub.emit({
+      source: "orchestrator",
+      type: "admin.dashboard_instruction",
+      agentId: admin.spec.id,
+      role: AgentRoleEnum.Admin,
+      sessionId: admin.sessionId,
+      payload: { preview },
+    });
+
+    const session = new AgentSession(`http://127.0.0.1:${admin.spec.port}`);
+    await session.connect();
+    await session.sendPrompt(admin.spec, admin.sessionId, `DASHBOARD_INSTRUCTION:\n${trimmed}`, {
+      agent: admin.spec.name,
     });
     return { ok: true };
   }
@@ -599,6 +643,7 @@ export class TaskManager {
 
   async reportProgress(body: any): Promise<any> {
     const agentId = body?.agentId as string | undefined;
+    const stage = typeof body?.stage === "string" ? body.stage : undefined;
     const message = typeof body?.message === "string" ? body.message : "";
     if (agentId) {
       try {
@@ -609,14 +654,14 @@ export class TaskManager {
           agentId,
           role: agent.spec.role,
           sessionId: agent.sessionId,
-          payload: { message },
+          payload: { stage, message },
         });
       } catch {
         this.observabilityHub.emit({
           source: "orchestrator",
           type: "report_progress.unknown_agent",
           agentId,
-          payload: { message },
+          payload: { stage, message },
         });
       }
     }

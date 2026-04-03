@@ -2,6 +2,85 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { AgentRoleEnum } from "../types";
 
+/** 用于计算各 Agent 可触碰的目录前缀（绝对路径，统一带尾部 path.sep） */
+export type OatWorkspaceScopeContext = {
+  workspaceRoot: string;
+  workspacePath: string;
+  role: AgentRoleEnum;
+  teamName?: string;
+  teams: Array<{ name: string; worker: { total: number } }>;
+};
+
+function prefixDir(absPath: string): string {
+  const r = path.resolve(absPath);
+  return r.endsWith(path.sep) ? r : r + path.sep;
+}
+
+/**
+ * Admin：本 workspace + 全部 Leader/Worker 目录。
+ * Leader：本 workspace + 本 team 全部 Worker 目录。
+ * Worker：仅本 workspace。
+ */
+export function computeAllowedPathPrefixes(ctx: OatWorkspaceScopeContext): string[] {
+  const root = path.resolve(ctx.workspaceRoot);
+  const own = prefixDir(ctx.workspacePath);
+
+  if (ctx.role === AgentRoleEnum.Worker) {
+    return [own];
+  }
+  if (ctx.role === AgentRoleEnum.Leader && ctx.teamName) {
+    const out: string[] = [own];
+    const team = ctx.teams.find((t) => t.name === ctx.teamName);
+    const n = team?.worker.total ?? 0;
+    for (let i = 0; i < n; i++) {
+      out.push(prefixDir(path.join(root, `${ctx.teamName}-worker-${i}`)));
+    }
+    return out;
+  }
+  if (ctx.role === AgentRoleEnum.Admin) {
+    const out: string[] = [own];
+    for (const t of ctx.teams) {
+      out.push(prefixDir(path.join(root, `${t.name}-lead`)));
+      for (let i = 0; i < t.worker.total; i++) {
+        out.push(prefixDir(path.join(root, `${t.name}-worker-${i}`)));
+      }
+    }
+    return out;
+  }
+  return [own];
+}
+
+/** 供 OpenCode external_directory：仅包含「相对当前 agent 工作区而言额外的」允许路径 */
+function buildExternalDirectoryMap(
+  workspacePath: string,
+  prefixes: string[],
+): Record<string, "allow"> {
+  const ownResolved = path.resolve(workspacePath);
+  const out: Record<string, "allow"> = {};
+  for (const pref of prefixes) {
+    const dir = pref.endsWith(path.sep) ? pref.slice(0, -1) : pref;
+    const rp = path.resolve(dir);
+    if (rp === ownResolved) continue;
+    out[`${rp}${path.sep}**`] = "allow";
+    out[rp] = "allow";
+  }
+  return out;
+}
+
+export async function writeOatScopeMeta(
+  workspacePath: string,
+  ctx: OatWorkspaceScopeContext,
+): Promise<void> {
+  const prefixes = computeAllowedPathPrefixes(ctx);
+  const dir = path.join(workspacePath, ".oat");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "scope.json"),
+    normalizeJson({ allowedPrefixes: prefixes }),
+    "utf8",
+  );
+}
+
 export type ToolNames =
   | "request_workers"
   | "register_workers"
@@ -45,25 +124,33 @@ export async function writeAgentMarkdown(args: {
   await fs.mkdir(agentsDir, { recursive: true });
   const filePath = path.join(agentsDir, `${args.agentName}.md`);
 
-  // OpenCode markdown agent：文件名即 agent name
+  // OpenCode v1.1+：legacy `tools:` 已并入 permission；自定义工具须在 permission 中显式 allow，否则模型侧可能看不到
   const toolsAllowed = args.toolsAllowed ?? { write: true, edit: true, bash: true };
+  const canEdit = (toolsAllowed.write ?? true) || (toolsAllowed.edit ?? true);
+  const canBash = toolsAllowed.bash ?? true;
   const frontmatter = [
     "---",
     `description: ${JSON.stringify(args.description)}`,
     "mode: primary",
     `model: ${JSON.stringify(args.model)}`,
-    "tools:",
-    `  write: ${toolsAllowed.write ? "true" : "false"}`,
-    `  edit: ${toolsAllowed.edit ? "true" : "false"}`,
-    `  bash: ${toolsAllowed.bash ? "true" : "false"}`,
-    // Enable custom orchestrator tools so the model can call them.
-    `  request-workers: true`,
-    `  register-workers: true`,
-    `  dispatch-worker-tasks: true`,
-    `  assign-leader-task: true`,
-    `  notify-complete: true`,
-    `  report-progress: true`,
-    `  generate-changelog: true`,
+    "permission:",
+    "  read: allow",
+    "  glob: allow",
+    "  grep: allow",
+    "  list: allow",
+    "  skill: allow",
+    "  webfetch: allow",
+    "  todowrite: allow",
+    "  question: allow",
+    canEdit ? "  edit: allow" : "  edit: deny",
+    canBash ? "  bash: allow" : "  bash: deny",
+    "  assign-leader-task: allow",
+    "  register-workers: allow",
+    "  dispatch-worker-tasks: allow",
+    "  request-workers: allow",
+    "  notify-complete: allow",
+    "  report-progress: allow",
+    "  generate-changelog: allow",
     "---",
   ].join("\n");
 
@@ -90,7 +177,15 @@ export async function writeAgentMarkdown(args: {
   await fs.writeFile(filePath, body, "utf8");
 }
 
-export async function writeCustomTools(workspacePath: string, orchestratorBaseUrl: string): Promise<void> {
+export async function writeCustomTools(
+  workspacePath: string,
+  orchestratorBaseUrl: string,
+  scopeCtx: OatWorkspaceScopeContext,
+): Promise<void> {
+  await writeOatScopeMeta(workspacePath, scopeCtx);
+  const scopePrefixes = computeAllowedPathPrefixes(scopeCtx);
+  const external_directory = buildExternalDirectoryMap(workspacePath, scopePrefixes);
+
   const toolsDir = path.join(workspacePath, ".opencode", "tools");
   await fs.mkdir(toolsDir, { recursive: true });
 
@@ -98,6 +193,11 @@ export async function writeCustomTools(workspacePath: string, orchestratorBaseUr
 
   const orchestratorFetch = `
 async function getOrchestratorBaseUrl(context: any): Promise<string> {
+  const fromEnv =
+    typeof process !== "undefined" && typeof process.env?.OAT_ORCHESTRATOR_BASE_URL === "string"
+      ? process.env.OAT_ORCHESTRATOR_BASE_URL.trim()
+      : "";
+  if (fromEnv) return fromEnv;
   const worktree = context.worktree ?? context.directory ?? "";
   const metaPath = path.join(worktree, ".oat", "orchestrator.json");
   const raw = await fs.readFile(metaPath, "utf8");
@@ -225,6 +325,7 @@ export default tool({
   description: "Report progress for long running tasks.",
   args: {
     agentId: tool.schema.string(),
+    stage: tool.schema.string().optional().describe("Execution stage, e.g. start/changelog_update/before_notify_complete/done"),
     message: tool.schema.string()
   },
   async execute(args, context) {
@@ -295,6 +396,36 @@ export default tool({
     `${commonHeader}\n${orchestratorFetch}\n${generateChangelog}`,
     "utf8"
   );
+
+  // 工作区内默认 allow（不弹授权）；Admin/Leader 经 external_directory 访问下级目录；越界由 scope-guard 拒绝
+  const opencodeJson: Record<string, unknown> = {
+    $schema: "https://opencode.ai/config.json",
+    permission: {
+      read: "allow",
+      glob: "allow",
+      grep: "allow",
+      list: "allow",
+      skill: "allow",
+      webfetch: "allow",
+      todowrite: "allow",
+      question: "allow",
+      edit: "allow",
+      bash: "allow",
+      external_directory,
+      "assign-leader-task": "allow",
+      "register-workers": "allow",
+      "dispatch-worker-tasks": "allow",
+      "request-workers": "allow",
+      "notify-complete": "allow",
+      "report-progress": "allow",
+      "generate-changelog": "allow",
+    },
+  };
+  await fs.writeFile(
+    path.join(workspacePath, "opencode.json"),
+    normalizeJson(opencodeJson),
+    "utf8"
+  );
 }
 
 export async function writeCustomPlugins(workspacePath: string, roleMeta: Record<string, unknown>): Promise<void> {
@@ -346,14 +477,70 @@ export const CommitGuard = async ({ worktree }) => {
 `;
 
   const scopeGuard = `
-export const ScopeGuard = async () => {
+import fs from "node:fs/promises";
+import path from "node:path";
+
+/** 路径必须在 .oat/scope.json 的 allowedPrefixes 之下；Worker 仅本人目录，Leader 含本队 Worker，Admin 含全部 Leader/Worker */
+export const ScopeGuard = async ({ worktree }) => {
+  const scopePath = path.join(worktree ?? "", ".oat", "scope.json");
+  let allowedPrefixes = [];
+  try {
+    const raw = await fs.readFile(scopePath, "utf8");
+    allowedPrefixes = JSON.parse(raw).allowedPrefixes ?? [];
+  } catch {
+    allowedPrefixes = [];
+  }
+  const wt = path.resolve(worktree ?? "");
+  if (allowedPrefixes.length === 0) {
+    allowedPrefixes = [wt + path.sep];
+  }
+
+  const isUnderAllowed = (absResolved) => {
+    const a = absResolved;
+    for (const pref of allowedPrefixes) {
+      const base = pref.endsWith(path.sep) ? pref.slice(0, -1) : pref;
+      const rp = path.resolve(base);
+      if (a === rp || a.startsWith(rp + path.sep)) return true;
+    }
+    return false;
+  };
+
+  const checkPath = async (p) => {
+    if (p == null || typeof p !== "string") return;
+    const trimmed = p.trim();
+    if (trimmed === "") return;
+    const abs = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(wt, trimmed);
+    let real = abs;
+    try {
+      real = await fs.realpath(abs);
+    } catch {
+      /* 新文件路径可能尚不存在 */
+    }
+    if (!isUnderAllowed(real)) {
+      throw new Error("oat-scope: path outside allowed workspaces: " + trimmed);
+    }
+  };
+
   return {
     "tool.execute.before": async (input, output) => {
-      // TODO：可以进一步对 file 编辑路径做 allowlist 校验
-      // 这里先做轻量保护，避免明显危险命令
-      if (input.tool === "bash" && output?.args?.command) {
+      const tool = input.tool;
+      const args = output?.args ?? {};
+      if (tool === "read" || tool === "write" || tool === "edit" || tool === "multiedit") {
+        await checkPath(args.filePath ?? args.path ?? args.file);
+      }
+      if (tool === "glob" || tool === "grep" || tool === "list") {
+        await checkPath(args.path ?? args.directory ?? args.glob ?? ".");
+      }
+      if (tool === "apply_patch" && typeof args.patchText === "string") {
+        const re = /^\\*\\*\\* (Add File|Update File|Delete File|Move to):\\s*(.+)$/;
+        for (const line of args.patchText.replace(/\\r/g, "").split("\\n")) {
+          const m = line.match(re);
+          if (m) await checkPath(m[2].trim());
+        }
+      }
+      if (tool === "bash" && output?.args?.command) {
         const cmd = output.args.command;
-        if (cmd.includes("rm -rf /")) throw new Error("scope-guard: unsafe command blocked");
+        if (cmd.includes("rm -rf /")) throw new Error("oat-scope: unsafe command blocked");
       }
     }
   };

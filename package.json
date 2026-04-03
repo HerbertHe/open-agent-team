@@ -3,6 +3,7 @@
   "description": "Declarative multi-agent orchestration for OpenCode: Admin → Leader → Worker hierarchy, team.json config, isolated workspaces (git worktree), and the oat CLI.",
   "version": "0.1.4",
   "private": false,
+  "packageManager": "pnpm@9.15.9",
   "type": "module",
   "engines": {
     "node": ">=22 <25"
@@ -20,11 +21,11 @@
     "oat": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup && npm run build --prefix dashboard",
+    "build": "tsup && pnpm --filter dashboard run build",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "dashboard:dev": "npm run dev --prefix dashboard",
-    "dashboard:build": "npm run build --prefix dashboard"
+    "dev:dashboard": "pnpm --filter dashboard run dev",
+    "build:dashboard": "pnpm --filter dashboard run build"
   },
   "license": "MIT",
   "author": {
