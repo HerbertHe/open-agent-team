@@ -4,16 +4,15 @@ const DEFAULT_AGENT_LOG_CAP = 4000;
 const DEFAULT_GLOBAL_LOCAL_CAP = 2500;
 
 /**
- * 内存有界环形缓冲 + 多订阅者；用于 Dashboard SSE 与编排/OpenCode 事件汇聚。
+ * 内存有界环形缓冲 + 多订阅者；用于 Dashboard SSE 与编排/pi Agent 事件汇聚。
  */
 export class ObservabilityHub {
   private buffer: ObservabilityEvent[] = [];
   private readonly maxSize: number;
   private readonly subscribers = new Set<(e: ObservabilityEvent) => void>();
-  /** 各 Agent 的 OpenCode 进程 stdout/stderr / spawn 退出信息（供 GET 快照与弹窗） */
+  /** 各 Agent 的附加日志行（供 GET 快照与弹窗） */
   private readonly agentProcessLogs = new Map<string, string[]>();
   private readonly maxLogLinesPerAgent: number;
-  /** OpenCode 写入 ~/.local/share/opencode/log 的全局日志行（所有 Agent 弹窗可附带同一份） */
   private globalLocalShareLines: string[] = [];
   private readonly maxGlobalLocalLines: number;
 

@@ -50,17 +50,11 @@ export const TeamFileSchema = z.object({
   runtime: z
     .object({
       mode: z.nativeEnum(RuntimeModeEnum).default(RuntimeModeEnum.LocalProcess),
-      opencode: z
+      pi: z
         .object({
-          executable: z.string().min(1).default("opencode"),
+          agentDir: z.string().min(1).optional(),
         })
-        .default({ executable: "opencode" }),
-      ports: z
-        .object({
-          base: z.number().int().positive().default(8848),
-          max_agents: z.number().int().positive().default(10),
-        })
-        .default({ base: 8848, max_agents: 10 }),
+        .default({}),
       persistence: z
         .object({
           state_dir: z.string().min(1).optional(),

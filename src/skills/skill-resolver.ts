@@ -6,7 +6,7 @@ export class SkillResolver {
 
   async syncSkillsToWorkspace(skillNames: string[], workspacePath: string): Promise<void> {
     const skillsSrcRoot = path.join(this.repoRoot, "skills");
-    const target = path.join(workspacePath, ".opencode", "skills");
+    const target = path.join(workspacePath, ".agents", "skills");
     await fs.mkdir(target, { recursive: true });
 
     for (const skill of skillNames) {

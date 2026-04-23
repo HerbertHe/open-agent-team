@@ -37,7 +37,7 @@ async function resolveStateDirInput(stateDir?: string): Promise<string> {
 }
 
 const program = new Command();
-program.name("oat").description("OpenCode Agent Team Orchestrator").version("0.1.0");
+program.name("oat").description("Agent Team Orchestrator").version("0.1.0");
 
 program.option("--lang <lang>", "Output language: en | zh-CN | fr | ja");
 

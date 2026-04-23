@@ -1,6 +1,6 @@
 import type { AgentRoleEnum } from "./enums";
 
-export type ObservabilitySource = "orchestrator" | "opencode";
+export type ObservabilitySource = "orchestrator" | "pi";
 
 export interface ObservabilityEvent {
   ts: string;
@@ -16,7 +16,7 @@ export interface ObservabilityGraphNode {
   id: string;
   role: AgentRoleEnum;
   label: string;
-  port: number;
+  port?: number;
   teamName?: string;
   sessionId: string;
   /** 尚未 spawn 的配置槽位，与真实 worker 同 id 格式，spawn 后由运行时节点替换 */

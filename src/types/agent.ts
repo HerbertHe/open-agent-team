@@ -10,17 +10,14 @@ export interface AgentInstanceSpec {
   role: AgentRoleEnum;
   /** 属于哪个 team（worker/leader 会用到） */
   teamName?: string;
-  /** OpenCode agent 名称（用于 markdown agent 文件名/上下文） */
+  /** pi agent 名称（用于 markdown agent 文件名/上下文） */
   name: string;
   /** Agent 绑定的 git 分支（worker/leader 分别用各自分支策略） */
   branch: string;
   /** Agent 的 workspace 根目录（独立文件系统隔离） */
   workspacePath: string;
-  /** OpenCode server 端口（单机多进程时必需） */
-  port: number;
-  /** Agent 的模型（可以是模型别名，在 loader 中解析） */
+  /** Agent 的模型（格式：provider/model-id，例如 anthropic/claude-opus-4-5） */
   model: string;
   /** 当前 Agent 可用的 skills 名称列表（将注入到 workspace） */
   skills: string[];
 }
-

@@ -10,21 +10,22 @@ import type {
 import path from "node:path";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { LocalProcessProvider } from "../sandbox/local-process";
-import { waitForRuntimeReady } from "../sandbox/runtime-ready";
+import { PiSessionProvider } from "../sandbox/local-process";
 import { MergeManager } from "../git/merge-manager";
 import { SkillResolver } from "../skills/skill-resolver";
 import { ChangelogManager } from "../changelog/changelog-manager";
 import { WorkspaceProviderFactory } from "../workspace/workspace-provider";
 import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
-import { OpencodeLocalLogWatcher } from "./opencode-local-log-watcher";
-import { OpencodeEventBridge } from "./opencode-event-bridge";
 import { logger } from "../utils/logger";
-import { AgentSession } from "./agent-session";
 import { t } from "../i18n/i18n";
-import { findContiguousAvailablePorts } from "../utils/available-port";
+import {
+  writeAgentWorkspaceConfig,
+  buildAgentSystemPrompt,
+  type OatWorkspaceScopeContext,
+} from "../pi/workspace-inject";
+import { defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "typebox";
 
 function parseBaseDir(input: string): string {
   if (input.startsWith("~/"))
@@ -43,20 +44,17 @@ export class Orchestrator {
   private readonly taskManager: TaskManager;
   private readonly stateDir: string;
   private readonly stateFile: string;
-  private readonly runtimeProvider: LocalProcessProvider;
+  private readonly runtimeProvider: PiSessionProvider;
   private readonly workspaceProvider: ReturnType<
     WorkspaceProviderFactory["getProvider"]
   >;
   private readonly skillResolver: SkillResolver;
   private readonly observabilityHub: ObservabilityHub;
-  private readonly opencodeEventBridge: OpencodeEventBridge;
-  private readonly localLogWatcher: OpencodeLocalLogWatcher;
   /** 存在且含 index.html 时由 Express 托管观测 Web UI */
   private readonly dashboardDist: string | undefined;
 
   private readonly port: number;
   private readonly goal: string;
-  private adminSessionId: string | undefined;
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -71,17 +69,17 @@ export class Orchestrator {
         : undefined;
     this.stateDir = parseBaseDir(config.runtime.persistence.state_dir);
     this.stateFile = path.join(this.stateDir, "orchestrator.json");
-    const injectedEnv: Record<string, string> = {};
-    const opencodeCfg = config.runtime.opencode;
-    const providersCfg = config.providers;
 
+    // 根据 providers 配置将 API key/env 注入到当前进程环境变量
+    // pi-coding-agent 从进程环境变量读取 API keys（ANTHROPIC_API_KEY / OPENAI_API_KEY 等）
+    const providersCfg = config.providers;
     for (const [k, v] of Object.entries(providersCfg.env ?? {})) {
-      injectedEnv[k] = v;
+      process.env[k] = v;
     }
     for (const [targetKey, sourceEnvName] of Object.entries(
       providersCfg.env_from ?? {},
     )) {
-      if (injectedEnv[targetKey] !== undefined) continue;
+      if (process.env[targetKey]) continue;
       const value = pickEnvValue(sourceEnvName);
       if (!value) {
         logger.warn(
@@ -89,43 +87,37 @@ export class Orchestrator {
         );
         continue;
       }
-      injectedEnv[targetKey] = value;
+      process.env[targetKey] = value;
     }
 
     const openaiCompat = providersCfg.openai_compatible ?? {};
     if (openaiCompat.base_url) {
-      injectedEnv.OPENAI_BASE_URL = openaiCompat.base_url;
+      process.env.OPENAI_BASE_URL = openaiCompat.base_url;
     }
     if (openaiCompat.api_key) {
-      injectedEnv.OPENAI_API_KEY = openaiCompat.api_key;
+      process.env.OPENAI_API_KEY = openaiCompat.api_key;
     } else if (openaiCompat.api_key_env) {
       const name = openaiCompat.api_key_env;
-      // 先 providers.env / env_from，未命中再读系统环境变量
-      const key = injectedEnv[name] ?? pickEnvValue(name);
+      const key = process.env[name] ?? pickEnvValue(name);
       if (!key) {
         logger.warn(t("providers_openai_api_key_env_not_found", { name }));
       } else {
-        injectedEnv.OPENAI_API_KEY = key;
+        process.env.OPENAI_API_KEY = key;
       }
     }
 
-    // 供 .opencode/tools 内 fetch 编排器：避免仅依赖 context.worktree + .oat/orchestrator.json 时路径为空
-    injectedEnv.OAT_ORCHESTRATOR_BASE_URL = `http://127.0.0.1:${this.port}`;
-
     this.observabilityHub = new ObservabilityHub();
 
-    this.runtimeProvider = new LocalProcessProvider(
-      config.runtime.opencode.executable ?? "opencode",
-      injectedEnv,
-      (info) => {
-        const line = `[${info.stream}] ${info.line}`;
-        this.observabilityHub.appendAgentProcessLog(info.agentId, line);
+    this.runtimeProvider = new PiSessionProvider(
+      config.runtime.pi.agentDir,
+      ({ agentId, event, role }) => {
         this.observabilityHub.emit(
           {
-            source: "opencode",
-            type: "opencode.process.log",
-            agentId: info.agentId,
-            payload: { line: info.line, stream: info.stream },
+            source: "pi",
+            type: `pi.${event.type}`,
+            agentId,
+            role,
+            payload: { piEvent: event as unknown as Record<string, unknown> },
           },
           { skipBuffer: true },
         );
@@ -139,7 +131,6 @@ export class Orchestrator {
     const mergeManager = new MergeManager();
     const skillsRoot = path.resolve(config.project.repo);
     this.skillResolver = new SkillResolver(skillsRoot);
-    this.opencodeEventBridge = new OpencodeEventBridge(this.observabilityHub);
 
     this.taskManager = new TaskManager(
       config,
@@ -149,13 +140,6 @@ export class Orchestrator {
       `http://127.0.0.1:${this.port}`,
       this.skillResolver,
       this.observabilityHub,
-      (state) => this.opencodeEventBridge.subscribeAgent(state),
-      (agentId) => this.opencodeEventBridge.unsubscribeAgent(agentId),
-    );
-
-    this.localLogWatcher = new OpencodeLocalLogWatcher(
-      this.observabilityHub,
-      () => this.taskManager.getAgentPortList(),
     );
 
     this.app.use((req, res, next) => {
@@ -335,49 +319,177 @@ export class Orchestrator {
     }
   }
 
-  private buildAdminSpec(portBase: number): AgentInstanceSpec {
+  private buildAdminSpec(): AgentInstanceSpec {
     const adminModel = this.config.admin.model;
     if (!adminModel) throw new Error(t("admin_model_missing"));
     return {
       id: AgentRoleEnum.Admin,
       role: AgentRoleEnum.Admin,
-      // 让 id 与 agent name 一致，便于工具从 context.agent 反查
       name: AgentRoleEnum.Admin,
       branch: this.config.project.base_branch,
       workspacePath: path.join(
         this.config.workspace.root_dir,
         AgentRoleEnum.Admin,
       ),
-      port: portBase,
       model: adminModel,
       skills: this.config.admin.skills,
     };
   }
 
-  private buildLeaderSpec(
-    team: TeamConfig,
-    index: number,
-    portBase: number,
-  ): AgentInstanceSpec {
+  private buildLeaderSpec(team: TeamConfig): AgentInstanceSpec {
     const leaderModel = team.leader.model;
     if (!leaderModel)
       throw new Error(t("leader_model_missing", { teamName: team.name }));
-    const leaderPort = portBase + 1 + index;
     return {
       id: `${team.name}-lead`,
       role: AgentRoleEnum.Leader,
       teamName: team.name,
-      // 让 id 与 agent name 一致，便于工具从 context.agent 反查
       name: `${team.name}-lead`,
       branch: team.branch_prefix,
       workspacePath: path.join(
         this.config.workspace.root_dir,
         `${team.name}-lead`,
       ),
-      port: leaderPort,
       model: leaderModel,
       skills: team.leader.skills,
     };
+  }
+
+  /** 构建各角色在 pi 会话中使用的编排工具（通过 defineTool 直接调用 TaskManager）。 */
+  private buildOrchestratorTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
+    const tm = this.taskManager;
+
+    const registerWorkersTool = defineTool({
+      name: "register-workers",
+      label: "Register Workers",
+      description: "Register N worker agents (spawn sessions) without assigning tasks yet. Call dispatch-worker-tasks next.",
+      parameters: Type.Object({
+        leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
+        count: Type.Number({ description: "How many workers to register (indices 0 .. count-1)" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const leaderId = params.leaderId ?? spec.id;
+        const result = await tm.registerWorkers(leaderId, { leaderId, count: params.count });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const dispatchWorkerTasksTool = defineTool({
+      name: "dispatch-worker-tasks",
+      label: "Dispatch Worker Tasks",
+      description: "Dispatch task prompts to already-registered workers (after register-workers).",
+      parameters: Type.Object({
+        leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
+        tasks: Type.Array(
+          Type.Object({
+            index: Type.Optional(Type.Number({ description: "Worker index (0-based); defaults to task order" })),
+            prompt: Type.String({ description: "Task prompt for this worker" }),
+          }),
+          { description: "Tasks to assign to workers" }
+        ),
+      }),
+      execute: async (_toolCallId, params) => {
+        const leaderId = params.leaderId ?? spec.id;
+        const result = await tm.dispatchWorkerTasks(leaderId, { leaderId, tasks: params.tasks ?? [] });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const requestWorkersTool = defineTool({
+      name: "request-workers",
+      label: "Request Workers",
+      description: "Shortcut: register workers and dispatch tasks in one call. Prefer register-workers then dispatch-worker-tasks for two-phase flow.",
+      parameters: Type.Object({
+        leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
+        tasks: Type.Array(
+          Type.Object({
+            index: Type.Optional(Type.Number({ description: "Worker index (0-based)" })),
+            prompt: Type.String({ description: "Worker prompt for this task" }),
+          }),
+          { description: "Worker tasks to run" }
+        ),
+      }),
+      execute: async (_toolCallId, params) => {
+        const leaderId = params.leaderId ?? spec.id;
+        const result = await tm.requestWorkers(leaderId, { leaderId, tasks: params.tasks ?? [] });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const assignLeaderTaskTool = defineTool({
+      name: "assign-leader-task",
+      label: "Assign Leader Task",
+      description: "Assign a task prompt to a specific leader. Admin uses this to decide which leader should handle the work.",
+      parameters: Type.Object({
+        leaderId: Type.String({ description: "Target leader agent id" }),
+        prompt: Type.String({ description: "Task prompt to send to the leader (orchestration instruction)" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const result = await tm.assignLeaderTask(params.leaderId, params.prompt);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const notifyCompleteTool = defineTool({
+      name: "notify-complete",
+      label: "Notify Complete",
+      description: "Notify orchestrator that an agent has completed its work.",
+      parameters: Type.Object({
+        agentRole: Type.Union(
+          [
+            Type.Literal(AgentRoleEnum.Worker),
+            Type.Literal(AgentRoleEnum.Leader),
+            Type.Literal(AgentRoleEnum.Admin),
+          ],
+          { description: "Which role is completing" }
+        ),
+        agentId: Type.Optional(Type.String({ description: "Agent id (optional; defaults to current agent)" })),
+        changelog: Type.Optional(Type.String({ description: "Optional CHANGELOG content" })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const agentId = params.agentId ?? spec.id;
+        const result = await tm.notifyComplete({ ...params, agentId });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const reportProgressTool = defineTool({
+      name: "report-progress",
+      label: "Report Progress",
+      description: "Report progress for long running tasks.",
+      parameters: Type.Object({
+        agentId: Type.String({ description: "Agent id" }),
+        stage: Type.Optional(Type.String({ description: "Execution stage, e.g. start/changelog_update/before_notify_complete/done" })),
+        message: Type.String({ description: "Progress message" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const result = await tm.reportProgress(params);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const generateChangelogTool = defineTool({
+      name: "generate-changelog",
+      label: "Generate Changelog",
+      description: "Generate or read CHANGELOG.md for an agent workspace.",
+      parameters: Type.Object({
+        agentId: Type.String({ description: "Agent id whose workspace changelog to read" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const result = await tm.generateChangelog(params.agentId);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    return [
+      registerWorkersTool,
+      dispatchWorkerTasksTool,
+      requestWorkersTool,
+      assignLeaderTaskTool,
+      notifyCompleteTool,
+      reportProgressTool,
+      generateChangelogTool,
+    ];
   }
 
   async start(): Promise<void> {
@@ -396,51 +508,18 @@ export class Orchestrator {
       "utf8",
     );
 
-    this.localLogWatcher.start();
-
-    const staticAgentCount = 1 + this.config.teams.length;
-    const maxScan = Math.max(
-      staticAgentCount * 2,
-      this.config.runtime.ports.max_agents * 10,
-      100,
-    );
-    const resolvedBase = await findContiguousAvailablePorts(
-      this.config.runtime.ports.base,
-      staticAgentCount,
-      maxScan,
-    );
-    if (resolvedBase === null) {
-      throw new Error(
-        t("agent_ports_no_contiguous_block", {
-          count: staticAgentCount,
-          base: this.config.runtime.ports.base,
-          maxScan,
-        }),
-      );
-    }
-    const portBase = resolvedBase;
-    if (portBase !== this.config.runtime.ports.base) {
-      logger.info(
-        t("agent_port_base_shifted", {
-          configured: this.config.runtime.ports.base,
-          actual: portBase,
-        }),
-      );
-    }
-
-    const adminSpec = this.buildAdminSpec(portBase);
-    const leadersSpecs = this.config.teams.map((team, idx) =>
-      this.buildLeaderSpec(team, idx, portBase),
+    const adminSpec = this.buildAdminSpec();
+    const leadersSpecs = this.config.teams.map((team) =>
+      this.buildLeaderSpec(team),
     );
 
-    // 1) Admin workspace injection + start
+    // 1) Admin workspace 配置 + 启动 pi 会话
     await this.workspaceProvider.ensureWorkspace(adminSpec, []);
     await this.skillResolver.syncSkillsToWorkspace(
       adminSpec.skills ?? [],
       adminSpec.workspacePath,
     );
-    const adminBaseUrl = `http://127.0.0.1:${this.port}`;
-    // tools/plugins + agent definition
+
     const leadersCatalog = this.config.teams
       .map((team) => {
         const leaderId = `${team.name}-lead`;
@@ -472,7 +551,7 @@ export class Orchestrator {
       `2) You MUST call tool assign-leader-task with:`,
       `   { "leaderId": "<chosen_leaderId>", "prompt": "<task prompt>" }`,
       `3) Do NOT dispatch worker tasks yourself; the chosen leader assigns workers.`,
-      `4) You MUST report execution progress using tool report-progress (JSON args):`,
+      `4) You MUST report execution progress using tool report-progress:`,
       `   { "agentId": "${AgentRoleEnum.Admin}", "stage": "<stage>", "message": "<short message>" }`,
       `5) You MUST call report-progress at least 3 times:`,
       `   1) stage="start" (when you begin orchestration),`,
@@ -480,30 +559,44 @@ export class Orchestrator {
       `   3) stage="done" (as the last step before you finish).`,
       `6) If you receive DASHBOARD_INSTRUCTION:, treat it as a new operator goal — choose the best leader again if needed, then assign-leader-task and report-progress as above.`,
     ].join("\n");
-    await this.injectBaseOpenCodeForAgent(
-      adminSpec,
-      adminPromptWithGoal,
-      AgentRoleEnum.Admin,
-    );
-    await this.runtimeProvider.start(adminSpec);
-    await waitForRuntimeReady(this.runtimeProvider, adminSpec.port);
-    const adminSession = new AgentSession(`http://127.0.0.1:${adminSpec.port}`);
-    await adminSession.connect();
-    const adminS = await adminSession.createSession(AgentRoleEnum.Admin);
-    this.adminSessionId = adminS.sessionId;
-    await adminSession.sendPrompt(
-      adminSpec,
-      adminS.sessionId,
-      adminPromptWithGoal,
-      { agent: adminSpec.name },
-    );
 
-    // 2) Leaders workspace injection + start
+    const adminScopeCtx: OatWorkspaceScopeContext = {
+      workspaceRoot: this.config.workspace.root_dir,
+      workspacePath: adminSpec.workspacePath,
+      role: AgentRoleEnum.Admin,
+      teams: this.config.teams.map((t) => ({ name: t.name, worker: { total: t.worker.total } })),
+    };
+    await writeAgentWorkspaceConfig({
+      workspacePath: adminSpec.workspacePath,
+      agentName: adminSpec.name,
+      role: AgentRoleEnum.Admin,
+      scopeCtx: adminScopeCtx,
+      orchestratorBaseUrl: `http://127.0.0.1:${this.port}`,
+    });
+
+    const adminSystemPrompt = buildAgentSystemPrompt({
+      agentName: adminSpec.name,
+      description: `Admin agent`,
+      role: AgentRoleEnum.Admin,
+      promptText: adminPromptWithGoal,
+      skills: adminSpec.skills ?? [],
+    });
+
+    const adminTools = this.buildOrchestratorTools(adminSpec);
+    await this.runtimeProvider.start(adminSpec, {
+      systemPrompt: adminSystemPrompt,
+      customTools: adminTools,
+    });
+    const adminSessionId = adminSpec.id;
+
+    // 2) Leaders workspace 配置 + 启动 pi 会话（收集 initialPrompt，延后发送）
     const leaders: Array<{
       sessionId: string;
       spec: AgentInstanceSpec;
       team: TeamConfig;
     }> = [];
+    const leaderInitialPrompts: Array<{ specId: string; prompt: string }> = [];
+
     for (let i = 0; i < leadersSpecs.length; i++) {
       const team = this.config.teams[i];
       const spec = leadersSpecs[i];
@@ -514,18 +607,20 @@ export class Orchestrator {
         spec.workspacePath,
       );
 
-      // Leader workspace prompt 不直接包含 CLI Goal；由 admin 通过 assign-leader-task 下发时再触发 worker 分配
-      await this.injectBaseOpenCodeForAgent(
-        spec,
-        team.leader.prompt,
-        AgentRoleEnum.Leader,
-      );
-      await this.runtimeProvider.start(spec);
-      await waitForRuntimeReady(this.runtimeProvider, spec.port);
-
-      const leaderSession = new AgentSession(`http://127.0.0.1:${spec.port}`);
-      await leaderSession.connect();
-      const s = await leaderSession.createSession(`${spec.name}`);
+      const leaderScopeCtx: OatWorkspaceScopeContext = {
+        workspaceRoot: this.config.workspace.root_dir,
+        workspacePath: spec.workspacePath,
+        role: AgentRoleEnum.Leader,
+        teamName: team.name,
+        teams: this.config.teams.map((t) => ({ name: t.name, worker: { total: t.worker.total } })),
+      };
+      await writeAgentWorkspaceConfig({
+        workspacePath: spec.workspacePath,
+        agentName: spec.name,
+        role: AgentRoleEnum.Leader,
+        scopeCtx: leaderScopeCtx,
+        orchestratorBaseUrl: `http://127.0.0.1:${this.port}`,
+      });
 
       const taskWorkerCount = team.worker.total;
       const workerDesc =
@@ -556,7 +651,7 @@ export class Orchestrator {
         `3) After receiving ADMIN_TASK, parse the goal and split into subtasks (at most ${taskWorkerCount}). For each subtask, choose the most suitable worker by index (0..${taskWorkerCount - 1}) using each worker's description in "Available workers"; call dispatch-worker-tasks with tasks[].index and tasks[].prompt. You are NOT required to map the i-th subtask to worker-i — assign by fit.`,
         `4) After dispatch-worker-tasks, do NOT directly fetch the sources in the leader. Let workers do it; then summarize workers' CHANGELOG outputs.`,
         ``,
-        `5) You MUST report execution progress using tool report-progress (JSON args):`,
+        `5) You MUST report execution progress using tool report-progress:`,
         `   { "agentId": "${spec.id}", "stage": "<stage>", "message": "<short message>" }`,
         `6) You MUST call report-progress at least 3 times:`,
         `   1) stage="start" (when you start handling ADMIN_TASK),`,
@@ -565,22 +660,32 @@ export class Orchestrator {
         ``,
         `If you already dispatched, you can wait for workers to call notify-complete.`,
       ].join("\n");
-      await leaderSession.sendPrompt(spec, s.sessionId, leaderPrompt, {
-        agent: spec.name,
+
+      const leaderSystemPrompt = buildAgentSystemPrompt({
+        agentName: spec.name,
+        description: `Leader agent for ${team.name}`,
+        role: AgentRoleEnum.Leader,
+        promptText: team.leader.prompt,
+        skills: spec.skills ?? [],
       });
-      leaders.push({ sessionId: s.sessionId, spec, team });
+
+      const leaderTools = this.buildOrchestratorTools(spec);
+      await this.runtimeProvider.start(spec, {
+        systemPrompt: leaderSystemPrompt,
+        customTools: leaderTools,
+      });
+
+      leaders.push({ sessionId: spec.id, spec, team });
+      leaderInitialPrompts.push({ specId: spec.id, prompt: leaderPrompt });
     }
 
-    // After starting static agents, set next port for spawned workers
-    this.taskManager.setNextPort(portBase + 1 + leadersSpecs.length);
-
-    // register agents in TaskManager
+    // 先将全部 Agent 注册到 TaskManager，再发送任何 prompt（避免 prompt 触发工具调用时 agent 尚未注册的竞态）
     await this.taskManager.startAdminAndLeaders(
-      { sessionId: adminS.sessionId, spec: adminSpec },
+      { sessionId: adminSessionId, spec: adminSpec },
       leaders,
     );
 
-    // 3) Team 启动时预先创建 worker（Worker 作为进程池，直到 orchestrator 退出才统一 stopAll）
+    // 3) Team 启动时预先创建 worker 进程池
     for (const team of this.config.teams) {
       const leaderId = `${team.name}-lead`;
       const total = team.worker.total;
@@ -598,6 +703,12 @@ export class Orchestrator {
         leaderId,
         count: total,
       });
+    }
+
+    // 4) 所有 Agent 注册完毕后再统一发送初始 prompt（消除注册竞态）
+    await this.runtimeProvider.sendPrompt(adminSpec.id, adminPromptWithGoal);
+    for (const { specId, prompt } of leaderInitialPrompts) {
+      await this.runtimeProvider.sendPrompt(specId, prompt);
     }
 
     const appServer: Server = this.app.listen(this.port, "0.0.0.0", () => {
@@ -624,27 +735,6 @@ export class Orchestrator {
       logger.info(t("orchestrator_shutting_down", { signal }));
       void (async () => {
         try {
-          this.localLogWatcher.stop();
-        } catch {
-          /* noop */
-        }
-        try {
-          this.opencodeEventBridge.disposeAll();
-        } catch {
-          /* noop */
-        }
-        // 清理 admin session，避免 orchestrator 退出后 opencode 内残留大量 session。
-        if (this.adminSessionId) {
-          try {
-            await this.deleteOpencodeSession(this.adminSessionId);
-          } catch (e) {
-            logger.warn("opencode session delete failed", {
-              sessionId: this.adminSessionId,
-              error: e instanceof Error ? e.message : String(e),
-            });
-          }
-        }
-        try {
           await this.runtimeProvider.stopAll();
         } catch (e) {
           logger.warn(t("runtime_stop_all_failed"), {
@@ -660,70 +750,5 @@ export class Orchestrator {
     };
     process.on("SIGINT", () => shutdown("SIGINT"));
     process.on("SIGTERM", () => shutdown("SIGTERM"));
-  }
-
-  private async deleteOpencodeSession(sessionId: string): Promise<void> {
-    const executable = this.config.runtime.opencode.executable ?? "opencode";
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(executable, ["session", "delete", sessionId], {
-        stdio: ["ignore", "ignore", "pipe"],
-        env: process.env,
-      });
-      let stderr = "";
-      child.stderr?.on("data", (d) => {
-        stderr += d.toString("utf8");
-      });
-      child.on("error", reject);
-      child.on("exit", (code) => {
-        if (code === 0) return resolve();
-        reject(
-          new Error(
-            `opencode session delete exited: code=${code}. stderr=${stderr.trim()}`,
-          ),
-        );
-      });
-    });
-  }
-
-  private async injectBaseOpenCodeForAgent(
-    spec: AgentInstanceSpec,
-    prompt: string,
-    role: AgentRoleEnum.Admin | AgentRoleEnum.Leader,
-  ): Promise<void> {
-    const {
-      writeCustomTools,
-      writeCustomPlugins,
-      writeAgentMarkdown,
-      writeOatAgentMeta,
-      writeOatOrchestratorMeta,
-    } = await import("../opencode/workspace-inject");
-
-    await writeOatOrchestratorMeta(spec.workspacePath, {
-      baseUrl: `http://127.0.0.1:${this.port}`,
-    });
-    await writeOatAgentMeta(spec.workspacePath, { role });
-
-    await writeAgentMarkdown({
-      workspacePath: spec.workspacePath,
-      agentName: spec.name,
-      description: `${role} agent for ${spec.teamName ?? ""}`.trim(),
-      role,
-      model: spec.model,
-      promptText: prompt,
-      skills: spec.skills ?? [],
-      toolsAllowed: { write: true, edit: true, bash: true },
-    });
-
-    await writeCustomTools(spec.workspacePath, `http://127.0.0.1:${this.port}`, {
-      workspaceRoot: this.config.workspace.root_dir,
-      workspacePath: spec.workspacePath,
-      role,
-      teamName: spec.teamName,
-      teams: this.config.teams.map((t) => ({
-        name: t.name,
-        worker: { total: t.worker.total },
-      })),
-    });
-    await writeCustomPlugins(spec.workspacePath, { role });
   }
 }

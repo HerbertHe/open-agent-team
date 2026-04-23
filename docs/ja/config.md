@@ -60,9 +60,7 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | いいえ | enum (`local_process` \| `flue`) | `local_process` | runtime モード（現状は `local_process` のみ実装） |
-| `runtime.opencode.executable` | いいえ | string | `"opencode"` | `opencode` の実行ファイル名/パス |
-| `runtime.ports.base` | いいえ | number | `8848` | agent サーバのベースポート（Admin は base、Leader は base + 1 + index） |
-| `runtime.ports.max_agents` | いいえ | number | `10` | 現行コードでは厳密に適用されない（placeholder/設定意図） |
+| `runtime.pi.agentDir` | いいえ | string | `~/.pi/agent` | pi-coding-agent グローバル agent ディレクトリ（認証情報・設定・カスタムモデル用） |
 | `runtime.persistence.state_dir` | いいえ | string | `"<team.json のディレクトリ>/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
 
 `~` の展開：
@@ -75,7 +73,7 @@ loader の挙動：
 
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
-| `providers.env` | いいえ | record<string, string> | `{}` | 各 `opencode serve` プロセスに注入する環境変数（平文） |
+| `providers.env` | いいえ | record<string, string> | `{}` | 各 `pi AgentSession` プロセスに注入する環境変数（平文） |
 | `providers.env_from` | いいえ | record<string, string> | `{}` | key は注入名、value は **orchestrator プロセス** 上のソース環境変数名。`providers.env` に同名が既にある場合は **スキップ**（OS から上書きしない） |
 | `providers.openai_compatible.base_url` | いいえ | string | - | `OPENAI_BASE_URL` へ自動マッピング |
 | `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨）。設定時は既にマージ済みの `OPENAI_API_KEY` を上書き |

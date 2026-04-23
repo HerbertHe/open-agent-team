@@ -20,7 +20,7 @@
 | `models` | 是 | record<string, string> | - | 模型别名到 model id 的映射（供 admin/leader/worker 解析） |
 | `admin` | 是 | object | - | Admin agent 的角色定义：prompt、模型与 skills |
 | `teams` | 是 | array | - | 每个 team 一组 leader/worker 配置 |
-| `runtime` | 否 | object | 见下表 | 运行时模式、opencode 可执行文件与 Orchestrator/agent 端口基线、状态目录 |
+| `runtime` | 否 | object | 见下表 | 运行时模式、pi 可执行文件与 Orchestrator/agent 端口基线、状态目录 |
 | `workspace` | 否 | object | 见下表 | workspace 创建策略、根目录、git lfs/sparse-checkout 策略 |
 
 ## 2. `project`
@@ -51,7 +51,7 @@ loader 行为：
 | `admin.description` | 是 | string | - | Admin 的职责描述（写入 prompt/约束构建逻辑，由你在 team.json 填写） |
 | `admin.model` | 否 | string | 继承顶层 `model` | Admin 使用的模型（可为别名） |
 | `admin.prompt` | 是 | string | - | Admin 的系统/角色 prompt（支持 `*.md` 文件路径形式） |
-| `admin.skills` | 否 | string[] | `[]` | Admin 共享给 OpenCode 的 skills 列表（会同步到 Admin workspace） |
+| `admin.skills` | 否 | string[] | `[]` | Admin 共享给 pi-coding-agent 的 skills 列表（会同步到 Admin workspace） |
 
 ## 5. `runtime`
 
@@ -60,9 +60,7 @@ loader 行为：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | 否 | enum (`local_process` \| `flue`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
-| `runtime.opencode.executable` | 否 | string | `"opencode"` | `opencode` 可执行文件/命令名 |
-| `runtime.ports.base` | 否 | number | `8848` | agent 端口起始基线：Admin 使用 base，Leader 为 base+1+index |
-| `runtime.ports.max_agents` | 否 | number | `10` | 当前版本未参与硬性并发控制（预留配置位） |
+| `runtime.pi.agentDir` | 否 | string | `~/.pi/agent` | pi-coding-agent 全局 agent 目录（存储凭证、设置等） |
 | `runtime.persistence.state_dir` | 否 | string | `"<team.json目录>/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 
 home 展开：
@@ -77,9 +75,9 @@ home 展开：
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
-| `providers.env` | 否 | record<string, string> | `{}` | 直接注入到每个 `opencode serve` 进程的环境变量（明文，不建议放敏感 key） |
+| `providers.env` | 否 | record<string, string> | `{}` | 直接注入到每个 `pi AgentSession` 进程的环境变量（明文，不建议放敏感 key） |
 | `providers.env_from` | 否 | record<string, string> | `{}` | 环境变量映射：key 为注入名，value 为**当前 orchestrator 进程**中的源环境变量名；若该注入名已在 `providers.env` 中出现过则**跳过**（不再从系统环境覆盖） |
-| `providers.openai_compatible.base_url` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_BASE_URL` 注入 `opencode` 进程 |
+| `providers.openai_compatible.base_url` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_BASE_URL` 注入 `pi` 进程 |
 | `providers.openai_compatible.api_key` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_API_KEY`（不推荐明文）；若设置则会覆盖此前合并结果中的 `OPENAI_API_KEY` |
 | `providers.openai_compatible.api_key_env` | 否 | string | - | 在未设置 `api_key` 时生效：值为**环境变量名**；先取该名在**已合并配置**中的取值（含 `providers.env` 以及已应用的 `env_from`），**没有再读**当前进程环境变量，并写入子进程 `OPENAI_API_KEY` |
 
@@ -89,7 +87,7 @@ home 展开：
 2. 再应用 `providers.env_from`：仅当某个注入名尚未存在时才从系统环境补齐。
 3. 最后应用 `providers.openai_compatible`：`base_url`、`api_key` 直接写入；若未配置 `api_key` 且配置了 `api_key_env`，按上表「先配置文件、再环境变量」解析后写入 `OPENAI_API_KEY`。
 4. 秘密信息可放在系统环境变量中，通过 `env_from` 或 `api_key_env` 引用，避免明文写进 `team.json`；也可直接写在 `providers.env`（不建议提交仓库）。
-5. 若 `env_from` 仍需从系统读取但源变量不存在，或 `api_key_env` 在配置与环境中均解析不到有效值，运行时会 warning，`opencode` 可能因缺少 key 而调用失败。
+5. 若 `env_from` 仍需从系统读取但源变量不存在，或 `api_key_env` 在配置与环境中均解析不到有效值，运行时会 warning，`pi` 可能因缺少 key 而调用失败。
 
 ## 6. `workspace`
 

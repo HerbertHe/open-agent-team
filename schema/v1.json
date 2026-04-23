@@ -80,30 +80,16 @@
           "enum": ["local_process", "flue"],
           "default": "local_process"
         },
-        "opencode": {
+        "pi": {
           "type": "object",
           "additionalProperties": false,
+          "description": "pi-coding-agent runtime configuration",
           "properties": {
-            "executable": {
+            "agentDir": {
               "type": "string",
               "minLength": 1,
-              "default": "opencode"
-            }
-          }
-        },
-        "ports": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "base": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 8848
-            },
-            "max_agents": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 10
+              "default": "~/.pi/agent",
+              "description": "pi-coding-agent global agent directory (credentials, settings, custom models)"
             }
           }
         },

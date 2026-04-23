@@ -82,8 +82,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   const runtimeDefaults = {
     mode: RuntimeModeEnum.LocalProcess,
-    opencode: { executable: "opencode" },
-    ports: { base: 8848, max_agents: 10 },
+    pi: { agentDir: undefined },
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
   const providersDefaults = {
@@ -132,8 +131,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     },
     runtime: {
       mode: runtime.mode,
-      opencode: runtime.opencode,
-      ports: runtime.ports,
+      pi: { agentDir: runtime.pi?.agentDir ?? `${process.env.HOME ?? "~"}/.pi/agent` },
       persistence: {
         state_dir: resolveTeamDataPath(
           configPathAbs,

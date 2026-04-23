@@ -3,22 +3,19 @@ import path from "node:path";
 import { AgentRoleEnum } from "../types";
 import type { ResolvedConfig, AgentInstanceSpec, TeamConfig } from "../types";
 import type { WorkspaceProvider } from "../sandbox/interface";
-import type { RuntimeProvider } from "../sandbox/interface";
+import type { PiSessionProvider } from "../sandbox/local-process";
 import { MergeManager } from "../git/merge-manager";
 import { SkillResolver } from "../skills/skill-resolver";
 import { ChangelogManager } from "../changelog/changelog-manager";
-import { AgentSession } from "./agent-session";
 import {
-  writeAgentMarkdown,
-  writeCustomPlugins,
-  writeCustomTools,
-  writeOatAgentMeta,
-  writeOatOrchestratorMeta,
-} from "../opencode/workspace-inject";
+  writeAgentWorkspaceConfig,
+  buildAgentSystemPrompt,
+  type OatWorkspaceScopeContext,
+} from "../pi/workspace-inject";
 import { logger } from "../utils/logger";
-import { waitForRuntimeReady } from "../sandbox/runtime-ready";
-import { isPortAvailable } from "../utils/available-port";
 import { t } from "../i18n/i18n";
+import { defineTool } from "@mariozechner/pi-coding-agent";
+import { Type } from "typebox";
 import type {
   AgentRuntimeState,
   NotifyCompleteBody,
@@ -33,26 +30,19 @@ import type { ObservabilityHub } from "./observability-hub";
 export class TaskManager {
   private readonly agents = new Map<string, AgentRuntimeState>();
   private readonly teamByLeaderId = new Map<string, TeamConfig>();
-  private nextPort: number;
-  /** 记录某 leader 是否已经收到 ADMIN_TASK（用于 admin 回退/超时逻辑） */
   private readonly leaderTaskAssignedAt = new Map<string, number>();
-  /** 记录某 leader 是否已经开始过 worker dispatch（用于 worker 分配兜底） */
   private readonly leaderDispatchStartedAt = new Map<string, number>();
-  /** 记录某 worker 是否已经调用 notify-complete */
   private readonly workerNotifyCompleteAt = new Map<string, number>();
+
   constructor(
     private readonly config: ResolvedConfig,
     private readonly workspaceProvider: WorkspaceProvider,
-    private readonly runtimeProvider: RuntimeProvider,
+    private readonly runtimeProvider: PiSessionProvider,
     private readonly mergeManager: MergeManager,
     private readonly orchestratorBaseUrl: string,
     private readonly skillResolver: SkillResolver,
     private readonly observabilityHub: ObservabilityHub,
-    private readonly onAgentRegistered?: (state: AgentRuntimeState) => void,
-    private readonly onAgentRemoved?: (agentId: string) => void
-  ) {
-    this.nextPort = config.runtime.ports.base;
-  }
+  ) {}
 
   getObservabilityHub(): ObservabilityHub {
     return this.observabilityHub;
@@ -60,14 +50,6 @@ export class TaskManager {
 
   getAllAgents(): AgentRuntimeState[] {
     return Array.from(this.agents.values());
-  }
-
-  /** 供 ~/.local/share/opencode/log 解析时按端口关联到 Agent */
-  getAgentPortList(): Array<{ agentId: string; port: number }> {
-    return Array.from(this.agents.values()).map((a) => ({
-      agentId: a.spec.id,
-      port: a.spec.port,
-    }));
   }
 
   getObservabilityGraph(): ObservabilityGraph {
@@ -89,7 +71,6 @@ export class TaskManager {
         id: a.spec.id,
         role: a.spec.role,
         label: a.spec.name,
-        port: a.spec.port,
         teamName: a.spec.teamName,
         sessionId: a.sessionId,
       });
@@ -98,7 +79,6 @@ export class TaskManager {
       }
     }
 
-    // Leader → Worker：合并 leader.workers 与同 team 下已注册的 Worker（仅展示真实 Agent，不再生成「待创建」占位节点）
     for (const leader of this.agents.values()) {
       if (leader.spec.role !== AgentRoleEnum.Leader) continue;
       const teamName = leader.spec.teamName;
@@ -121,13 +101,8 @@ export class TaskManager {
     return { nodes, edges };
   }
 
-  setNextPort(p: number): void {
-    this.nextPort = p;
-  }
-
   registerAgent(state: AgentRuntimeState): void {
     this.agents.set(state.spec.id, state);
-    this.onAgentRegistered?.(state);
   }
 
   getAgent(agentId: string): AgentRuntimeState {
@@ -150,37 +125,74 @@ export class TaskManager {
     }
   }
 
-  /**
-   * 自 nextPort 起向后寻找第一个可绑定的端口（避免与已占用端口冲突）。
-   */
-  private async allocateNextAvailablePort(): Promise<number> {
-    const maxAttempts = Math.max(200, this.config.runtime.ports.max_agents * 20);
-    let p = this.nextPort;
-    for (let k = 0; k < maxAttempts; k++) {
-      if (await isPortAvailable(p)) {
-        this.nextPort = p + 1;
-        return p;
-      }
-      p += 1;
-    }
-    throw new Error(t("no_free_worker_port", { maxAttempts }));
-  }
-
-  private getSparsePathsForLeader(team: TeamConfig): string[] {
-    return team.leader.repos ?? [];
-  }
-
   private getSkillsForLeader(team: TeamConfig): string[] {
     return team.leader.skills ?? [];
   }
 
   private computeWorkerSkills(team: TeamConfig): string[] {
-    // Worker skills 继承 leader skills；extra_skills 将在请求时追加（如果你扩展请求参数）
     return [...(team.leader.skills ?? [])];
   }
 
+  /** 构建 worker 专用编排工具（仅包含 worker 需要的工具子集）。 */
+  private buildWorkerTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
+    const tm = this;
+
+    const notifyCompleteTool = defineTool({
+      name: "notify-complete",
+      label: "Notify Complete",
+      description: "Notify orchestrator that a worker has completed its work.",
+      parameters: Type.Object({
+        agentRole: Type.Union(
+          [
+            Type.Literal(AgentRoleEnum.Worker),
+            Type.Literal(AgentRoleEnum.Leader),
+            Type.Literal(AgentRoleEnum.Admin),
+          ],
+          { description: "Which role is completing" }
+        ),
+        agentId: Type.Optional(Type.String({ description: "Agent id (optional; defaults to current agent)" })),
+        changelog: Type.Optional(Type.String({ description: "Optional CHANGELOG content" })),
+      }),
+      execute: async (_toolCallId, params) => {
+        const agentId = params.agentId ?? spec.id;
+        const result = await tm.notifyComplete({ ...params, agentId });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const reportProgressTool = defineTool({
+      name: "report-progress",
+      label: "Report Progress",
+      description: "Report progress for long running tasks.",
+      parameters: Type.Object({
+        agentId: Type.String({ description: "Agent id" }),
+        stage: Type.Optional(Type.String({ description: "Execution stage" })),
+        message: Type.String({ description: "Progress message" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const result = await tm.reportProgress(params);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    const generateChangelogTool = defineTool({
+      name: "generate-changelog",
+      label: "Generate Changelog",
+      description: "Generate or read CHANGELOG.md for an agent workspace.",
+      parameters: Type.Object({
+        agentId: Type.String({ description: "Agent id whose workspace changelog to read" }),
+      }),
+      execute: async (_toolCallId, params) => {
+        const result = await tm.generateChangelog(params.agentId);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
+      },
+    });
+
+    return [notifyCompleteTool, reportProgressTool, generateChangelogTool];
+  }
+
   /**
-   * 拉起单个 Worker：workspace → opencode → 注册拓扑与事件桥（不下发任务 prompt）。
+   * 拉起单个 Worker：workspace → pi 会话 → 注册拓扑与事件桥（不下发任务 prompt）。
    */
   private async spawnSingleWorker(leader: AgentRuntimeState, team: TeamConfig, workerIndex: number): Promise<void> {
     const leaderId = leader.spec.id;
@@ -191,17 +203,16 @@ export class TaskManager {
     }
 
     const leaderSkills = this.getSkillsForLeader(team);
-    const sparsePaths = this.getSparsePathsForLeader(team);
+    const sparsePaths = team.leader.repos ?? [];
 
     const branch = `${team.branch_prefix}/worker-${workerIndex}`;
-    const port = await this.allocateNextAvailablePort();
     this.observabilityHub.emit({
       source: "orchestrator",
       type: "worker.bootstrap.start",
       agentId: workerId,
       role: AgentRoleEnum.Worker,
       sessionId: "",
-      payload: { leaderId, port, teamName: team.name, taskIndex: workerIndex },
+      payload: { leaderId, teamName: team.name, taskIndex: workerIndex },
     });
     const spec: AgentInstanceSpec = {
       id: workerId,
@@ -210,7 +221,6 @@ export class TaskManager {
       name: workerId,
       branch,
       workspacePath: path.join(this.config.workspace.root_dir, workerId),
-      port,
       model: workerModel,
       skills: this.computeWorkerSkills(team),
     };
@@ -221,54 +231,48 @@ export class TaskManager {
     spec.skills = workerSkills;
     await this.skillResolver.syncSkillsToWorkspace(workerSkills, spec.workspacePath);
 
-    await writeOatOrchestratorMeta(spec.workspacePath, { baseUrl: this.orchestratorBaseUrl });
-    await writeOatAgentMeta(spec.workspacePath, {
-      role: AgentRoleEnum.Worker,
-      allowedPushPattern: ".*\\/worker-\\d+",
-    });
-
-    await writeAgentMarkdown({
-      workspacePath: spec.workspacePath,
-      agentName: spec.name,
-      description: `Worker agent for ${team.name} (index ${workerIndex})`,
-      role: AgentRoleEnum.Worker,
-      model: spec.model,
-      promptText: team.worker.prompt,
-      skills: workerSkills,
-      toolsAllowed: { write: true, edit: true, bash: true },
-    });
-
-    await writeCustomTools(spec.workspacePath, this.orchestratorBaseUrl, {
+    const workerScopeCtx: OatWorkspaceScopeContext = {
       workspaceRoot: this.config.workspace.root_dir,
       workspacePath: spec.workspacePath,
       role: AgentRoleEnum.Worker,
       teamName: team.name,
-      teams: this.config.teams.map((t) => ({
-        name: t.name,
-        worker: { total: t.worker.total },
-      })),
+      teams: this.config.teams.map((t) => ({ name: t.name, worker: { total: t.worker.total } })),
+    };
+    await writeAgentWorkspaceConfig({
+      workspacePath: spec.workspacePath,
+      agentName: spec.name,
+      role: AgentRoleEnum.Worker,
+      scopeCtx: workerScopeCtx,
+      orchestratorBaseUrl: this.orchestratorBaseUrl,
     });
-    await writeCustomPlugins(spec.workspacePath, { role: AgentRoleEnum.Worker });
 
-    await this.runtimeProvider.start(spec);
-    await waitForRuntimeReady(this.runtimeProvider, port);
+    const workerSystemPrompt = buildAgentSystemPrompt({
+      agentName: spec.name,
+      description: `Worker agent for ${team.name} (index ${workerIndex})`,
+      role: AgentRoleEnum.Worker,
+      promptText: team.worker.prompt,
+      skills: workerSkills,
+    });
 
-    const session = new AgentSession(`http://127.0.0.1:${port}`);
-    await session.connect();
-    const s = await session.createSession(`worker-${workerIndex}`);
+    const workerTools = this.buildWorkerTools(spec);
+    await this.runtimeProvider.start(spec, {
+      systemPrompt: workerSystemPrompt,
+      customTools: workerTools,
+    });
 
-    this.registerAgent({ spec, sessionId: s.sessionId, workers: [] });
+    const sessionId = spec.id;
+    this.registerAgent({ spec, sessionId, workers: [] });
     leader.workers.push(workerId);
     this.observabilityHub.emit({
       source: "orchestrator",
       type: "worker.spawned",
       agentId: workerId,
       role: AgentRoleEnum.Worker,
-      sessionId: s.sessionId,
-      payload: { leaderId, port, teamName: team.name, taskIndex: workerIndex },
+      sessionId,
+      payload: { leaderId, teamName: team.name, taskIndex: workerIndex },
     });
 
-    logger.info(t("worker_registered"), { workerId, port });
+    logger.info(t("worker_registered"), { workerId });
   }
 
   private buildWorkerDispatchPrompt(workerId: string, taskPrompt: string): string {
@@ -277,21 +281,20 @@ export class TaskManager {
       ``,
       `Rules (MUST follow):`,
       `- Update the workspace root CHANGELOG.md according to the system constraints (if there are no code changes, still record the reason).`,
-      `- Report execution progress using tool report-progress (JSON args):`,
+      `- Report execution progress using tool report-progress:`,
       `  { "agentId": "${workerId}", "stage": "<stage>", "message": "<short message>" }`,
       `- You MUST call report-progress at least 3 times:`,
       `  1) stage="start" (when you begin working),`,
       `  2) stage="changelog_update" (immediately after finishing CHANGELOG.md update),`,
       `  3) stage="before_notify_complete" (right before calling notify-complete).`,
       `- Optionally call stage="done" after notify-complete returns.`,
-      `- After updating CHANGELOG.md, MUST call tool notify-complete exactly once with JSON args:`,
+      `- After updating CHANGELOG.md, MUST call tool notify-complete exactly once with:`,
       `  { "agentRole": "${AgentRoleEnum.Worker}", "agentId": "${workerId}" }`,
       `- You MUST NOT omit agentId; the orchestrator relies on it to find the correct Worker runtime.`,
       `- You MUST NOT rely on filling the changelog argument; it can be omitted.`,
     ].join("\n");
   }
 
-  /** 仅注册 N 个 Worker，由 Leader 稍后调用 {@link dispatchWorkerTasks} 下发任务。 */
   async registerWorkers(leaderId: string, body: ToolRegisterWorkersBody): Promise<SpawnWorkersResult> {
     const leader = this.getAgent(leaderId);
     const team = leader.leaderTeam;
@@ -327,7 +330,6 @@ export class TaskManager {
         const wid = `${team.name}-worker-${i}`;
         workerIds.push(wid);
         if (this.agents.has(wid)) {
-          // 幂等：已存在则跳过 spawn，但确保 leader.workers 里包含它
           if (!leader.workers.includes(wid)) leader.workers.push(wid);
         } else {
           workerIdsToSpawn.push(i);
@@ -361,7 +363,6 @@ export class TaskManager {
     }
   }
 
-  /** 向已注册的 Worker 下发任务（每条任务按 index 或数组顺序对应 worker-{index}）。 */
   async dispatchWorkerTasks(leaderId: string, body: ToolDispatchWorkerTasksBody): Promise<{ ok: true }> {
     const leader = this.getAgent(leaderId);
     const team = leader.leaderTeam;
@@ -392,54 +393,49 @@ export class TaskManager {
           throw new Error(t("worker_not_registered", { workerId }));
         }
 
-        const prompt = this.buildWorkerDispatchPrompt(workerId, tasks[i].prompt);
-        const session = new AgentSession(`http://127.0.0.1:${agent.spec.port}`);
-        await session.connect();
-        try {
-          const promptPreview = tasks[i].prompt.length > 200 ? `${tasks[i].prompt.slice(0, 197)}...` : tasks[i].prompt;
-          this.observabilityHub.emit({
-            source: "orchestrator",
-            type: "worker.task.dispatched",
-            agentId: workerId,
-            role: AgentRoleEnum.Worker,
-            sessionId: agent.sessionId,
-            payload: { leaderId, taskIndex: idx, promptPreview },
-          });
-          await session.sendPrompt(agent.spec, agent.sessionId, prompt, { agent: agent.spec.name });
-          this.observabilityHub.emit({
-            source: "orchestrator",
-            type: "worker.task.prompt_sent",
-            agentId: workerId,
-            role: AgentRoleEnum.Worker,
-            sessionId: agent.sessionId,
-            payload: { leaderId, taskIndex: idx, promptPreview },
-          });
+        // 若该 Worker 已完成过上一轮任务，则先重置 session（清空历史），再下发新任务
+        // 同时清除上一轮的完成记录，以确保本轮超时监控正常触发
+        if (this.workerNotifyCompleteAt.has(workerId)) {
+          this.workerNotifyCompleteAt.delete(workerId);
+          await this.runtimeProvider.resetSession(workerId);
+        }
 
-          // 如果 worker 在一定时间内仍未回调 notify-complete，则发出超时事件，便于定位卡点
-          const NOTIFY_COMPLETE_TIMEOUT_MS = 30_000;
-          setTimeout(() => {
-            if (!this.workerNotifyCompleteAt.has(workerId)) {
-              this.observabilityHub.emit({
-                source: "orchestrator",
-                type: "worker.notify_complete_timeout",
-                agentId: workerId,
-                role: AgentRoleEnum.Worker,
-                sessionId: agent.sessionId,
-                payload: { leaderId, taskIndex: idx, timeoutMs: NOTIFY_COMPLETE_TIMEOUT_MS },
-              });
-            }
-          }, NOTIFY_COMPLETE_TIMEOUT_MS).unref();
-        } catch (err) {
+        const prompt = this.buildWorkerDispatchPrompt(workerId, tasks[i].prompt);
+        const promptPreview = tasks[i].prompt.length > 200 ? `${tasks[i].prompt.slice(0, 197)}...` : tasks[i].prompt;
+        this.observabilityHub.emit({
+          source: "orchestrator",
+          type: "worker.task.dispatched",
+          agentId: workerId,
+          role: AgentRoleEnum.Worker,
+          sessionId: agent.sessionId,
+          payload: { leaderId, taskIndex: idx, promptPreview },
+        });
+
+        // fire-and-forget：Worker 并行执行，通过 notify-complete 工具回报完成
+        void this.runtimeProvider.sendPrompt(workerId, prompt).catch((err: unknown) => {
           this.observabilityHub.emit({
             source: "orchestrator",
             type: "worker.dispatch_failed",
             agentId: workerId,
             role: AgentRoleEnum.Worker,
             sessionId: agent.sessionId,
-            payload: { leaderId, error: err instanceof Error ? err.message : String(err) },
+            payload: { leaderId, taskIndex: idx, error: err instanceof Error ? err.message : String(err) },
           });
-          throw err;
-        }
+        });
+
+        const NOTIFY_COMPLETE_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟
+        setTimeout(() => {
+          if (!this.workerNotifyCompleteAt.has(workerId)) {
+            this.observabilityHub.emit({
+              source: "orchestrator",
+              type: "worker.notify_complete_timeout",
+              agentId: workerId,
+              role: AgentRoleEnum.Worker,
+              sessionId: agent.sessionId,
+              payload: { leaderId, taskIndex: idx, timeoutMs: NOTIFY_COMPLETE_TIMEOUT_MS },
+            });
+          }
+        }, NOTIFY_COMPLETE_TIMEOUT_MS).unref();
 
         logger.info(t("worker_task_dispatched"), { workerId, taskIndex: idx });
       }
@@ -467,10 +463,6 @@ export class TaskManager {
     }
   }
 
-  /**
-   * 将 admin 决定的任务 prompt 发送给指定 leader（由 leader 进一步分配给 worker）。
-   * 注意：leader 在 orchestrator 启动阶段已创建并注册 session。
-   */
   async assignLeaderTask(leaderId: string, prompt: string): Promise<{ ok: true }> {
     const leader = this.getAgent(leaderId);
     if (leader.spec.role !== AgentRoleEnum.Leader) {
@@ -489,19 +481,10 @@ export class TaskManager {
     });
 
     logger.info("leader task assigned", { leaderId });
-
-    const leaderSession = new AgentSession(`http://127.0.0.1:${leader.spec.port}`);
-    await leaderSession.connect();
-    await leaderSession.sendPrompt(leader.spec, leader.sessionId, `ADMIN_TASK:\n${prompt}`, {
-      agent: leader.spec.name,
-    });
+    await this.runtimeProvider.sendPrompt(leaderId, `ADMIN_TASK:\n${prompt}`);
     return { ok: true };
   }
 
-  /**
-   * Dashboard：仅向 Admin 会话追加操作员指令（DASHBOARD_INSTRUCTION）。
-   * 由 Admin 模型根据「Available Leaders」自行判断并调用 assign-leader-task；编排器不默认派给任一 Leader。
-   */
   async sendAdminDashboardInstruction(prompt: string): Promise<{ ok: true }> {
     const trimmed = prompt.trim();
     if (!trimmed) throw new Error("admin_instruction: prompt must be non-empty");
@@ -519,11 +502,7 @@ export class TaskManager {
       payload: { preview },
     });
 
-    const session = new AgentSession(`http://127.0.0.1:${admin.spec.port}`);
-    await session.connect();
-    await session.sendPrompt(admin.spec, admin.sessionId, `DASHBOARD_INSTRUCTION:\n${trimmed}`, {
-      agent: admin.spec.name,
-    });
+    await this.runtimeProvider.sendPrompt(admin.spec.id, `DASHBOARD_INSTRUCTION:\n${trimmed}`);
     return { ok: true };
   }
 
@@ -535,10 +514,6 @@ export class TaskManager {
     return this.leaderDispatchStartedAt.has(leaderId);
   }
 
-  /**
-   * 兼容：一次注册并下发（等价于先 {@link registerWorkers} 再 {@link dispatchWorkerTasks}）。
-   * 推荐 Leader 使用 register-workers + dispatch-worker-tasks 两步。
-   */
   async requestWorkers(leaderId: string, body: ToolRequestWorkersBody): Promise<SpawnWorkersResult> {
     const leader = this.getAgent(leaderId);
     const team = leader.leaderTeam;
@@ -687,8 +662,6 @@ export class TaskManager {
     const worker = this.getAgent(workerId);
     const team = this.resolveTeam(worker.spec.teamName ?? "");
 
-    // leader id
-    const leaderId = `${team.name}-lead`; // not used; may mismatch. We'll infer:
     const leader = Array.from(this.agents.values()).find(
       (a) => a.spec.role === AgentRoleEnum.Leader && a.spec.teamName === team.name
     );
@@ -703,7 +676,6 @@ export class TaskManager {
       payload: { leaderId: leader.spec.id, workerBranch: worker.spec.branch, leaderBranch: leader.spec.branch },
     });
 
-    // merge worker -> leader
     await this.mergeManager.mergeBranch(leader.spec.workspacePath, worker.spec.branch, leader.spec.branch);
 
     this.observabilityHub.emit({
@@ -718,9 +690,6 @@ export class TaskManager {
     const mgr = new ChangelogManager();
     const cl = changelog ?? (await mgr.readChangelog(worker.spec.workspacePath));
 
-    // notify leader with worker changelog
-    const leaderSession = new AgentSession(`http://127.0.0.1:${leader.spec.port}`);
-    await leaderSession.connect();
     this.observabilityHub.emit({
       source: "orchestrator",
       type: "prompt.leader.after_worker",
@@ -729,11 +698,9 @@ export class TaskManager {
       sessionId: leader.sessionId,
       payload: { workerId },
     });
-    await leaderSession.sendPrompt(
-      leader.spec,
-      leader.sessionId,
+    await this.runtimeProvider.sendPrompt(
+      leader.spec.id,
       `Worker ${workerId} has completed and its changes have been merged into your branch.\n\nSummarize the following worker CHANGELOG into your CHANGELOG:\n${cl}`,
-      { agent: leader.spec.name }
     );
 
     logger.success(t("worker_merged_into_leader"), { workerId, leaderId: leader.spec.id });
@@ -754,7 +721,6 @@ export class TaskManager {
       payload: { baseBranch: this.config.project.base_branch, leaderBranch: leader.spec.branch },
     });
 
-    // merge leader -> main
     await this.mergeManager.mergeToMain(
       leader.spec.workspacePath,
       leader.spec.branch,
@@ -773,11 +739,9 @@ export class TaskManager {
     const mgr = new ChangelogManager();
     const cl = changelog ?? (await mgr.readChangelog(leader.spec.workspacePath));
 
-    // notify admin
     const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
     if (!admin) throw new Error(t("admin_not_found"));
-    const adminSession = new AgentSession(`http://127.0.0.1:${admin.spec.port}`);
-    await adminSession.connect();
+
     this.observabilityHub.emit({
       source: "orchestrator",
       type: "prompt.admin.after_leader",
@@ -786,16 +750,18 @@ export class TaskManager {
       sessionId: admin.sessionId,
       payload: { leaderId },
     });
-    await adminSession.sendPrompt(
-      admin.spec,
-      admin.sessionId,
+    await this.runtimeProvider.sendPrompt(
+      admin.spec.id,
       `Leader ${leaderId} has completed and has been merged into main.\n\nYour delivery summary should include this team's CHANGELOG:\n${cl}`,
-      { agent: admin.spec.name }
     );
 
-    // 按当前需求：Worker 作为一组进程池在 team 启动时预创建；
-    // 只在 orchestrator 退出时由 runtimeProvider.stopAll() 统一销毁。
-    // 因此这里不再 stop/delete worker/leader。
+    // Admin 已收到通知，异步清理 Leader 和 Worker 会话（释放内存，移除拓扑）
+    this.cleanupLeaderAndWorkers(leaderId).catch((err: unknown) => {
+      logger.warn("cleanupLeaderAndWorkers failed", {
+        leaderId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return { ok: true, mergedToMain: true };
   }
@@ -816,7 +782,6 @@ export class TaskManager {
         sessionId: w.sessionId,
         payload: { leaderId },
       });
-      this.onAgentRemoved?.(w.spec.id);
       try {
         await this.runtimeProvider.stop(w.spec.id);
       } catch {}
@@ -834,7 +799,6 @@ export class TaskManager {
       sessionId: leader.sessionId,
       payload: {},
     });
-    this.onAgentRemoved?.(leader.spec.id);
     try {
       await this.runtimeProvider.stop(leader.spec.id);
     } catch {}
@@ -844,4 +808,3 @@ export class TaskManager {
     this.agents.delete(leader.spec.id);
   }
 }
-

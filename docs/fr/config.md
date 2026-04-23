@@ -20,7 +20,7 @@ Voici le dictionnaire des champs (type / requis / défaut / usage).
 | `models` | Oui | record<string, string> | - | Mapping d'alias de modèles (utilisé par admin/leader/worker) |
 | `admin` | Oui | object | - | Définition de l'agent Admin : prompt, modèle et skills |
 | `teams` | Oui | array | - | Chaque équipe contient un Leader et une définition Worker |
-| `runtime` | Non | object | Voir les tableaux ci-dessous | Mode d'exécution, ports de base, répertoire d'état |
+| `runtime` | Non | object | Voir les tableaux ci-dessous | Mode d'exécution et répertoire d'état |
 | `workspace` | Non | object | Voir les tableaux ci-dessous | Stratégie workspace, root dir, comportement git lfs/sparse-checkout |
 
 ## 2. `project`
@@ -60,9 +60,7 @@ Comportement du loader :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | Non | enum (`local_process` \| `flue`) | `local_process` | Mode runtime (implémente actuellement seulement `local_process`) |
-| `runtime.opencode.executable` | Non | string | `"opencode"` | Nom/chemin de l'exécutable `opencode` |
-| `runtime.ports.base` | Non | number | `8848` | Port de base pour serveurs d'agents (Admin utilise `base`, Leader utilise `base + 1 + index`) |
-| `runtime.ports.max_agents` | Non | number | `10` | Non appliqué strictement dans le code actuel (placeholder/préférence) |
+| `runtime.pi.agentDir` | Non | string | `~/.pi/agent` | Répertoire global de l'agent pi-coding-agent (pour les identifiants, paramètres et modèles personnalisés) |
 | `runtime.persistence.state_dir` | Non | string | `"<répertoire de team.json>/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
 
 Expansion de `~` :
@@ -75,7 +73,7 @@ Expansion de `~` :
 
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
-| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans chaque processus `opencode serve` |
+| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans chaque processus `pi AgentSession` |
 | `providers.env_from` | Non | record<string, string> | `{}` | Mapping : clé = nom injecté, valeur = nom de variable source sur le **processus orchestrator** ; si cette clé existe déjà via `providers.env`, l'entrée est **ignorée** (pas d'écrasement depuis l'OS) |
 | `providers.openai_compatible.base_url` | Non | string | - | Mapping pratique vers `OPENAI_BASE_URL` |
 | `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) ; si défini, écrase toute valeur `OPENAI_API_KEY` déjà fusionnée |

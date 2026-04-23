@@ -30,7 +30,7 @@ export enum WorkspaceProviderTypeEnum {
  * 运行时模式（进程运行或 Flue sandbox 运行）。
  */
 export enum RuntimeModeEnum {
-  /** local_process：在本机启动多个 opencode serve 进程（单机方案） */
+  /** local_process：在本机以进程内 pi AgentSession SDK 运行（单机方案） */
   LocalProcess = "local_process",
   /** flue：把 agent 执行放入 Flue 的沙箱运行时（CI/云端方案） */
   Flue = "flue",

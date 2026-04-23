@@ -40,16 +40,12 @@ type MessageKey =
   | "workspace_root_not_found"
   | "workspace_inspection"
   | "runtime_stop_all_failed"
-  | "runtime_ready_timeout"
   | "model_inheritance_missing"
   | "team_json_not_found_oat_env"
   | "team_json_not_found"
   | "provider_docker_disabled"
   | "provider_flue_placeholder"
   | "workspace_provider_unimplemented"
-  | "agent_port_base_shifted"
-  | "agent_ports_no_contiguous_block"
-  | "no_free_worker_port"
   | "worker_registered"
   | "worker_task_dispatched"
   | "worker_already_registered"
@@ -94,8 +90,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     workspace_root_not_found: "Workspace root not found: {workspaceRoot}",
     workspace_inspection: "Workspace inspection",
     runtime_stop_all_failed: "runtimeProvider.stopAll failed",
-    runtime_ready_timeout:
-      'Timed out waiting for opencode HTTP on 127.0.0.1:{port} ({timeoutMs}ms). Check orchestrator stderr for spawn error / process exited lines; see ~/.local/share/opencode/log/*.log. Common causes: port in use, opencode missing from PATH, or missing model/API env.',
     model_inheritance_missing:
       "Missing model for {fieldPath}. Set it explicitly, or provide a parent model (team.worker.model -> team.leader.model -> admin.model -> model).",
     team_json_not_found_oat_env: "team.json not found (OAT_TEAM_JSON): {path}",
@@ -103,11 +97,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     provider_docker_disabled: "DockerProvider is not enabled. Use local_process runtime.",
     provider_flue_placeholder: "FlueProvider is optional and not implemented in this repository.",
     workspace_provider_unimplemented: 'Workspace provider "{provider}" is not implemented yet',
-    agent_port_base_shifted:
-      "runtime.ports.base was {configured}; part of that range was in use. Using {actual} for Admin and Leader opencode serve ports.",
-    agent_ports_no_contiguous_block:
-      "Could not find {count} consecutive free TCP ports on 127.0.0.1 starting from {base} (searched up to {maxScan} ports ahead).",
-    no_free_worker_port: "Could not allocate a free TCP port for a worker after {maxAttempts} attempts.",
     worker_registered: "Worker registered and runtime ready.",
     worker_task_dispatched: "Dispatched task to worker.",
     worker_already_registered: "Worker already exists: {workerId}",
@@ -150,8 +139,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     workspace_root_not_found: "未找到 workspace 根目录：{workspaceRoot}",
     workspace_inspection: "Workspace 巡检",
     runtime_stop_all_failed: "runtimeProvider.stopAll 失败",
-    runtime_ready_timeout:
-      "等待 127.0.0.1:{port} 上的 opencode HTTP 就绪超时（{timeoutMs}ms）。请查看编排器终端中该 agent 的 stderr（含 spawn error / process exited），并打开 ~/.local/share/opencode/log 下最新 .log。常见原因：端口被占用、未安装 opencode 或不在 PATH、模型/API 等环境变量未注入到子进程。",
     model_inheritance_missing:
       "缺少模型配置：{fieldPath}。请显式设置，或在上级提供模型（team.worker.model -> team.leader.model -> admin.model -> model）。",
     team_json_not_found_oat_env: "未找到 team.json（OAT_TEAM_JSON）：{path}",
@@ -159,11 +146,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     provider_docker_disabled: "DockerProvider 未启用，请使用 local_process 运行时。",
     provider_flue_placeholder: "FlueProvider 为可选项，当前仓库仅提供接口占位。",
     workspace_provider_unimplemented: "Workspace 策略「{provider}」尚未实现",
-    agent_port_base_shifted:
-      "配置的起始端口为 {configured}，该段内有端口已被占用；Admin 与各 Leader 的 opencode 将自 {actual} 起监听。",
-    agent_ports_no_contiguous_block:
-      "自 {base} 起在 127.0.0.1 上无法找到 {count} 个连续空闲 TCP 端口（最多向前尝试 {maxScan} 个端口）。",
-    no_free_worker_port: "连续尝试 {maxAttempts} 次后仍无法为 Worker 分配到空闲 TCP 端口。",
     worker_registered: "Worker 已注册，运行时就绪。",
     worker_task_dispatched: "已向 Worker 下发任务。",
     worker_already_registered: "Worker 已存在：{workerId}",
@@ -207,8 +189,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     workspace_root_not_found: "Racine workspace introuvable : {workspaceRoot}",
     workspace_inspection: "Inspection des workspaces",
     runtime_stop_all_failed: "Échec de runtimeProvider.stopAll",
-    runtime_ready_timeout:
-      "Délai dépassé en attendant le HTTP opencode sur 127.0.0.1:{port} ({timeoutMs} ms). Le processus a peut-être quitté ; vérifiez que « opencode serve » tourne et consultez les logs du workspace.",
     model_inheritance_missing:
       "Modèle manquant pour {fieldPath}. Définissez-le explicitement ou fournissez un modèle parent (team.worker.model -> team.leader.model -> admin.model -> model).",
     team_json_not_found_oat_env: "team.json introuvable (OAT_TEAM_JSON) : {path}",
@@ -216,11 +196,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     provider_docker_disabled: "DockerProvider n'est pas activé. Utilisez le runtime local_process.",
     provider_flue_placeholder: "FlueProvider est optionnel et non implémenté dans ce dépôt.",
     workspace_provider_unimplemented: 'Le fournisseur de workspace « {provider} » n\'est pas encore implémenté',
-    agent_port_base_shifted:
-      "runtime.ports.base était {configured} ; une partie de la plage était occupée. Utilisation de {actual} pour Admin et les Leaders (opencode serve).",
-    agent_ports_no_contiguous_block:
-      "Impossible de trouver {count} ports TCP libres consécutifs sur 127.0.0.1 à partir de {base} (recherche sur {maxScan} ports au plus).",
-    no_free_worker_port: "Impossible d'allouer un port TCP libre pour un worker après {maxAttempts} tentatives.",
     worker_registered: "Worker enregistré, runtime prêt.",
     worker_task_dispatched: "Tâche envoyée au worker.",
     worker_already_registered: "Worker déjà présent : {workerId}",
@@ -264,8 +239,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     workspace_root_not_found: "workspace ルートが見つかりません: {workspaceRoot}",
     workspace_inspection: "workspace 検査",
     runtime_stop_all_failed: "runtimeProvider.stopAll が失敗しました",
-    runtime_ready_timeout:
-      "127.0.0.1:{port} の opencode HTTP 待機がタイムアウトしました（{timeoutMs}ms）。プロセスが終了した可能性があります。「opencode serve」が動いているか確認し、workspace のログを確認してください。",
     model_inheritance_missing:
       "{fieldPath} のモデルがありません。明示的に設定するか、親モデルを指定してください（team.worker.model -> team.leader.model -> admin.model -> model）。",
     team_json_not_found_oat_env: "team.json が見つかりません（OAT_TEAM_JSON）: {path}",
@@ -273,11 +246,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     provider_docker_disabled: "DockerProvider は無効です。local_process ランタイムを使用してください。",
     provider_flue_placeholder: "FlueProvider は任意で、本リポジトリでは未実装のプレースホルダです。",
     workspace_provider_unimplemented: "Workspace プロバイダー「{provider}」は未実装です",
-    agent_port_base_shifted:
-      "runtime.ports.base は {configured} でしたが、その範囲に使用中のポートがありました。Admin と各 Leader の opencode は {actual} から使用します。",
-    agent_ports_no_contiguous_block:
-      "127.0.0.1 で {base} から {count} 個の連続した空き TCP ポートが見つかりません（最大 {maxScan} ポート先まで探索）。",
-    no_free_worker_port: "Worker 用の空き TCP ポートを {maxAttempts} 回試行しても確保できませんでした。",
     worker_registered: "Worker を登録し、ランタイム準備完了。",
     worker_task_dispatched: "Worker にタスクを送信しました。",
     worker_already_registered: "Worker は既に存在します: {workerId}",

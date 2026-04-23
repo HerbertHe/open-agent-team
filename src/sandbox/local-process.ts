@@ -1,122 +1,136 @@
-import { spawn } from "node:child_process";
-import type { Readable } from "node:stream";
-import type { AgentInstanceSpec } from "../types";
+import type { AgentInstanceSpec, AgentRoleEnum } from "../types";
 import type { RuntimeHandle, RuntimeProvider } from "./interface";
+import {
+  createAgentSession,
+  SessionManager,
+  SettingsManager,
+  DefaultResourceLoader,
+  defineTool,
+  getAgentDir,
+  AuthStorage,
+  ModelRegistry,
+} from "@mariozechner/pi-coding-agent";
+import type { AgentSession as PiAgentSession, AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 
-export type ProcessLogLine = { agentId: string; line: string; stream: "stdout" | "stderr" };
+export type AgentEventLine = { agentId: string; event: AgentSessionEvent; role?: AgentRoleEnum };
 
-function attachLineStream(
-  stream: Readable | null,
-  streamName: "stdout" | "stderr",
-  agentId: string,
-  onLine: (info: ProcessLogLine) => void
-): void {
-  if (!stream) return;
-  let buf = "";
-  stream.on("data", (chunk: Buffer | string) => {
-    buf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
-    const parts = buf.split("\n");
-    buf = parts.pop() ?? "";
-    for (const line of parts) {
-      onLine({ agentId, line, stream: streamName });
-    }
-  });
-  stream.on("end", () => {
-    if (buf.trim()) {
-      onLine({ agentId, line: buf, stream: streamName });
-    }
-  });
+function splitModel(model: string): { provider: string; modelId: string } {
+  const idx = model.indexOf("/");
+  if (idx < 0) return { provider: "anthropic", modelId: model };
+  return { provider: model.slice(0, idx), modelId: model.slice(idx + 1) };
 }
 
-export class LocalProcessProvider implements RuntimeProvider {
-  private readonly handles = new Map<string, { handle: RuntimeHandle; kill: () => void }>();
+/** 每个 AgentSession 的内部条目：同时管理会话对象、重建所需的元数据、事件取消订阅函数。 */
+type SessionEntry = {
+  session: PiAgentSession;
+  spec: AgentInstanceSpec;
+  options?: { systemPrompt?: string; customTools?: ReturnType<typeof defineTool>[] };
+  unsubscribe: () => void;
+};
+
+/**
+ * 基于 @mariozechner/pi-coding-agent SDK 的 Agent 会话提供者。
+ * 以进程内 AgentSession 管理各 Agent 的生命周期与通信。
+ */
+export class PiSessionProvider implements RuntimeProvider {
+  private readonly entries = new Map<string, SessionEntry>();
+  private readonly agentDir: string;
 
   constructor(
-    private readonly executable: string,
-    private readonly injectedEnv: Record<string, string> = {},
-    private readonly onProcessLog?: (info: ProcessLogLine) => void
-  ) {}
+    agentDir?: string,
+    private readonly onAgentEvent?: (info: AgentEventLine) => void,
+  ) {
+    this.agentDir = agentDir ?? getAgentDir();
+  }
 
-  async start(spec: AgentInstanceSpec): Promise<RuntimeHandle> {
-    // 默认使用 DEBUG，便于在 dashboard/日志中追踪执行过程。
-    const logLevel = "DEBUG";
-
-    const child = spawn(
-      this.executable,
-      [
-        "serve",
-        "--port",
-        String(spec.port),
-        "--hostname",
-        "127.0.0.1",
-        "--print-logs",
-        "--log-level",
-        logLevel,
-      ],
-      {
-        cwd: spec.workspacePath,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
-        env: { ...process.env, ...this.injectedEnv },
-      }
-    );
-    if (this.onProcessLog) {
-      attachLineStream(child.stdout, "stdout", spec.id, this.onProcessLog);
-      attachLineStream(child.stderr, "stderr", spec.id, this.onProcessLog);
+  /**
+   * 为指定 Agent 创建 pi AgentSession。
+   * customTools 由调用方（Orchestrator/TaskManager）提供，包含编排工具的直接调用逻辑。
+   */
+  async start(
+    spec: AgentInstanceSpec,
+    options?: {
+      systemPrompt?: string;
+      customTools?: ReturnType<typeof defineTool>[];
+    },
+  ): Promise<RuntimeHandle> {
+    const { provider, modelId } = splitModel(spec.model);
+    const authStorage = AuthStorage.create();
+    const modelRegistry = ModelRegistry.create(authStorage);
+    const model = modelRegistry.find(provider, modelId) ?? undefined;
+    if (!model) {
+      throw new Error(
+        `Model not found in registry: provider="${provider}" modelId="${modelId}" (agentId=${spec.id}). ` +
+          `Check team.json model config and pi agentDir credentials (${this.agentDir}).`,
+      );
     }
-    child.on("error", (err: Error) => {
-      this.onProcessLog?.({
-        agentId: spec.id,
-        line: `spawn error: ${err.message}`,
-        stream: "stderr",
-      });
+
+    const loader = new DefaultResourceLoader({
+      cwd: spec.workspacePath,
+      agentDir: this.agentDir,
+      systemPromptOverride: options?.systemPrompt ? () => options.systemPrompt! : undefined,
     });
-    child.on("exit", (code, signal) => {
-      this.onProcessLog?.({
-        agentId: spec.id,
-        line: `process exited: code=${code ?? "null"} signal=${signal ?? "null"}`,
-        stream: "stderr",
-      });
+    await loader.reload();
+
+    const { session } = await createAgentSession({
+      cwd: spec.workspacePath,
+      agentDir: this.agentDir,
+      model,
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
+      customTools: options?.customTools ?? [],
+      resourceLoader: loader,
     });
-    const handle: RuntimeHandle = { agentId: spec.id, port: spec.port, pid: child.pid };
-    this.handles.set(spec.id, {
-      handle,
-      kill: () => {
-        if (!child.killed) child.kill("SIGTERM");
-      },
+
+    const unsubscribe = session.subscribe((event) => {
+      this.onAgentEvent?.({ agentId: spec.id, event, role: spec.role });
     });
-    return handle;
+
+    this.entries.set(spec.id, { session, spec, options, unsubscribe });
+    return { agentId: spec.id };
   }
 
   async stop(agentId: string): Promise<void> {
-    this.handles.get(agentId)?.kill();
-    this.handles.delete(agentId);
+    const entry = this.entries.get(agentId);
+    if (entry) {
+      try { entry.unsubscribe(); } catch { /* noop */ }
+      try { entry.session.dispose(); } catch { /* noop */ }
+      this.entries.delete(agentId);
+    }
   }
 
-  /** 仅终止本 Provider 实例通过 {@link start} 注册的子进程，不会按名称扫描或结束其它 opencode 进程。 */
   async stopAll(): Promise<void> {
-    for (const { kill } of this.handles.values()) {
-      try {
-        kill();
-      } catch {
-        /* ignore */
-      }
+    for (const agentId of [...this.entries.keys()]) {
+      await this.stop(agentId);
     }
-    this.handles.clear();
   }
 
-  async health(port: number): Promise<boolean> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/global/health`, {
-        signal: controller.signal,
-      });
-      return res.ok;
-    } catch {
-      return false;
-    } finally {
-      clearTimeout(timer);
+  async health(_agentId: string): Promise<boolean> {
+    return true;
+  }
+
+  getSession(agentId: string): PiAgentSession | undefined {
+    return this.entries.get(agentId)?.session;
+  }
+
+  /** 向指定 Agent 发送 prompt（返回 Promise 在消息被接受后 resolve）。 */
+  async sendPrompt(agentId: string, text: string): Promise<void> {
+    const entry = this.entries.get(agentId);
+    if (!entry) {
+      throw new Error(`PiSessionProvider: session not found for agentId=${agentId}`);
     }
+    await entry.session.prompt(text);
+  }
+
+  /**
+   * 重置 Agent 会话：dispose 旧 session 并以相同配置创建新 session（清空对话历史）。
+   * 用于 Worker 任务完成后清除上下文，避免历史污染下一次任务。
+   */
+  async resetSession(agentId: string): Promise<void> {
+    const entry = this.entries.get(agentId);
+    if (!entry) return;
+    const { spec, options } = entry;
+    await this.stop(agentId);
+    await this.start(spec, options);
   }
 }

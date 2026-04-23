@@ -2,7 +2,7 @@ import type { RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
 import type { TeamConfig } from "./team";
 
 export interface TeamFileProvidersConfig {
-  /** 直接注入到 opencode 进程的环境变量（明文）。 */
+  /** 直接注入到 pi agent 进程的环境变量（明文）。 */
   env?: Record<string, string>;
   /** 环境变量映射：key 为注入名，value 为当前系统中的源环境变量名。 */
   env_from?: Record<string, string>;
@@ -55,15 +55,10 @@ export interface TeamFileConfig {
   runtime?: {
     /** 运行时模式：本机进程或 Flue */
     mode?: RuntimeModeEnum;
-    opencode?: {
-      /** opencode 可执行文件路径或命令名 */
-      executable?: string;
-    };
-    ports?: {
-      /** 服务端口起始值 */
-      base?: number;
-      /** 单机允许的最大 Agent 并发数（近似控制资源） */
-      max_agents?: number;
+    /** pi-coding-agent 运行时配置 */
+    pi?: {
+      /** pi agentDir（默认 ~/.pi/agent） */
+      agentDir?: string;
     };
     persistence?: {
       /** orchestrator 状态与映射的持久化目录 */
@@ -106,15 +101,10 @@ export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "worksp
   runtime: {
     /** 解析后的运行时模式（必填） */
     mode: RuntimeModeEnum;
-    opencode: {
-      /** opencode 可执行文件 */
-      executable: string;
-    };
-    ports: {
-      /** 端口起始值 */
-      base: number;
-      /** 并发上限 */
-      max_agents: number;
+    /** pi-coding-agent 运行时配置 */
+    pi: {
+      /** pi agentDir */
+      agentDir: string;
     };
     persistence: {
       /** 状态持久化目录 */
@@ -139,4 +129,3 @@ export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "worksp
     };
   };
 }
-

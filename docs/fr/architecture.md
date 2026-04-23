@@ -1,4 +1,4 @@
-# Architecture de l'équipe d'agents (Orchestrateur + OpenCode)
+# Architecture de l'équipe d'agents (Orchestrateur + pi-coding-agent)
 
 ## 1. Vue d'ensemble : comment l'équipe déclarative est concrétisée
 
@@ -22,10 +22,10 @@ Les relations peuvent se comprendre ainsi :
 
 L'Orchestrateur se trouve dans `src/orchestrator/orchestrator.ts` et est principalement responsable de :
 
-- Calculer `workspacePath`, ports, modèles et skills de chaque agent à partir de `ResolvedConfig`
+- Calculer `workspacePath`, modèles et skills de chaque agent à partir de `ResolvedConfig`
 - Injecter et démarrer `Admin` et tous les `Leader`
-- Enregistrer les routes HTTP d'outils Orchestrateur (pour que les outils OpenCode puissent faire des callbacks)
-- Écrire dans chaque workspace les informations attendues par OpenCode : « agent markdown / outils / plugins / meta » (via `workspace-inject`)
+- Enregistrer les routes HTTP d'outils Orchestrateur (pour que les outils pi-coding-agent puissent faire des callbacks)
+- Écrire dans chaque workspace les informations attendues par pi-coding-agent : « agent markdown / outils / plugins / meta » (via `workspace-inject`)
 
 Au démarrage, l'Orchestrateur fait surtout :
 
@@ -45,13 +45,13 @@ La partie dynamique est gérée par `src/orchestrator/task-manager.ts`. Ses resp
 - Demander à `Leader`/`Admin` de résumer à partir des CHANGELOG
 - Nettoyer (arrêter le runtime + supprimer le workspace)
 
-### RuntimeProvider (démarrage des processus OpenCode)
+### RuntimeProvider (gestion des pi AgentSessions)
 
-L'implémentation par défaut est `local_process`, dans `src/sandbox/local-process.ts` :
+L'implémentation par défaut est `local_process`, assurée par `PiSessionProvider` dans `src/sandbox/local-process.ts` :
 
-- Démarrer un processus `opencode serve --port <agentPort>` distinct pour chaque agent
-- Lancer le processus avec le `workspacePath` correspondant comme répertoire de travail
-- `stop` envoie `SIGTERM` au processus concerné
+- Crée une pi AgentSession en processus via `createAgentSession()` pour chaque agent (pas de processus OS séparé)
+- Utilise `workspacePath` comme répertoire de travail, avec systemPrompt et outils `defineTool` injectés
+- `stop` appelle `session.dispose()` pour libérer la session correspondante
 
 > Point d'extension : `RuntimeModeEnum.flue` existe comme valeur d'enum, mais l'implémentation actuelle se concentre sur `local_process`.
 
@@ -71,7 +71,7 @@ La stratégie de workspace est fournie par `src/workspace/workspace-provider.ts`
 Implémenté dans `src/skills/skill-resolver.ts` :
 
 - Lire `skills/<skill-name>/SKILL.md` à la racine du dépôt (en utilisant `config.project.repo` comme root)
-- Copier chaque `SKILL.md` sélectionné dans `<workspacePath>/.opencode/skills/<skill-name>/SKILL.md`
+- Copier chaque `SKILL.md` sélectionné dans `<workspacePath>/.pi/skills/<skill-name>/SKILL.md`
 
 ### Pipeline Git + documentation : MergeManager / ChangelogManager
 
@@ -101,19 +101,15 @@ flowchart TD
 
 L'Orchestrateur configure chaque agent statique :
 
-- Calculer les ports :
-  - `Admin` utilise `config.runtime.ports.base`
-  - `Leader` utilise `base + 1 + index`
 - Créer le workspace (worktree provider)
-- Injecter skills, outils, plugins, agent markdown et le meta `.oat/*`
+- Injecter les skills et écrire les méta `.oat/*` (via `src/pi/workspace-inject.ts`)
+- Construire les outils d'orchestration `defineTool` (closures sur TaskManager)
+- Créer la pi AgentSession via `createAgentSession({ cwd, customTools, systemPrompt })`
 
-L'injection clé est implémentée dans `src/opencode/workspace-inject.ts` :
+L'injection clé est implémentée dans `src/pi/workspace-inject.ts` :
 
-- `writeAgentMarkdown()` : écrit `<workspacePath>/.opencode/agents/<agentName>.md`
-- `writeCustomTools()` : écrit `<workspacePath>/.opencode/tools/*.ts` (incluant request-workers, notify-complete, etc.)
-- `writeCustomPlugins()` : écrit `.opencode/plugins/commit-guard.ts` et `scope-guard.ts`
-- `writeOatOrchestratorMeta()` : écrit `.oat/orchestrator.json` (pour que les outils récupèrent le baseUrl)
-- `writeOatAgentMeta()` : écrit `.oat/agent.json` (inclut le rôle et la liste allowlist de push pour les workers)
+- `writeAgentWorkspaceConfig()` : écrit `.oat/scope.json`, `.oat/orchestrator.json`, `.oat/agent.json`
+- `buildAgentSystemPrompt()` : construit le prompt système injecté dans AgentSession
 
 ### 3.2 Création dynamique des Workers : le Leader demande des tasks
 
@@ -134,12 +130,10 @@ L'Orchestrateur gère `POST /tool/request_workers` dans `TaskManager.requestWork
 - Créer le workspace du worker : `workspaceProvider.ensureWorkspace(spec, team.leader.repos)`
 - Injecter les skills :
   - skills du worker = `leader.skills` + `team.worker.extra_skills`
-- Injecter le meta oat, agent markdown, et outils/plugins
-- Démarrer le runtime `opencode serve` et créer une session OpenCode
-- Envoyer le prompt au worker :
-  - le prompt concret depuis `tasks[i].prompt`
-  - le worker doit mettre à jour `CHANGELOG.md` à la racine du workspace
-  - au moment de terminer, le worker doit appeler `notify-complete` en définissant l'argument `changelog` avec le contenu du CHANGELOG préparé
+- Écrire les meta `.oat/*`, construire le système de prompt et les outils worker (`notify-complete`, `report-progress`, `generate-changelog`)
+- Créer une pi AgentSession en processus via `createAgentSession()` (pas de processus OS séparé)
+- Envoyer les prompts à **tous les workers en parallèle** (fire-and-forget) ; les workers rapportent leur complétion via `notify-complete`
+- Si un worker a déjà terminé un tour précédent, appeler `resetSession` avant de renvoyer la tâche pour effacer l'historique
 
 ### 3.3 Fusion et rapport : worker->leader->admin
 
@@ -192,27 +186,30 @@ Si `workspace.git.lfs=pull` :
 
 En cas d'échec : un warning est enregistré, puis Orchestrator continue.
 
-### 4.4 Sécurité de soumission : commit-guard et push autorisé
+### 4.4 Isolation de portée
 
-Les restrictions de push du worker sont imposées par le plugin injecté :
+`writeAgentWorkspaceConfig()` écrit `.oat/scope.json` dans chaque workspace, déclarant les chemins accessibles par rôle :
 
-- `writeCustomPlugins()` écrit `commit-guard.ts` dans le workspace worker
-- push autorisé (pattern par défaut) :
-  - `.*\/worker-\d+`
-- pour Admin/Leader : push est autorisé par défaut
-
-En plus, commit-guard bloque `git add -A` / `git add --all` (encourage le staging via allowlist).
+- Worker : uniquement son propre répertoire workspace
+- Leader : son workspace + les répertoires de ses workers
+- Admin : son workspace + tous les leaders + tous les workers
 
 > Note : les merges finaux de l'Orchestrateur reposent sur un `git merge` local (via `MergeManager`), pas sur le fait d'obliger les workers à pousser sur un remote.
 
-## 5. API d'outils Orchestrateur (pour les appels OpenCode)
+## 5. API d'outils Orchestrateur (pour les appels pi-coding-agent)
 
 Après démarrage, Orchestrator écoute `--port <PORT>` et enregistre les routes d'outils :
 
 - `POST /tool/request_workers`
-  - Utilisation : le leader demande la création de workers et dispatch des tâches
+  - Utilisation : raccourci — créer des workers et dispatcher les tâches en un seul appel
   - Entrée : `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
   - Sortie : `{ "workerIds": ["<team>-worker-0", ...] }`
+- `POST /tool/register_workers`
+  - Utilisation : créer (pré-spawner) N workers sans dispatcher de tâches
+  - Entrée : `{ "leaderId": "<leaderId>", "count": 2 }`
+- `POST /tool/dispatch_worker_tasks`
+  - Utilisation : dispatcher des prompts de tâches aux workers déjà enregistrés
+  - Entrée : `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
 - `POST /tool/notify_complete`
   - Utilisation : worker/leader notifie la complétion ; Orchestrator déclenche merge et synthèse
   - Entrée : `{ "agentRole": "worker|leader|admin", "agentId": "<id>", "changelog"?: "<string>" }`
@@ -232,7 +229,7 @@ Le comportement est principalement lié à ces champs de `team.json` :
   - le champ top-level `model` fournit un modèle global par défaut
   - chaîne d'héritage : `worker.model -> leader.model -> admin.model -> model`
   - `models` sert à mapper l'alias de la valeur de modèle finalement sélectionnée (ex : `default -> anthropic/...`)
-  - le champ top-level `providers` fournit l'intégration provider globale (injection d'env base_url/key dans `opencode serve`)
+  - le champ top-level `providers` fournit l'intégration provider globale (injection d'env base_url/key dans `pi AgentSession`)
   - si un model ne contient pas `/`, le provider par défaut est `anthropic`
 - Workspaces :
   - `workspace.root_dir` détermine où sont créés les worktrees
@@ -246,7 +243,7 @@ Pour éviter des promesses qui dépassent l'implémentation, voici les limites a
 
 - `runtime.mode` : seule `local_process` est pleinement implémentée ; `flue` n'est pas déployé
 - `workspace.provider` : seule `worktree` est implémentée ; autres stratégies non implémentées
-- `team.worker.total` : taille du pool de workers ; workers pré-créés au démarrage de l'équipe et arrêt/suppression uniquement à la sortie de l'orchestrateur (`stopAll`)
-- `team.worker.lifecycle` / `team.worker.skill_sync` : valeurs par défaut existent, mais l'implémentation actuelle ne branche pas encore correctement sur ces champs (la fin du leader ne nettoie plus le pool worker)
+- `team.worker.total` : taille du pool de workers ; pré-créés au démarrage de l'équipe ; quand un leader termine, les sessions/workspaces du leader + workers sont nettoyés automatiquement
+- `team.worker.lifecycle` / `team.worker.skill_sync` : valeurs par défaut existent, mais l'implémentation actuelle ne branche pas encore sur ces champs ; l'isolation de session est assurée par `resetSession` qui efface l'historique avant chaque re-dispatch
 
 Si vous voulez que ces intentions de config soient appliquées pleinement côté code, je peux aider à étendre `TaskManager` pour gérer le `lifecycle` et la logique `skill_sync`.
