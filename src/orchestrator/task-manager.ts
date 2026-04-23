@@ -33,6 +33,15 @@ export class TaskManager {
   private readonly leaderTaskAssignedAt = new Map<string, number>();
   private readonly leaderDispatchStartedAt = new Map<string, number>();
   private readonly workerNotifyCompleteAt = new Map<string, number>();
+  /** 已触发过崩溃通知的 agentId 集合，防止重复推送。 */
+  private readonly crashedAgents = new Set<string>();
+  /**
+   * 已成功完成（notify-complete）的 Leader agentId 集合。
+   * 作用一：幂等门控，防止 Leader 重复调用 notify-complete 触发重复 merge 和重复 admin prompt。
+   * 作用二：防止 Admin 在 cleanup 进行中再次向同一个已完成 Leader 分配任务（竞态保护）。
+   * cleanup 完成后不需要清除该记录，因为 Leader 进程已被终止、不会再被复用。
+   */
+  private readonly completedLeaders = new Set<string>();
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -394,10 +403,24 @@ export class TaskManager {
         }
 
         // 若该 Worker 已完成过上一轮任务，则先重置 session（清空历史），再下发新任务
-        // 同时清除上一轮的完成记录，以确保本轮超时监控正常触发
+        // 同时清除上一轮的完成/崩溃记录，以确保本轮超时监控与崩溃通知正常触发
         if (this.workerNotifyCompleteAt.has(workerId)) {
           this.workerNotifyCompleteAt.delete(workerId);
-          await this.runtimeProvider.resetSession(workerId);
+          this.crashedAgents.delete(workerId);
+          try {
+            await this.runtimeProvider.resetSession(workerId);
+          } catch (resetErr) {
+            // resetSession 内部 stop + start：若 start 失败，子进程已消失。
+            // 将该 worker 视为崩溃：从 agents 移除并通知 leader，然后跳过本 worker。
+            const error = resetErr instanceof Error ? resetErr : new Error(String(resetErr));
+            logger.error("Failed to reset worker session, treating as crash", {
+              workerId,
+              error: error.message,
+            });
+            this.agents.delete(workerId);
+            void this.handleAgentCrash(workerId, error);
+            continue;
+          }
         }
 
         const prompt = this.buildWorkerDispatchPrompt(workerId, tasks[i].prompt);
@@ -413,14 +436,17 @@ export class TaskManager {
 
         // fire-and-forget：Worker 并行执行，通过 notify-complete 工具回报完成
         void this.runtimeProvider.sendPrompt(workerId, prompt).catch((err: unknown) => {
+          const error = err instanceof Error ? err : new Error(String(err));
           this.observabilityHub.emit({
             source: "orchestrator",
             type: "worker.dispatch_failed",
             agentId: workerId,
             role: AgentRoleEnum.Worker,
             sessionId: agent.sessionId,
-            payload: { leaderId, taskIndex: idx, error: err instanceof Error ? err.message : String(err) },
+            payload: { leaderId, taskIndex: idx, error: error.message },
           });
+          // 通知 Leader 该 Worker 无法执行任务（发送失败视为崩溃）
+          void this.handleAgentCrash(workerId, error);
         });
 
         const NOTIFY_COMPLETE_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟
@@ -467,6 +493,11 @@ export class TaskManager {
     const leader = this.getAgent(leaderId);
     if (leader.spec.role !== AgentRoleEnum.Leader) {
       throw new Error(`assignLeaderTask: agentId=${leaderId} is not a leader`);
+    }
+    // 已完成的 Leader 正在 cleanup 或已被清理，不再接受新任务，
+    // 防止 cleanup 竞态导致 sendPrompt 向已退出的子进程发送消息。
+    if (this.completedLeaders.has(leaderId)) {
+      throw new Error(`assignLeaderTask: leader ${leaderId} has already completed and is being cleaned up`);
     }
     this.leaderTaskAssignedAt.set(leaderId, Date.now());
 
@@ -565,17 +596,10 @@ export class TaskManager {
 
   async notifyComplete(body: NotifyCompleteBody): Promise<any> {
     const { agentRole, agentId } = body;
-    try {
-      const agent = this.getAgent(agentId);
-      this.observabilityHub.emit({
-        source: "orchestrator",
-        type: "notify_complete",
-        agentId,
-        role: agentRole,
-        sessionId: agent.sessionId,
-        payload: { hasChangelog: Boolean(body.changelog) },
-      });
-    } catch {
+
+    // 先验证 agent 是否存在：Worker 路径依赖 agent 状态，未知 agentId 必须提前拒绝
+    const agent = this.agents.get(agentId);
+    if (!agent) {
       this.observabilityHub.emit({
         source: "orchestrator",
         type: "notify_complete.unknown_agent",
@@ -583,11 +607,34 @@ export class TaskManager {
         role: agentRole,
         payload: { hasChangelog: Boolean(body.changelog) },
       });
+      // Worker 未知则直接报错（不能假定 merge 成功）；其他角色静默忽略
+      if (agentRole === AgentRoleEnum.Worker) {
+        throw new Error(t("agent_not_found", { agentId }));
+      }
+      return { ok: true };
     }
+
+    this.observabilityHub.emit({
+      source: "orchestrator",
+      type: "notify_complete",
+      agentId,
+      role: agentRole,
+      sessionId: agent.sessionId,
+      payload: { hasChangelog: Boolean(body.changelog) },
+    });
+
     if (agentRole === AgentRoleEnum.Worker) {
+      // 幂等保护：Worker 已成功完成（时间戳已写入）时直接返回，
+      // 防止 LLM 重复调用 notify-complete 触发重复 merge + 重复 leader prompt。
+      if (this.workerNotifyCompleteAt.has(agentId)) {
+        return { ok: true, alreadyCompleted: true };
+      }
       try {
+        // 时间戳必须在 merge 成功后写入：若 merge 失败时间戳已写，
+        // 下一轮 dispatchWorkerTasks 会误判为"上轮已完成"，跳过 resetSession 直接发任务。
+        const result = await this.handleWorkerComplete(agentId, body.changelog);
         this.workerNotifyCompleteAt.set(agentId, Date.now());
-        return await this.handleWorkerComplete(agentId, body.changelog);
+        return result;
       } catch (e) {
         this.observabilityHub.emit({
           source: "orchestrator",
@@ -600,8 +647,15 @@ export class TaskManager {
       }
     }
     if (agentRole === AgentRoleEnum.Leader) {
+      // 幂等保护：防止 Leader 重复调用 notify-complete 触发重复 merge + 重复 admin prompt
+      if (this.completedLeaders.has(agentId)) {
+        return { ok: true, alreadyCompleted: true };
+      }
       try {
-        return await this.handleLeaderComplete(agentId, body.changelog);
+        const result = await this.handleLeaderComplete(agentId, body.changelog);
+        // 标记放在 handleLeaderComplete 成功后，防止 merge 失败时 leader 被锁死
+        this.completedLeaders.add(agentId);
+        return result;
       } catch (e) {
         this.observabilityHub.emit({
           source: "orchestrator",
@@ -641,6 +695,105 @@ export class TaskManager {
       }
     }
     return { ok: true };
+  }
+
+  /**
+   * 处理 Agent 崩溃：记录可观测事件，并向上一层 Agent 推送崩溃通知。
+   * - Worker 崩溃 → 通知所属 Leader，Leader 可选择跳过或重新分配任务
+   * - Leader 崩溃 → 通知 Admin，Admin 可选择重新分配给其他 Leader 或终止
+   *
+   * 同一 agentId 的崩溃通知只发送一次（`crashedAgents` 去重）。
+   * 在 `resetSession` 重新派发前或 `cleanupLeaderAndWorkers` 清理时会清除对应记录。
+   */
+  async handleAgentCrash(agentId: string, error: Error): Promise<void> {
+    if (this.crashedAgents.has(agentId)) return;
+
+    // 必须先确认 agent 存在再写入去重集合：若 agentId 未知则不占用去重槽，
+    // 避免误报导致后续真实崩溃被压制。
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    this.crashedAgents.add(agentId);
+
+    const role = agent.spec.role;
+    this.observabilityHub.emit({
+      source: "orchestrator",
+      type: "agent.crash",
+      agentId,
+      role,
+      sessionId: agent.sessionId,
+      payload: { error: error.message },
+    });
+    logger.warn("agent crashed", { agentId, role, error: error.message });
+
+    if (role === AgentRoleEnum.Worker) {
+      const teamName = agent.spec.teamName ?? "";
+      let team: TeamConfig | undefined;
+      try { team = this.resolveTeam(teamName); } catch { return; }
+
+      const leader = Array.from(this.agents.values()).find(
+        (a) => a.spec.role === AgentRoleEnum.Leader && a.spec.teamName === team!.name,
+      );
+      if (!leader) return;
+
+      this.observabilityHub.emit({
+        source: "orchestrator",
+        type: "agent.crash.notify_leader",
+        agentId: leader.spec.id,
+        role: AgentRoleEnum.Leader,
+        sessionId: leader.sessionId,
+        payload: { crashedWorkerId: agentId, error: error.message },
+      });
+
+      void this.runtimeProvider.sendPrompt(
+        leader.spec.id,
+        [
+          `WORKER_CRASH: Worker ${agentId} encountered a fatal error and cannot complete its task.`,
+          `Error: ${error.message}`,
+          ``,
+          `You can:`,
+          `1. Skip this worker's contribution and call notify-complete once all other workers finish.`,
+          `2. Reassign the task by calling dispatch-worker-tasks with another available worker index.`,
+        ].join("\n"),
+      ).catch((e: unknown) => {
+        logger.warn("failed to notify leader of worker crash", {
+          leaderId: leader.spec.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+
+    } else if (role === AgentRoleEnum.Leader) {
+      const admin = Array.from(this.agents.values()).find(
+        (a) => a.spec.role === AgentRoleEnum.Admin,
+      );
+      if (!admin) return;
+
+      this.observabilityHub.emit({
+        source: "orchestrator",
+        type: "agent.crash.notify_admin",
+        agentId: admin.spec.id,
+        role: AgentRoleEnum.Admin,
+        sessionId: admin.sessionId,
+        payload: { crashedLeaderId: agentId, error: error.message },
+      });
+
+      void this.runtimeProvider.sendPrompt(
+        admin.spec.id,
+        [
+          `LEADER_CRASH: Leader ${agentId} encountered a fatal error and cannot complete its task.`,
+          `Error: ${error.message}`,
+          ``,
+          `You can:`,
+          `1. Reassign the task to another suitable leader via assign-leader-task.`,
+          `2. Report the failure as the final delivery result.`,
+        ].join("\n"),
+      ).catch((e: unknown) => {
+        logger.warn("failed to notify admin of leader crash", {
+          adminId: admin.spec.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
   }
 
   async generateChangelog(agentId: string): Promise<any> {
@@ -788,7 +941,10 @@ export class TaskManager {
       try {
         await this.workspaceProvider.removeWorkspace(w.spec);
       } catch {}
+      // 清理 worker 相关的所有状态 Map，防止内存泄漏与下次使用时状态污染
       this.agents.delete(w.spec.id);
+      this.crashedAgents.delete(w.spec.id);
+      this.workerNotifyCompleteAt.delete(w.spec.id);
     }
 
     this.observabilityHub.emit({
@@ -805,6 +961,11 @@ export class TaskManager {
     try {
       await this.workspaceProvider.removeWorkspace(leader.spec);
     } catch {}
+    // 清理 leader 相关的所有状态 Map
     this.agents.delete(leader.spec.id);
+    this.crashedAgents.delete(leader.spec.id);
+    this.teamByLeaderId.delete(leader.spec.id);
+    this.leaderTaskAssignedAt.delete(leader.spec.id);
+    this.leaderDispatchStartedAt.delete(leader.spec.id);
   }
 }

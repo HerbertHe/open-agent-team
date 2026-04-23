@@ -122,6 +122,15 @@ export class Orchestrator {
           { skipBuffer: true },
         );
       },
+      ({ agentId, error }) => {
+        // SDK 上报的 session 级错误：转发给 TaskManager 向上层 Agent 推送崩溃通知
+        void this.taskManager.handleAgentCrash(agentId, error).catch((e: unknown) => {
+          logger.warn("handleAgentCrash failed", {
+            agentId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      },
     );
 
     const workspaceProvider = new WorkspaceProviderFactory(
@@ -493,6 +502,13 @@ export class Orchestrator {
   }
 
   async start(): Promise<void> {
+    // 在任何子进程启动前即注册信号处理器。
+    // 若启动阶段（workspace 创建、模型加载等）耗时较长，用户 Ctrl-C 仍能触发 stopAll()
+    // 避免已 fork 的子进程成为孤儿进程。
+    // httpServer 在信号到达时可能尚未创建，用 null 占位，创建后再更新。
+    let httpServer: Server | null = null;
+    this.registerShutdownHandlers(() => httpServer);
+
     await fs.mkdir(this.stateDir, { recursive: true });
     await fs.writeFile(
       this.stateFile,
@@ -711,7 +727,7 @@ export class Orchestrator {
       await this.runtimeProvider.sendPrompt(specId, prompt);
     }
 
-    const appServer: Server = this.app.listen(this.port, "0.0.0.0", () => {
+    httpServer = this.app.listen(this.port, "0.0.0.0", () => {
       logger.info(t("orchestrator_listening_on", { port: this.port }));
       this.observabilityHub.emit({
         source: "orchestrator",
@@ -724,10 +740,16 @@ export class Orchestrator {
         },
       });
     });
-    this.registerShutdownHandlers(appServer);
   }
 
-  private registerShutdownHandlers(httpServer: Server): void {
+  /**
+   * 注册进程信号处理器（SIGINT / SIGTERM）。
+   *
+   * 接受一个返回当前 HTTP Server 的 getter，而非直接传入 Server 实例，
+   * 因为在启动阶段信号可能在 app.listen 之前到达，此时 httpServer 为 null。
+   * 若关机时 HTTP Server 尚未创建，则跳过 server.close()，直接 stopAll() 后退出。
+   */
+  private registerShutdownHandlers(getHttpServer: () => Server | null): void {
     let shuttingDown = false;
     const shutdown = (signal: NodeJS.Signals) => {
       if (shuttingDown) return;
@@ -741,9 +763,12 @@ export class Orchestrator {
             error: e instanceof Error ? e.message : String(e),
           });
         }
-        httpServer.close(() => {
+        const server = getHttpServer();
+        if (server) {
+          server.close(() => process.exit(0));
+        } else {
           process.exit(0);
-        });
+        }
         const forceExit = setTimeout(() => process.exit(0), 10_000);
         forceExit.unref();
       })();

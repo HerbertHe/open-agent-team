@@ -60,7 +60,7 @@ Loader behavior:
 
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | No | enum (`local_process` \| `flue`) | `local_process` | Runtime mode (currently only implements `local_process` via pi-coding-agent in-process SDK) |
+| `runtime.mode` | No | enum (`local_process` \| `flue`) | `local_process` | Runtime mode (currently only implements `local_process`; each Agent runs in an isolated child process via `child_process.fork()`) |
 | `runtime.pi.agentDir` | No | string | `~/.pi/agent` | pi-coding-agent global agent directory (for credentials, settings, custom models) |
 | `runtime.persistence.state_dir` | No | string | `"<team.json dir>/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
 
@@ -74,7 +74,7 @@ Home expansion:
 
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `providers.env` | No | record<string, string> | `{}` | Plain env vars injected into the orchestrator process (pi reads API keys from env: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) |
+| `providers.env` | No | record<string, string> | `{}` | Plain env vars injected into the orchestrator process; Agent child processes inherit them automatically via `fork` (pi reads API keys from env: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) |
 | `providers.env_from` | No | record<string, string> | `{}` | Env mapping: key is injected name, value is source env var name on the **orchestrator process**; if that injected key already exists from `providers.env`, the entry is **skipped** (no overwrite from the OS) |
 | `providers.openai_compatible.base_url` | No | string | - | Convenience mapping to `OPENAI_BASE_URL` |
 | `providers.openai_compatible.api_key` | No | string | - | Convenience mapping to `OPENAI_API_KEY` (plain text; not recommended) |

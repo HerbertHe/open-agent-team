@@ -73,7 +73,7 @@ Expansion de `~` :
 
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
-| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans chaque processus `pi AgentSession` |
+| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans le processus Orchestrator ; les processus enfants Agent les héritent automatiquement via `fork` |
 | `providers.env_from` | Non | record<string, string> | `{}` | Mapping : clé = nom injecté, valeur = nom de variable source sur le **processus orchestrator** ; si cette clé existe déjà via `providers.env`, l'entrée est **ignorée** (pas d'écrasement depuis l'OS) |
 | `providers.openai_compatible.base_url` | Non | string | - | Mapping pratique vers `OPENAI_BASE_URL` |
 | `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) ; si défini, écrase toute valeur `OPENAI_API_KEY` déjà fusionnée |

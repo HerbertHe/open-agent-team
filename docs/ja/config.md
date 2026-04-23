@@ -20,7 +20,7 @@
 | `models` | はい | record<string, string> | - | モデル alias のマップ（admin/leader/worker で利用） |
 | `admin` | はい | object | - | Admin agent の定義：prompt、model、skills |
 | `teams` | はい | array | - | 各チームには 1 つの Leader と Worker の定義が含まれます |
-| `runtime` | いいえ | object | 下表参照 | 実行モード、ベースポート、状態ディレクトリ |
+| `runtime` | いいえ | object | 下表参照 | 実行モード、pi-coding-agent ディレクトリ、状態ディレクトリ |
 | `workspace` | いいえ | object | 下表参照 | workspace の戦略、root dir、git lfs/sparse-checkout 挙動 |
 
 ## 2. `project`
@@ -73,7 +73,7 @@ loader の挙動：
 
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
-| `providers.env` | いいえ | record<string, string> | `{}` | 各 `pi AgentSession` プロセスに注入する環境変数（平文） |
+| `providers.env` | いいえ | record<string, string> | `{}` | Orchestrator プロセスに注入する環境変数（平文）；Agent 子プロセスは `fork` 経由で自動継承します |
 | `providers.env_from` | いいえ | record<string, string> | `{}` | key は注入名、value は **orchestrator プロセス** 上のソース環境変数名。`providers.env` に同名が既にある場合は **スキップ**（OS から上書きしない） |
 | `providers.openai_compatible.base_url` | いいえ | string | - | `OPENAI_BASE_URL` へ自動マッピング |
 | `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨）。設定時は既にマージ済みの `OPENAI_API_KEY` を上書き |

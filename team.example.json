@@ -19,12 +19,8 @@
   },
   "runtime": {
     "mode": "local_process",
-    "opencode": {
-      "executable": "opencode"
-    },
-    "ports": {
-      "base": 8848,
-      "max_agents": 10
+    "pi": {
+      "agentDir": "~/.pi/agent"
     },
     "persistence": {
       "state_dir": ".oat/state"

@@ -20,7 +20,7 @@
 | `models` | 是 | record<string, string> | - | 模型别名到 model id 的映射（供 admin/leader/worker 解析） |
 | `admin` | 是 | object | - | Admin agent 的角色定义：prompt、模型与 skills |
 | `teams` | 是 | array | - | 每个 team 一组 leader/worker 配置 |
-| `runtime` | 否 | object | 见下表 | 运行时模式、pi 可执行文件与 Orchestrator/agent 端口基线、状态目录 |
+| `runtime` | 否 | object | 见下表 | 运行时模式、pi-coding-agent 目录、状态目录 |
 | `workspace` | 否 | object | 见下表 | workspace 创建策略、根目录、git lfs/sparse-checkout 策略 |
 
 ## 2. `project`
@@ -75,7 +75,7 @@ home 展开：
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
-| `providers.env` | 否 | record<string, string> | `{}` | 直接注入到每个 `pi AgentSession` 进程的环境变量（明文，不建议放敏感 key） |
+| `providers.env` | 否 | record<string, string> | `{}` | 注入到 Orchestrator 进程的环境变量（明文，不建议放敏感 key）；各 Agent 子进程通过 `fork` 自动继承 |
 | `providers.env_from` | 否 | record<string, string> | `{}` | 环境变量映射：key 为注入名，value 为**当前 orchestrator 进程**中的源环境变量名；若该注入名已在 `providers.env` 中出现过则**跳过**（不再从系统环境覆盖） |
 | `providers.openai_compatible.base_url` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_BASE_URL` 注入 `pi` 进程 |
 | `providers.openai_compatible.api_key` | 否 | string | - | 便捷配置：自动映射到 `OPENAI_API_KEY`（不推荐明文）；若设置则会覆盖此前合并结果中的 `OPENAI_API_KEY` |
