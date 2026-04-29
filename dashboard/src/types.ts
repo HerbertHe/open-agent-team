@@ -1,4 +1,4 @@
-export type ObservabilitySource = 'orchestrator' | 'opencode';
+export type ObservabilitySource = 'orchestrator' | 'pi';
 
 export interface ObservabilityEvent {
   ts: string;

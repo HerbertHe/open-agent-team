@@ -5,7 +5,7 @@ import type { ObservabilityEvent } from '../types';
 const { Text } = Typography;
 
 function formatOpencodeEvent(e: ObservabilityEvent): string {
-  if (e.type === 'opencode.process.log' || e.type === 'opencode.local.log') return '';
+  if (e.type === 'pi.process.log' || e.type === 'pi.local.log') return '';
   const base = `[${e.ts}] ${e.type}`;
   const pay = e.payload && Object.keys(e.payload).length > 0 ? ` ${JSON.stringify(e.payload)}` : '';
   return base + pay;
@@ -66,7 +66,7 @@ export function AgentLogModal({
     seenEventLenRef.current = events.length;
     const lines: string[] = [];
     for (const e of newEvents) {
-      if (e.type === 'opencode.local.log') {
+      if (e.type === 'pi.local.log') {
         const line = e.payload?.line;
         if (typeof line === 'string') {
           setLocalShareLines((prev) => [...prev, line].slice(-2500));
@@ -75,13 +75,13 @@ export function AgentLogModal({
     }
     for (const e of newEvents) {
       if (e.agentId !== agentId) continue;
-      if (e.type === 'opencode.process.log') {
+      if (e.type === 'pi.process.log') {
         const stream = e.payload?.stream;
         const line = e.payload?.line;
         if (typeof line !== 'string') continue;
         const prefix = stream === 'stderr' || stream === 'stdout' ? `[${stream}] ` : '';
         lines.push(prefix + line);
-      } else if (e.type === 'opencode.local.log') {
+      } else if (e.type === 'pi.local.log') {
         const line = e.payload?.line;
         if (typeof line === 'string') lines.push(line);
       }
@@ -91,15 +91,15 @@ export function AgentLogModal({
     }
   }, [events, open, agentId]);
 
-  const opencodeSection = useMemo(() => {
+  const piSection = useMemo(() => {
     if (!agentId) return '';
     const rows = events
       .filter(
         (e) =>
           e.agentId === agentId &&
-          e.source === 'opencode' &&
-          e.type !== 'opencode.process.log' &&
-          e.type !== 'opencode.local.log'
+          e.source === 'pi' &&
+          e.type !== 'pi.process.log' &&
+          e.type !== 'pi.local.log'
       )
       .slice(-80)
       .map(formatOpencodeEvent)
@@ -112,11 +112,11 @@ export function AgentLogModal({
     const tail = liveTail ? `\n${liveTail}` : '';
     const local =
       localShareLines.length > 0
-        ? `\n\n--- ~/.local/share/opencode/log（全局，与各 serve 共用） ---\n${localShareLines.join('\n')}`
+        ? `\n\n--- ~/.local/share/pi/log（全局，与各 serve 共用） ---\n${localShareLines.join('\n')}`
         : '';
-    const oc = opencodeSection ? `\n\n--- OpenCode 事件（最近） ---\n${opencodeSection}` : '';
+    const oc = piSection ? `\n\n--- Pi 事件（最近） ---\n${piSection}` : '';
     return (proc + tail + local + oc).trim() || '（暂无日志）';
-  }, [processLines, liveTail, localShareLines, opencodeSection]);
+  }, [processLines, liveTail, localShareLines, piSection]);
 
   return (
     <Modal

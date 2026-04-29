@@ -85,7 +85,7 @@ function resolveRunnerExec(): { execPath: string | undefined; runnerPath: string
     const runnerTs = path.join(__dirname, "agent-runner.ts");
     return { execPath: tsxBin, runnerPath: runnerTs };
   }
-  const runnerJs = path.join(__dirname, "agent-runner.js");
+  const runnerJs = path.join(__dirname, "sandbox", "agent-runner.js");
   return { execPath: undefined, runnerPath: runnerJs };
 }
 

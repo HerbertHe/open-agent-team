@@ -33,6 +33,15 @@ export class TaskManager {
   private readonly leaderTaskAssignedAt = new Map<string, number>();
   private readonly leaderDispatchStartedAt = new Map<string, number>();
   private readonly workerNotifyCompleteAt = new Map<string, number>();
+  /**
+   * Worker 忙碌状态：用于避免在同一 Worker 仍在执行时重复下发任务。
+   * - set：在 dispatchWorkerTasks 下发任务时写入
+   * - delete：在 notify-complete（成功）/ crash / cleanup / resetSession（开始新一轮前）时清除
+   */
+  private readonly workerBusy = new Map<
+    string,
+    { leaderId: string; taskIndex: number; startedAt: number }
+  >();
   /** 已触发过崩溃通知的 agentId 集合，防止重复推送。 */
   private readonly crashedAgents = new Set<string>();
   /**
@@ -389,9 +398,26 @@ export class TaskManager {
     });
 
     try {
+      const teamWorkerIds = Array.from({ length: team.worker.total }, (_, i) => `${team.name}-worker-${i}`);
+      const claimedThisDispatch = new Set<string>();
+      const pickIdleWorker = (): string | undefined => {
+        for (const wid of teamWorkerIds) {
+          if (claimedThisDispatch.has(wid)) continue;
+          if (!this.workerBusy.has(wid)) return wid;
+        }
+        return undefined;
+      };
+
       for (let i = 0; i < tasks.length; i++) {
         const idx = tasks[i].index ?? i;
-        const workerId = `${team.name}-worker-${idx}`;
+        const workerId =
+          tasks[i].index === undefined ? (pickIdleWorker() ?? "") : `${team.name}-worker-${idx}`;
+        if (!workerId) {
+          throw new Error(
+            `No idle workers available for team=${team.name}. ` +
+              `Wait for workers to call notify-complete, or explicitly set tasks[].index.`,
+          );
+        }
         let agent: AgentRuntimeState;
         try {
           agent = this.getAgent(workerId);
@@ -402,11 +428,26 @@ export class TaskManager {
           throw new Error(t("worker_not_registered", { workerId }));
         }
 
+        // 显式指定 index 时：如果 worker 正忙，拒绝本次下发，避免把多轮任务叠到同一个 worker。
+        if (tasks[i].index !== undefined) {
+          const busy = this.workerBusy.get(workerId);
+          if (busy) {
+            throw new Error(
+              `Worker is busy: workerId=${workerId} (leaderId=${busy.leaderId}, taskIndex=${busy.taskIndex}). ` +
+                `Wait for notify-complete or choose another worker index.`,
+            );
+          }
+        } else {
+          // 自动分配模式：同一批次内不重复选中同一个 worker
+          claimedThisDispatch.add(workerId);
+        }
+
         // 若该 Worker 已完成过上一轮任务，则先重置 session（清空历史），再下发新任务
         // 同时清除上一轮的完成/崩溃记录，以确保本轮超时监控与崩溃通知正常触发
         if (this.workerNotifyCompleteAt.has(workerId)) {
           this.workerNotifyCompleteAt.delete(workerId);
           this.crashedAgents.delete(workerId);
+          this.workerBusy.delete(workerId);
           try {
             await this.runtimeProvider.resetSession(workerId);
           } catch (resetErr) {
@@ -435,8 +476,10 @@ export class TaskManager {
         });
 
         // fire-and-forget：Worker 并行执行，通过 notify-complete 工具回报完成
+        this.workerBusy.set(workerId, { leaderId, taskIndex: idx, startedAt: Date.now() });
         void this.runtimeProvider.sendPrompt(workerId, prompt).catch((err: unknown) => {
           const error = err instanceof Error ? err : new Error(String(err));
+          this.workerBusy.delete(workerId);
           this.observabilityHub.emit({
             source: "orchestrator",
             type: "worker.dispatch_failed",
@@ -634,6 +677,7 @@ export class TaskManager {
         // 下一轮 dispatchWorkerTasks 会误判为"上轮已完成"，跳过 resetSession 直接发任务。
         const result = await this.handleWorkerComplete(agentId, body.changelog);
         this.workerNotifyCompleteAt.set(agentId, Date.now());
+        this.workerBusy.delete(agentId);
         return result;
       } catch (e) {
         this.observabilityHub.emit({
@@ -714,6 +758,7 @@ export class TaskManager {
     if (!agent) return;
 
     this.crashedAgents.add(agentId);
+    this.workerBusy.delete(agentId);
 
     const role = agent.spec.role;
     this.observabilityHub.emit({
@@ -945,6 +990,7 @@ export class TaskManager {
       this.agents.delete(w.spec.id);
       this.crashedAgents.delete(w.spec.id);
       this.workerNotifyCompleteAt.delete(w.spec.id);
+      this.workerBusy.delete(w.spec.id);
     }
 
     this.observabilityHub.emit({

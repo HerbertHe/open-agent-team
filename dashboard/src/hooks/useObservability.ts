@@ -10,26 +10,26 @@ function updateStatusFromEvent(
   const id = ev.agentId;
   if (!id) return prev;
   const next = { ...prev };
-  if (ev.source === 'opencode') {
-    if (ev.type === 'command.executed') {
+  if (ev.source === 'pi') {
+    if (ev.type === 'pi.command.executed') {
       next[id] = 'tool';
       return next;
     }
-    if (ev.type === 'session.status') {
-      const raw = ev.payload?.opencodeEvent as { properties?: { status?: string } } | undefined;
+    if (ev.type === 'pi.session.status') {
+      const raw = ev.payload?.piEvent as { properties?: { status?: string } } | undefined;
       const st = raw?.properties?.status;
       if (st === 'busy') next[id] = 'busy';
       return next;
     }
-    if (ev.type === 'session.idle') {
+    if (ev.type === 'pi.session.idle') {
       next[id] = 'idle';
       return next;
     }
-    if (ev.type === 'session.error' || ev.type === 'opencode.bridge.error') {
+    if (ev.type === 'pi.session.error' || ev.type === 'pi.bridge.error') {
       next[id] = 'error';
       return next;
     }
-    if (ev.type === 'opencode.process.log' || ev.type === 'opencode.local.log') {
+    if (ev.type === 'pi.process.log' || ev.type === 'pi.local.log') {
       next[id] = next[id] === 'error' ? 'error' : 'busy';
       return next;
     }
@@ -100,12 +100,12 @@ export function useObservability() {
     const m: Record<string, string> = {};
     for (const e of events) {
       if (!e.agentId) continue;
-      if (e.type === 'opencode.process.log') {
+      if (e.type === 'pi.process.log') {
         const line = e.payload?.line;
         if (typeof line !== 'string') continue;
         const s = line.length > 40 ? `${line.slice(0, 37)}…` : line;
         m[e.agentId] = s;
-      } else if (e.type === 'opencode.local.log') {
+      } else if (e.type === 'pi.local.log') {
         const line = e.payload?.line;
         if (typeof line !== 'string') continue;
         const s = line.length > 44 ? `${line.slice(0, 41)}…` : line;
@@ -139,7 +139,26 @@ export function useObservability() {
       try {
         const parsed = JSON.parse(ev.data as string) as ObservabilityEvent;
         setEvents((prev) => {
-          const n = [...prev, parsed];
+          // 合并高频 pi.message_update（例如 text_delta/think_delta/toolcall_delta）
+          // 目标：时间线保持“最新快照”，避免刷屏。
+          let n: ObservabilityEvent[];
+          if (parsed.type === 'pi.message_update' && parsed.agentId) {
+            const idx = (() => {
+              for (let i = prev.length - 1; i >= 0; i--) {
+                const e = prev[i];
+                if (e.type === 'pi.message_update' && e.agentId === parsed.agentId) return i;
+              }
+              return -1;
+            })();
+            if (idx >= 0) {
+              n = prev.slice();
+              n[idx] = parsed;
+            } else {
+              n = [...prev, parsed];
+            }
+          } else {
+            n = [...prev, parsed];
+          }
           if (n.length > MAX_TIMELINE) n.splice(0, n.length - MAX_TIMELINE);
           return n;
         });

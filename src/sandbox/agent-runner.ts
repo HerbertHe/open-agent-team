@@ -108,7 +108,38 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
 
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
-    const model = modelRegistry.find(provider, modelId) ?? undefined;
+
+    if (process.env.OPENAI_BASE_URL) {
+      modelRegistry.registerProvider("openai", {
+        baseUrl: process.env.OPENAI_BASE_URL,
+      });
+    }
+
+    let model = modelRegistry.find(provider, modelId) ?? undefined;
+
+    // openai-compatible 代理通常仅支持标准 Chat Completions API，
+    // 而内置 openai 模型使用 openai-responses（Responses API）+ 官方专属 compat 设定。
+    // 当用户通过 OPENAI_BASE_URL 指定了自定义端点时：
+    //   1. 降级 API 类型为 openai-completions
+    //   2. 覆盖 compat 为通用代理兼容配置，避免发送 store / developer role /
+    //      max_completion_tokens / reasoning_effort 等不被支持的参数
+    if (model && process.env.OPENAI_BASE_URL && provider === "openai") {
+      model = {
+        ...model,
+        api: "openai-completions" as typeof model.api,
+        compat: {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+          supportsUsageInStreaming: false,
+          maxTokensField: "max_tokens" as const,
+          requiresToolResultName: false,
+          requiresAssistantAfterToolResult: false,
+          requiresThinkingAsText: false,
+          supportsStrictMode: false,
+        },
+      };
+    }
     if (!model) {
       send({
         type: "agent_error",

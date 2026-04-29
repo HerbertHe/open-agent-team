@@ -17,6 +17,7 @@ import { XProvider } from '@ant-design/x';
 import { useObservability } from './hooks/useObservability';
 import { AgentLogModal } from './components/AgentLogModal';
 import { AdminInstructionSender } from './components/AdminInstructionSender';
+import { ProgressReportBox } from './components/ProgressReportBox';
 import { isTimelineNoiseEvent } from './timelineEventFilter';
 import type { ObservabilitySource } from './types';
 import './App.css';
@@ -94,6 +95,7 @@ export default function App() {
           <div className="dashboard-grid">
             <aside className="dashboard-left">
               <AdminInstructionSender />
+              <ProgressReportBox events={events} />
             </aside>
             <div className="dashboard-right-stack">
               <section className="graph-panel" aria-label="Agent 拓扑">
@@ -134,7 +136,7 @@ export default function App() {
                       onChange={setSourceFilter}
                       options={[
                         { value: 'all', label: '全部来源' },
-                        { value: 'opencode', label: 'OpenCode' },
+                        { value: 'pi', label: 'Pi' },
                         { value: 'orchestrator', label: 'Orchestrator' },
                       ]}
                       aria-label="按事件来源筛选"
@@ -159,20 +161,21 @@ export default function App() {
                             {formatEventLine(item)}
                           </Text>
                           {item.type === 'report_progress' ? (
-                            <Text type="secondary" ellipsis style={{ fontSize: 11 }}>
-                              阶段:{' '}
-                              {item.payload?.['stage']
-                                ? String(item.payload['stage'])
-                                : '-'}
-                              {typeof item.payload?.['message'] === 'string' &&
-                              item.payload?.['message']
-                                ? ` · ${item.payload['message'] as string}`
-                                : ''}
-                            </Text>
+                            <pre className="event-payload">
+                              {JSON.stringify(
+                                {
+                                  stage: item.payload?.['stage'] ?? '-',
+                                  message:
+                                    typeof item.payload?.['message'] === 'string'
+                                      ? (item.payload['message'] as string)
+                                      : '',
+                                },
+                                null,
+                                2
+                              )}
+                            </pre>
                           ) : item.payload && Object.keys(item.payload).length > 0 ? (
-                            <Text type="secondary" ellipsis style={{ fontSize: 11 }}>
-                              {JSON.stringify(item.payload)}
-                            </Text>
+                            <pre className="event-payload">{JSON.stringify(item.payload, null, 2)}</pre>
                           ) : null}
                         </Space>
                       </List.Item>

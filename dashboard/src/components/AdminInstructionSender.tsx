@@ -6,6 +6,7 @@ const { Paragraph } = Typography;
 
 export function AdminInstructionSender() {
   const [loading, setLoading] = useState(false);
+  const [value, setValue] = useState('');
   const onSubmit = useCallback(async (text: string) => {
     const prompt = text.trim();
     if (!prompt) return;
@@ -19,6 +20,7 @@ export function AdminInstructionSender() {
       const j = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(j.error ?? `${r.status} ${r.statusText}`);
       antdMessage.success('已下发到 Admin');
+      setValue('');
     } catch (e) {
       antdMessage.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -36,6 +38,8 @@ export function AdminInstructionSender() {
       <Sender
         placeholder="输入要交给 Admin 的任务或补充说明…（Shift+Enter 发送）"
         loading={loading}
+        value={value}
+        onChange={setValue}
         onSubmit={onSubmit}
         submitType="shiftEnter"
         autoSize={{ minRows: 2, maxRows: 6 }}
