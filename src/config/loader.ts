@@ -44,8 +44,23 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     return p;
   };
 
+  const rewriteModelProviderByCompatibleType = (fullModel: string): string => {
+    const idx = fullModel.indexOf("/");
+    if (idx <= 0) return fullModel;
+    const providerKey = fullModel.slice(0, idx);
+    const modelId = fullModel.slice(idx + 1);
+    if (!modelId) return fullModel;
+    const providerCfg = (validated.providers as any)?.[providerKey] as
+      | { compatible_type?: "openai" | "anthropic" }
+      | undefined;
+    const ct = providerCfg?.compatible_type;
+    if (ct === "openai" || ct === "anthropic") return `${ct}/${modelId}`;
+    return fullModel;
+  };
+
   const resolveModelAlias = (m: string): string => {
-    return validated.models[m] ?? m;
+    const resolved = validated.models[m] ?? m;
+    return rewriteModelProviderByCompatibleType(resolved);
   };
 
   const resolveInheritedModel = (candidate: string | undefined, fallback: string | undefined, fieldPath: string): string => {
@@ -85,15 +100,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     pi: { agentDir: undefined },
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
-  const providersDefaults = {
-    env: {} as Record<string, string>,
-    env_from: {} as Record<string, string>,
-    openai_compatible: {} as {
-      base_url?: string;
-      api_key?: string;
-      api_key_env?: string;
-    },
-  };
+  const providersDefaults: Record<string, { compatible_type: "openai" | "anthropic"; base_url?: string; api_key?: string }> = {};
 
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
@@ -105,18 +112,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   const runtime = { ...runtimeDefaults, ...(withInheritance.runtime ?? {}) };
   const workspace = { ...workspaceDefaults, ...(withInheritance.workspace ?? {}) };
-  const topProviderCfg = withInheritance.providers ?? {};
-  const providers = {
-    env: {
-      ...(topProviderCfg.env ?? {}),
-    },
-    env_from: {
-      ...(topProviderCfg.env_from ?? {}),
-    },
-    openai_compatible: {
-      ...(topProviderCfg.openai_compatible ?? {}),
-    },
-  };
+  const providers = { ...(withInheritance.providers ?? {}) };
 
   return {
     ...withInheritance,

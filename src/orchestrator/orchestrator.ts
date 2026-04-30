@@ -33,12 +33,6 @@ function parseBaseDir(input: string): string {
   return input;
 }
 
-function pickEnvValue(keyName: string): string | undefined {
-  const value = process.env[keyName];
-  if (!value) return undefined;
-  return value;
-}
-
 export class Orchestrator {
   private readonly app = express();
   private readonly taskManager: TaskManager;
@@ -70,39 +64,13 @@ export class Orchestrator {
     this.stateDir = parseBaseDir(config.runtime.persistence.state_dir);
     this.stateFile = path.join(this.stateDir, "orchestrator.json");
 
-    // 根据 providers 配置将 API key/env 注入到当前进程环境变量
-    // pi-coding-agent 从进程环境变量读取 API keys（ANTHROPIC_API_KEY / OPENAI_API_KEY 等）
-    const providersCfg = config.providers;
-    for (const [k, v] of Object.entries(providersCfg.env ?? {})) {
-      process.env[k] = v;
-    }
-    for (const [targetKey, sourceEnvName] of Object.entries(
-      providersCfg.env_from ?? {},
-    )) {
-      if (process.env[targetKey]) continue;
-      const value = pickEnvValue(sourceEnvName);
-      if (!value) {
-        logger.warn(
-          t("providers_env_from_missing", { sourceEnvName, targetKey }),
-        );
-        continue;
-      }
-      process.env[targetKey] = value;
-    }
-
-    const openaiCompat = providersCfg.openai_compatible ?? {};
-    if (openaiCompat.base_url) {
-      process.env.OPENAI_BASE_URL = openaiCompat.base_url;
-    }
-    if (openaiCompat.api_key) {
-      process.env.OPENAI_API_KEY = openaiCompat.api_key;
-    } else if (openaiCompat.api_key_env) {
-      const name = openaiCompat.api_key_env;
-      const key = process.env[name] ?? pickEnvValue(name);
-      if (!key) {
-        logger.warn(t("providers_openai_api_key_env_not_found", { name }));
-      } else {
-        process.env.OPENAI_API_KEY = key;
+    for (const [, providerCfg] of Object.entries(config.providers)) {
+      if (providerCfg.compatible_type === "openai") {
+        if (providerCfg.base_url) process.env.OPENAI_BASE_URL = providerCfg.base_url;
+        if (providerCfg.api_key) process.env.OPENAI_API_KEY = providerCfg.api_key;
+      } else if (providerCfg.compatible_type === "anthropic") {
+        if (providerCfg.base_url) process.env.ANTHROPIC_BASE_URL = providerCfg.base_url;
+        if (providerCfg.api_key) process.env.ANTHROPIC_API_KEY = providerCfg.api_key;
       }
     }
 

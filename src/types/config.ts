@@ -1,21 +1,18 @@
 import type { RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
 import type { TeamConfig } from "./team";
 
-export interface TeamFileProvidersConfig {
-  /** 直接注入到 pi agent 进程的环境变量（明文）。 */
-  env?: Record<string, string>;
-  /** 环境变量映射：key 为注入名，value 为当前系统中的源环境变量名。 */
-  env_from?: Record<string, string>;
-  /** OpenAI 兼容网关的便捷配置（会自动映射到 OPENAI_* 环境变量）。 */
-  openai_compatible?: {
-    /** 对应 OPENAI_BASE_URL */
-    base_url?: string;
-    /** 对应 OPENAI_API_KEY（不建议明文，建议改用 api_key_env） */
-    api_key?: string;
-    /** 从当前进程环境变量读取 key（例如 OPENROUTER_API_KEY） */
-    api_key_env?: string;
-  };
+/** 单个服务商的配置。 */
+export interface ProviderConfig {
+  /** 兼容类型：openai 或 anthropic */
+  compatible_type: "openai" | "anthropic";
+  /** API 基础地址 */
+  base_url?: string;
+  /** API 密钥 */
+  api_key?: string;
 }
+
+/** providers 配置：key 为服务商名称，value 为该服务商的接入配置。 */
+export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 
 /**
  * Admin agent 的声明式配置。
@@ -95,9 +92,7 @@ export interface TeamFileConfig {
  * loader 解析后的最终配置（所有必要字段已补齐）。
  */
 export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace"> {
-  providers: Required<Omit<TeamFileProvidersConfig, "openai_compatible">> & {
-    openai_compatible: TeamFileProvidersConfig["openai_compatible"];
-  };
+  providers: TeamFileProvidersConfig;
   runtime: {
     /** 解析后的运行时模式（必填） */
     mode: RuntimeModeEnum;

@@ -21,7 +21,7 @@
   - team 配置（`teams[]`: `Leader` + `Worker`）
 - 如果 `admin.prompt` / `leader.prompt` / `worker.prompt` 以 `.md` 结尾，loader 会把它当作文件路径读取文件内容作为 prompt 文本。
 - 模型继承链路：`worker.model -> leader.model -> admin.model -> model`（任意层都可覆盖）。
-- 可在顶层 `providers` 下集中注入 OpenAI 兼容 API 参数（`base_url`、`api_key_env` 等）到所有 agent 的 `opencode` 进程。
+- 可在顶层 `providers` 下按服务商名称配置 `compatible_type`（`openai` / `anthropic`）、`base_url` 与 `api_key`，由编排器写入进程环境变量后被子进程继承。
 
 详细字段说明：`oat docs config --lang zh-CN`。
 

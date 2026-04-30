@@ -115,7 +115,38 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       });
     }
 
-    let model = modelRegistry.find(provider, modelId) ?? undefined;
+    const openaiProxyCompat = {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+      supportsUsageInStreaming: false,
+      maxTokensField: "max_tokens" as const,
+      requiresToolResultName: false,
+      requiresAssistantAfterToolResult: false,
+      requiresThinkingAsText: false,
+      supportsStrictMode: false,
+    };
+
+    // 先从 SDK 内置 registry 查找模型；若不存在且用户配置了 OPENAI_BASE_URL（兼容网关），则允许任意新模型 ID。
+    // 这等价于“动态注册”一个 openai-completions 模型，避免 registry 白名单导致新模型无法使用。
+    let model: any = modelRegistry.find(provider, modelId) ?? undefined;
+    if (!model && provider === "openai" && process.env.OPENAI_BASE_URL) {
+      const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      model = {
+        id: modelId,
+        name: modelId,
+        api: "openai-completions",
+        provider: "openai",
+        baseUrl: process.env.OPENAI_BASE_URL,
+        reasoning: false,
+        input: ["text"],
+        cost: defaultCost,
+        contextWindow: 128000,
+        maxTokens: 16384,
+        headers: undefined,
+        compat: openaiProxyCompat,
+      };
+    }
 
     // openai-compatible 代理通常仅支持标准 Chat Completions API，
     // 而内置 openai 模型使用 openai-responses（Responses API）+ 官方专属 compat 设定。
@@ -127,17 +158,7 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       model = {
         ...model,
         api: "openai-completions" as typeof model.api,
-        compat: {
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-          supportsUsageInStreaming: false,
-          maxTokensField: "max_tokens" as const,
-          requiresToolResultName: false,
-          requiresAssistantAfterToolResult: false,
-          requiresThinkingAsText: false,
-          supportsStrictMode: false,
-        },
+        compat: openaiProxyCompat,
       };
     }
     if (!model) {

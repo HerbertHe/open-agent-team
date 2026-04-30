@@ -71,21 +71,19 @@ Expansion de `~` :
 
 ## 5.1 `providers` (intégration provider globale)
 
+> Chaque **clé** sous `providers` est un nom de fournisseur. Elle doit correspondre au préfixe des entrées `models` résolues au format `<cléFournisseur>/<nomModèle>` (par ex. si `models.default` vaut `openai/gpt-4o-mini`, un bloc `providers.openai` est requis).
+
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
-| `providers.env` | Non | record<string, string> | `{}` | Variables d'environnement injectées dans le processus Orchestrator ; les processus enfants Agent les héritent automatiquement via `fork` |
-| `providers.env_from` | Non | record<string, string> | `{}` | Mapping : clé = nom injecté, valeur = nom de variable source sur le **processus orchestrator** ; si cette clé existe déjà via `providers.env`, l'entrée est **ignorée** (pas d'écrasement depuis l'OS) |
-| `providers.openai_compatible.base_url` | Non | string | - | Mapping pratique vers `OPENAI_BASE_URL` |
-| `providers.openai_compatible.api_key` | Non | string | - | Mapping pratique vers `OPENAI_API_KEY` (texte brut, déconseillé) ; si défini, écrase toute valeur `OPENAI_API_KEY` déjà fusionnée |
-| `providers.openai_compatible.api_key_env` | Non | string | - | Si `api_key` absent : valeur = **nom de variable** ; résoudre **d'abord** depuis la config fusionnée (`providers.env` + `env_from` appliqué), **sinon** depuis l'environnement du process courant, puis injecter `OPENAI_API_KEY` chez l'enfant |
+| `providers.<name>.compatible_type` | Oui | `openai` \| `anthropic` | - | `openai` mappe vers `OPENAI_BASE_URL` / `OPENAI_API_KEY` ; `anthropic` vers `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` |
+| `providers.<name>.base_url` | Non | string | - | URL de base de l’API |
+| `providers.<name>.api_key` | Non | string | - | Clé API (texte brut ; éviter de committer des secrets) |
 
-Notes (ordre de fusion) :
+Notes :
 
-1. Appliquer `providers.env`.
-2. Appliquer `providers.env_from` seulement pour les clés encore absentes.
-3. Appliquer en dernier `providers.openai_compatible` : `base_url` / `api_key` directs ; si `api_key` absent et `api_key_env` défini, résolution comme ci-dessus (config avant env OS).
-4. Pour les secrets : `env_from` / `api_key_env` vers des variables OS, ou `providers.env` en local sans commit des clés.
-5. Avertissements si `env_from` manque la source OS, ou si `api_key_env` ne résout rien (config + env).
+1. Au démarrage, l’orchestrateur parcourt chaque entrée `providers` et définit les variables d’environnement du processus à partir de `base_url` / `api_key`. Les processus enfants les héritent via `fork`.
+2. Si plusieurs entrées partagent le même `compatible_type`, l’ordre des clés d’objet peut faire écraser les valeurs `OPENAI_*` / `ANTHROPIC_*` précédentes. En pratique, un fournisseur par protocole suffit.
+3. Les valeurs de `models` peuvent utiliser `<cléProvider>/<nomModèle>` avec n’importe quelle clé déclarée dans `providers` (ex. `cli_proxy_api/deepseek-v4-pro`). À l’exécution, le loader réécrit automatiquement le préfixe selon `compatible_type` en `openai/<nomModèle>` ou `anthropic/<nomModèle>` avant de créer les sessions pi.
 
 ## 6. `workspace`
 

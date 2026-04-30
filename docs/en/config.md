@@ -72,23 +72,21 @@ Home expansion:
 
 ## 5.1 `providers` (global provider integration)
 
+> Each **key** under `providers` is a provider name. It must match the prefix of resolved `models` entries, which use the form `<providerKey>/<modelName>` (for example, if `models.default` is `openai/gpt-4o-mini`, you need a `providers.openai` block).
+
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `providers.env` | No | record<string, string> | `{}` | Plain env vars injected into the orchestrator process; Agent child processes inherit them automatically via `fork` (pi reads API keys from env: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) |
-| `providers.env_from` | No | record<string, string> | `{}` | Env mapping: key is injected name, value is source env var name on the **orchestrator process**; if that injected key already exists from `providers.env`, the entry is **skipped** (no overwrite from the OS) |
-| `providers.openai_compatible.base_url` | No | string | - | Convenience mapping to `OPENAI_BASE_URL` |
-| `providers.openai_compatible.api_key` | No | string | - | Convenience mapping to `OPENAI_API_KEY` (plain text; not recommended) |
-| `providers.openai_compatible.api_key_env` | No | string | - | Used when `api_key` is unset: value is an **env var name** on the orchestrator process |
+| `providers.<name>.compatible_type` | Yes | `openai` \| `anthropic` | - | Protocol: `openai` maps `base_url` / `api_key` to `OPENAI_BASE_URL` / `OPENAI_API_KEY`; `anthropic` maps to `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` |
+| `providers.<name>.base_url` | No | string | - | API base URL |
+| `providers.<name>.api_key` | No | string | - | API key (plain text; avoid committing real secrets) |
 
-Notes (merge order):
+Notes:
 
-1. Apply `providers.env` first.
-2. Apply `providers.env_from` only for keys not already present.
-3. Apply `providers.openai_compatible` last: `base_url` / `api_key` directly; if `api_key` is absent and `api_key_env` is set, resolve from config then OS env.
-4. For secrets, prefer `env_from` or `api_key_env` pointing at OS vars, or use `providers.env` locally without committing keys.
-5. Warnings if `env_from` still needs the OS but the source var is missing, or if `api_key_env` resolves empty from both config and env.
+1. On startup the orchestrator walks every `providers` entry and sets the corresponding process env vars from `base_url` / `api_key`. Child agent processes inherit them via `fork`; pi-coding-agent still reads keys from the environment.
+2. If multiple entries share the same `compatible_type`, later keys in object iteration order can overwrite earlier `OPENAI_*` / `ANTHROPIC_*` values. In practice configure one provider per protocol.
+3. Model IDs in `models` can use `<providerKey>/<modelName>` with any `providerKey` defined in `providers` (e.g. `cli_proxy_api/deepseek-v4-pro`). At runtime, the loader rewrites the provider prefix to the corresponding `compatible_type` (`openai/<modelName>` or `anthropic/<modelName>`) before creating pi sessions.
 
-> pi-coding-agent reads API keys directly from the process environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). The `providers` config simply ensures the right env vars are set before pi sessions are created.
+> pi-coding-agent reads API keys from process environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). `providers` only sets those variables before pi sessions start.
 
 ## 6. `workspace`
 

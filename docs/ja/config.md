@@ -71,21 +71,19 @@ loader の挙動：
 
 ## 5.1 `providers`（グローバル接続設定）
 
+> `providers` の **キー** はプロバイダ名です。`models` の解決後の値 `<providerKey>/<modelName>` の接頭辞と一致させます（例：`models.default` が `openai/gpt-4o-mini` なら `providers.openai` が必要）。
+
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
-| `providers.env` | いいえ | record<string, string> | `{}` | Orchestrator プロセスに注入する環境変数（平文）；Agent 子プロセスは `fork` 経由で自動継承します |
-| `providers.env_from` | いいえ | record<string, string> | `{}` | key は注入名、value は **orchestrator プロセス** 上のソース環境変数名。`providers.env` に同名が既にある場合は **スキップ**（OS から上書きしない） |
-| `providers.openai_compatible.base_url` | いいえ | string | - | `OPENAI_BASE_URL` へ自動マッピング |
-| `providers.openai_compatible.api_key` | いいえ | string | - | `OPENAI_API_KEY` へ自動マッピング（平文のため非推奨）。設定時は既にマージ済みの `OPENAI_API_KEY` を上書き |
-| `providers.openai_compatible.api_key_env` | いいえ | string | - | `api_key` 未設定時：値は **環境変数名**。**まず** マージ済み設定（`providers.env` と適用済み `env_from`）から解決し、**なければ** 現在プロセスの環境から読み、子の `OPENAI_API_KEY` に注入 |
+| `providers.<name>.compatible_type` | はい | `openai` \| `anthropic` | - | `openai` は `OPENAI_BASE_URL` / `OPENAI_API_KEY` に、`anthropic` は `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` にマッピング |
+| `providers.<name>.base_url` | いいえ | string | - | API のベース URL |
+| `providers.<name>.api_key` | いいえ | string | - | API キー（平文。本番キーをリポジトリにコミットしないこと） |
 
-注記（マージ順）：
+注記：
 
-1. `providers.env` を先に適用。
-2. `providers.env_from` は、まだ存在しないキーにだけ適用。
-3. 最後に `providers.openai_compatible`：`base_url` / `api_key` を直接反映。`api_key` がなく `api_key_env` だけある場合は上表どおり（設定を OS より優先）。
-4. 秘密は OS 変数への `env_from` / `api_key_env`、またはコミットしないローカルの `providers.env` が無難。
-5. `env_from` でソースが OS にない、または `api_key_env` が設定・OS 双方で空、のとき warning。
+1. 起動時に orchestrator が各 `providers` エントリを走査し、`compatible_type` に応じて `base_url` / `api_key` をプロセス環境に設定します。子プロセスは `fork` で継承します。
+2. 同じ `compatible_type` が複数ある場合、オブジェクトのキー順で後から設定した値が同名環境変数を上書きします。通常はプロトコルごとに 1 件で十分です。
+3. `models` の値は、`providers` に定義した任意のキーを前置した `<providerKey>/<modelName>` を使用できます（例：`cli_proxy_api/deepseek-v4-pro`）。実行時に loader がその provider の `compatible_type` に従って `openai/<modelName>` または `anthropic/<modelName>` に自動変換してから pi セッションを作成します。
 
 ## 6. `workspace`
 

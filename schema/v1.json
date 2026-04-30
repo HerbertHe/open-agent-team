@@ -12,41 +12,26 @@
     },
     "providers": {
       "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "env": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {}
-        },
-        "env_from": {
-          "type": "object",
-          "additionalProperties": {
+      "additionalProperties": {
+        "type": "object",
+        "required": ["compatible_type"],
+        "additionalProperties": false,
+        "properties": {
+          "compatible_type": {
             "type": "string",
-            "minLength": 1
+            "enum": ["openai", "anthropic"],
+            "description": "API 兼容类型"
           },
-          "default": {}
-        },
-        "openai_compatible": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "base_url": {
-              "type": "string",
-              "minLength": 1
-            },
-            "api_key": {
-              "type": "string",
-              "minLength": 1
-            },
-            "api_key_env": {
-              "type": "string",
-              "minLength": 1
-            }
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "description": "API 基础地址"
           },
-          "default": {}
+          "api_key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "API 密钥"
+          }
         }
       }
     },

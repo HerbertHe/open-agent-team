@@ -44,8 +44,8 @@ Here is a “minimal skeleton” example (replace model and prompts with your ow
 {
   "model": "default",
   "project": { "name": "open-agent-team-demo", "repo": ".", "base_branch": "main" },
-  "models": { "default": "anthropic/claude-3-5-sonnet-20240620" },
-  "providers": { "openai_compatible": { "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY" } },
+  "models": { "default": "openai/gpt-4o-mini" },
+  "providers": { "openai": { "compatible_type": "openai", "base_url": "https://api.openai.com/v1", "api_key": "sk-..." } },
   "admin": {
     "name": "admin",
     "description": "Project manager responsible for final aggregation and delivery",
