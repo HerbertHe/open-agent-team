@@ -18,9 +18,6 @@
   },
   "runtime": {
     "mode": "local_process",
-    "pi": {
-      "agentDir": "~/.pi/agent"
-    },
     "persistence": {
       "state_dir": ".oat/state"
     }

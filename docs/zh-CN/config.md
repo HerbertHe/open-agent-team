@@ -20,7 +20,7 @@
 | `models` | 是 | record<string, string> | - | 模型别名到 model id 的映射（供 admin/leader/worker 解析） |
 | `admin` | 是 | object | - | Admin agent 的角色定义：prompt、模型与 skills |
 | `teams` | 是 | array | - | 每个 team 一组 leader/worker 配置 |
-| `runtime` | 否 | object | 见下表 | 运行时模式、pi-coding-agent 目录、状态目录 |
+| `runtime` | 否 | object | 见下表 | 运行时模式、状态目录 |
 | `workspace` | 否 | object | 见下表 | workspace 创建策略、根目录、git lfs/sparse-checkout 策略 |
 
 ## 2. `project`
@@ -51,7 +51,7 @@ loader 行为：
 | `admin.description` | 是 | string | - | Admin 的职责描述（写入 prompt/约束构建逻辑，由你在 team.json 填写） |
 | `admin.model` | 否 | string | 继承顶层 `model` | Admin 使用的模型（可为别名） |
 | `admin.prompt` | 是 | string | - | Admin 的系统/角色 prompt（支持 `*.md` 文件路径形式） |
-| `admin.skills` | 否 | string[] | `[]` | Admin 共享给 pi-coding-agent 的 skills 列表（会同步到 Admin workspace） |
+| `admin.skills` | 否 | SkillEntry[] | `[]` | Admin 安装的 skills 列表（每个 entry 包含 `source` 和可选 `names`，通过 `npx skills add` 安装） |
 
 ## 5. `runtime`
 
@@ -60,7 +60,6 @@ loader 行为：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | 否 | enum (`local_process` \| `flue`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
-| `runtime.pi.agentDir` | 否 | string | `~/.pi/agent` | pi-coding-agent 全局 agent 目录（存储凭证、设置等） |
 | `runtime.persistence.state_dir` | 否 | string | `"<team.json目录>/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 
 home 展开：
@@ -128,7 +127,7 @@ home 展开：
 | `leader.description` | 是 | string | - | Leader 职责描述（你可放到 prompt 中或由模型自行解读） |
 | `leader.model` | 否 | string | 继承 `admin.model`（或顶层 `model`） | Leader 使用的模型（可为别名） |
 | `leader.prompt` | 是 | string | - | Leader prompt（支持 `*.md` 文件路径形式） |
-| `leader.skills` | 否 | string[] | `[]` | Leader skills（会继承到 worker，且在动态创建时注入） |
+| `leader.skills` | 否 | SkillEntry[] | `[]` | Leader skills（会继承到 worker，且在动态创建时安装） |
 | `leader.repos` | 否 | string[] | `[]` | sparse-checkout 白名单路径（用于 worker workspace 可见范围） |
 
 ### 7.3 `teams[].worker`
@@ -138,6 +137,6 @@ home 展开：
 | `worker.total` | 是 | number(int, >0) | - | 配置意图：启动 team 时预先创建并常驻的 worker 数量（仅在 orchestrator 退出时统一 stopAll 销毁） |
 | `worker.model` | 否 | string | 继承 `leader.model` | Worker 使用的模型（可为别名） |
 | `worker.prompt` | 是 | string | - | Worker prompt（支持 `*.md` 文件路径形式） |
-| `worker.extra_skills` | 否 | string[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后注入） |
+| `worker.extra_skills` | 否 | SkillEntry[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后安装） |
 | `worker.lifecycle` | 否 | enum | `ephemeral_after_merge_to_main` | 配置意图：当前实现中 worker 池在 orchestrator 退出前不回收（生命周期字段未用于提前清理） |
 | `worker.skill_sync` | 否 | enum | `inherit_and_inject_on_spawn` | 配置意图：动态 spawn 时 skill 注入策略（当前版本实际行为是“继承并注入”，未实现手动模式分支） |

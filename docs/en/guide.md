@@ -2,26 +2,25 @@
 
 This guide helps you run the declarative `Admin -> Leader -> Worker` agent management structure locally with the minimal set of steps.
 
-## 1. Prepare skills (required)
+## 1. Configure skills (optional)
 
-Orchestrator reads skill definitions from `team.json`’s `project.repo` path and injects them into each agent workspace.
-If `project.repo` is a relative path, it is resolved relative to the `team.json` directory.
+Skills are managed via [`npx skills`](https://github.com/vercel-labs/skills). You declare skill sources in `team.json` using the `SkillEntry` format, and OAT automatically installs them into each agent's workspace on startup.
 
-In your repository root defined by `project.repo`, prepare:
+Each `SkillEntry` has:
+- `source`: a skill source (GitHub shorthand like `vercel-labs/agent-skills`, full URL, or local path)
+- `names` (optional): specific skill names to install; omit or use `["*"]` for all
 
-- `skills/<skill-name>/SKILL.md`
-
-Example:
-
-```text
-skills/
-  doc-search/
-    SKILL.md
-  coding-assistant/
-    SKILL.md
+Example in `team.json`:
+```json
+"skills": [
+  { "source": "vercel-labs/agent-skills", "names": ["frontend-design"] },
+  { "source": "./my-local-skills" }
+]
 ```
 
-> Tip: If you don’t have skills yet, you can still start by creating an empty or minimal `SKILL.md` to make the injection and tool-calling flow work end-to-end.
+At startup, OAT runs `npx skills add` for each entry, installs skills into `<workspace>/skills/`, and creates a `.pi/skills` symlink for pi-coding-agent compatibility. The agent automatically discovers and loads skills from its workspace.
+
+> Tip: You can start without any skills — just leave `"skills": []` in your config.
 
 ## 2. Prepare your Git repository and branches (recommended)
 
@@ -38,7 +37,7 @@ Before you start, confirm:
 
 `team.json` can be placed anywhere, but it is recommended to keep it in your repository root (or another easy-to-manage location).
 
-Here is a “minimal skeleton” example (replace model and prompts with your own content, and fill in real skill names):
+Here is a "minimal skeleton" example (replace model and prompts with your own content):
 
 ```json
 {

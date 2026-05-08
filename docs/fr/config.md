@@ -51,7 +51,7 @@ Comportement du loader :
 | `admin.description` | Oui | string | - | Texte de responsabilité Admin (à remplir dans `team.json`) |
 | `admin.model` | Non | string | hérite du `model` de niveau supérieur | Modèle utilisé par Admin (peut être un alias) |
 | `admin.prompt` | Oui | string | - | Prompt Admin (accepte un chemin de fichier `*.md`) |
-| `admin.skills` | Non | string[] | `[]` | Skills à injecter dans le workspace Admin |
+| `admin.skills` | Non | SkillEntry[] | `[]` | Skills à installer dans le workspace Admin (chaque entry a `source` et optionnel `names`, installés via `npx skills add`) |
 
 ## 5. `runtime`
 
@@ -60,7 +60,6 @@ Comportement du loader :
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | Non | enum (`local_process` \| `flue`) | `local_process` | Mode runtime (implémente actuellement seulement `local_process`) |
-| `runtime.pi.agentDir` | Non | string | `~/.pi/agent` | Répertoire global de l'agent pi-coding-agent (pour les identifiants, paramètres et modèles personnalisés) |
 | `runtime.persistence.state_dir` | Non | string | `"<répertoire de team.json>/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
 
 Expansion de `~` :
@@ -128,7 +127,7 @@ Chaque équipe contient :
 | `leader.description` | Oui | string | - | Texte de responsabilité du leader |
 | `leader.model` | Non | string | hérite de `admin.model` (ou du `model` global) | Modèle utilisé par le leader (peut être un alias) |
 | `leader.prompt` | Oui | string | - | Prompt du leader (accepte un chemin `*.md`) |
-| `leader.skills` | Non | string[] | `[]` | Skills partagées avec les workers (héritées et injectées lors du spawn) |
+| `leader.skills` | Non | SkillEntry[] | `[]` | Skills partagées avec les workers (héritées et installées lors du spawn) |
 | `leader.repos` | Non | string[] | `[]` | allowlist de chemins sparse-checkout (contrôle ce que le worker peut voir/modifier) |
 
 ### 7.3 `teams[].worker`
@@ -138,6 +137,6 @@ Chaque équipe contient :
 | `worker.total` | Oui | number(int, >0) | - | Taille du pool de workers. Workers pré-créés au démarrage de l'équipe et arrêt uniquement à la sortie de l'orchestrateur (`stopAll`) |
 | `worker.model` | Non | string | hérite de `leader.model` | Modèle utilisé par les workers (peut être un alias) |
 | `worker.prompt` | Oui | string | - | Prompt du worker (accepte un chemin `*.md`) |
-| `worker.extra_skills` | Non | string[] | `[]` | Skills additionnelles ajoutées au moment du spawn, au-dessus de `leader.skills` |
+| `worker.extra_skills` | Non | SkillEntry[] | `[]` | Skills additionnelles ajoutées au moment du spawn, au-dessus de `leader.skills` |
 | `worker.lifecycle` | Non | enum | `ephemeral_after_merge_to_main` | Stratégie de cleanup attendue après merge dans main (actuellement le cleanup s'exécute toujours quand le leader finit) |
 | `worker.skill_sync` | Non | enum | `inherit_and_inject_on_spawn` | Stratégie de synchronisation des skills lors du spawn (comportement actuel : “hériter et injecter”; `manual` n'est pas complètement implémenté) |

@@ -97,7 +97,6 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   const runtimeDefaults = {
     mode: RuntimeModeEnum.LocalProcess,
-    pi: { agentDir: undefined },
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
   const providersDefaults: Record<string, { compatible_type: "openai" | "anthropic"; base_url?: string; api_key?: string }> = {};
@@ -127,7 +126,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     },
     runtime: {
       mode: runtime.mode,
-      pi: { agentDir: runtime.pi?.agentDir ?? `${process.env.HOME ?? "~"}/.pi/agent` },
+      pi: { agentDir: `${process.env.HOME ?? "~"}/.pi/agent` },
       persistence: {
         state_dir: resolveTeamDataPath(
           configPathAbs,

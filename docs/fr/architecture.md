@@ -37,7 +37,7 @@ Au démarrage, l'Orchestrateur fait surtout :
 La partie dynamique est gérée par `src/orchestrator/task-manager.ts`. Ses responsabilités clés :
 
 - Accepter les requêtes `Leader` : `POST /tool/request_workers`
-- Créer dynamiquement localement un `Worker` pour chaque tâche (worktree workspace + injection de skills + démarrage runtime)
+- Créer dynamiquement localement un `Worker` pour chaque tâche (worktree workspace + installation des skills via `npx skills` + démarrage runtime)
 - Accepter les notifications de complétion : `POST /tool/notify_complete`
 - Exécuter les fusions git :
   - Branche `Worker` -> Branche `Leader`
@@ -66,12 +66,13 @@ La stratégie de workspace est fournie par `src/workspace/workspace-provider.ts`
 
 > Point d'extension : `workspace.provider` n'instancie actuellement que `worktree`. Les stratégies (`shared_clone/full_clone`) restent en placeholder dans la factory.
 
-### SkillResolver (synchronisation des skills vers le workspace)
+### SkillResolver (installation des skills via `npx skills`)
 
 Implémenté dans `src/skills/skill-resolver.ts` :
 
-- Lire `skills/<skill-name>/SKILL.md` à la racine du dépôt (en utilisant `config.project.repo` comme root)
-- Copier chaque `SKILL.md` sélectionné dans `<workspacePath>/.pi/skills/<skill-name>/SKILL.md`
+- Pour chaque `SkillEntry`, exécute `npx skills add <source> --skill <name> -a openclaw --copy -y` avec `cwd` = workspace
+- Les skills sont installées dans `<workspacePath>/skills/<skill-name>/SKILL.md`
+- Crée un lien symbolique `.pi/skills` → `skills` pour la découverte par pi-coding-agent
 
 ### Pipeline Git + documentation : MergeManager / ChangelogManager
 
@@ -102,7 +103,7 @@ flowchart TD
 L'Orchestrateur configure chaque agent statique :
 
 - Créer le workspace (worktree provider)
-- Injecter les skills et écrire les méta `.oat/*` (via `src/pi/workspace-inject.ts`)
+- Installer les skills via `npx skills add` et écrire les méta `.oat/*` (via `src/pi/workspace-inject.ts`)
 - Construire les outils d'orchestration `defineTool` (closures sur TaskManager)
 - Créer la pi AgentSession via `createAgentSession({ cwd, customTools, systemPrompt })`
 
@@ -128,7 +129,7 @@ L'Orchestrateur gère `POST /tool/request_workers` dans `TaskManager.requestWork
   - `port = allocatePort()` (basé sur le prochain port disponible côté runtime)
   - `workspacePath = <workspace.root_dir>/<workerId>`
 - Créer le workspace du worker : `workspaceProvider.ensureWorkspace(spec, team.leader.repos)`
-- Injecter les skills :
+- Installe les skills via `npx skills add` :
   - skills du worker = `leader.skills` + `team.worker.extra_skills`
 - Écrire les meta `.oat/*`, construire le système de prompt et les outils worker (`notify-complete`, `report-progress`, `generate-changelog`)
 - Créer une pi AgentSession en processus via `createAgentSession()` (pas de processus OS séparé)

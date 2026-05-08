@@ -1,5 +1,5 @@
 import type { RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
-import type { TeamConfig } from "./team";
+import type { TeamConfig, SkillEntry } from "./team";
 
 /** 单个服务商的配置。 */
 export interface ProviderConfig {
@@ -27,7 +27,7 @@ export interface TeamFileAdminConfig {
   /** Admin 的 prompt 内容（支持 loader 读取 .md 文件） */
   prompt: string;
   /** Admin 共享给任务的 skills 列表 */
-  skills: string[];
+  skills: SkillEntry[];
 }
 
 /** 主分支名：仅允许 `main` 或 `master`（与常见 Git 默认分支一致）。 */
@@ -52,11 +52,6 @@ export interface TeamFileConfig {
   runtime?: {
     /** 运行时模式：本机进程或 Flue */
     mode?: RuntimeModeEnum;
-    /** pi-coding-agent 运行时配置 */
-    pi?: {
-      /** pi agentDir（默认 ~/.pi/agent） */
-      agentDir?: string;
-    };
     persistence?: {
       /** orchestrator 状态与映射的持久化目录 */
       state_dir?: string;

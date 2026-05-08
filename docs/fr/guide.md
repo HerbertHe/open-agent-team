@@ -2,26 +2,25 @@
 
 Ce guide vous aide à lancer localement la structure déclarative `Admin -> Leader -> Worker` avec le minimum d'étapes.
 
-## 1. Préparer les skills (obligatoire)
+## 1. Configurer les skills (optionnel)
 
-Orchestrator lit les définitions de skills depuis le chemin `project.repo` de `team.json`, puis les injecte dans les workspaces de chaque agent.
-Si `project.repo` est un chemin relatif, il est résolu par rapport au répertoire de `team.json`.
+Les skills sont gérées via [`npx skills`](https://github.com/vercel-labs/skills). Vous déclarez les sources de skills dans `team.json` au format `SkillEntry`, et OAT les installe automatiquement dans le workspace de chaque agent au démarrage.
 
-Dans la racine du dépôt définie par `project.repo`, préparez :
+Chaque `SkillEntry` contient :
+- `source` : source du skill (GitHub shorthand comme `vercel-labs/agent-skills`, URL complète, ou chemin local)
+- `names` (optionnel) : noms des skills spécifiques à installer ; omettez ou utilisez `["*"]` pour tout installer
 
-- `skills/<skill-name>/SKILL.md`
-
-Exemple :
-
-```text
-skills/
-  doc-search/
-    SKILL.md
-  coding-assistant/
-    SKILL.md
+Exemple dans `team.json` :
+```json
+"skills": [
+  { "source": "vercel-labs/agent-skills", "names": ["frontend-design"] },
+  { "source": "./my-local-skills" }
+]
 ```
 
-> Astuce : si vous n'avez pas encore de skills, vous pouvez créer un `SKILL.md` vide ou minimal pour tester de bout en bout l'injection et l'appel des outils.
+Au démarrage, OAT exécute `npx skills add` pour chaque entrée, installe les skills dans `<workspace>/skills/`, et crée un lien symbolique `.pi/skills` pour la compatibilité pi-coding-agent. L'agent découvre et charge automatiquement les skills depuis son workspace.
+
+> Astuce : Vous pouvez démarrer sans skills — laissez simplement `"skills": []` dans votre config.
 
 ## 2. Préparer votre dépôt Git et les branches (recommandé)
 
@@ -38,7 +37,7 @@ Avant de démarrer, vérifiez :
 
 `team.json` peut être placé n'importe où, mais il est recommandé de le garder dans la racine du dépôt ou dans un endroit facile à gérer.
 
-Voici un exemple “squelette minimal” (remplacez modèles et prompts par les vôtres, et renseignez de vrais noms de skills) :
+Voici un exemple "squelette minimal" (remplacez modèles et prompts par les vôtres) :
 
 ```json
 {

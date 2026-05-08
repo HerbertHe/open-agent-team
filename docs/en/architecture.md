@@ -39,7 +39,7 @@ At startup, Orchestrator primarily:
 The dynamic part is handled by `src/orchestrator/task-manager.ts`. Its core responsibilities are:
 
 - Accept `Leader` requests via tools: `register-workers`, `dispatch-worker-tasks`, `request-workers`
-- Dynamically create a `Worker` pi AgentSession for each task (worktree workspace + skill injection + in-process session start)
+- Dynamically create a `Worker` pi AgentSession for each task (worktree workspace + skill installation via `npx skills` + in-process session start)
 - Accept completion notifications from `Worker`/`Leader` via `notify-complete` tool
 - Perform git merges:
   - `Worker` branch -> `Leader` branch
@@ -70,12 +70,13 @@ Workspace strategy is provided by `src/workspace/workspace-provider.ts` factory.
 
 > Extension point: `workspace.provider` currently only materializes `worktree`. Other strategies (`shared_clone/full_clone`) remain placeholder implementations in the factory.
 
-### SkillResolver (sync skills into workspace)
+### SkillResolver (install skills into workspace via `npx skills`)
 
 Implemented in `src/skills/skill-resolver.ts`:
 
-- Read `skills/<skill-name>/SKILL.md` from the repository root (using `config.project.repo` as repo root)
-- Copy each selected skill's `SKILL.md` into `<workspacePath>/.agents/skills/<skill-name>/SKILL.md` (compatible with pi skill discovery)
+- For each `SkillEntry` in the agent's config, runs `npx skills add <source> --skill <name> -a openclaw --copy -y` with `cwd` set to the workspace
+- Skills are installed into `<workspacePath>/skills/<skill-name>/SKILL.md`
+- Creates a `.pi/skills` → `skills` symlink so pi-coding-agent's `DefaultResourceLoader` can discover them
 
 ### Git + documentation pipeline: MergeManager / ChangelogManager
 
@@ -105,14 +106,14 @@ flowchart TD
 Orchestrator sets up each static agent:
 
 - Create workspace (worktree provider)
-- Inject skills and write `.oat/* meta` (via `src/pi/workspace-inject.ts`)
+- Install skills via `npx skills add` and write `.oat/* meta` (via `src/pi/workspace-inject.ts`)
 - Build `defineTool` orchestration tools (closures over TaskManager)
 - Create pi AgentSession via `createAgentSession({ cwd: workspacePath, customTools, systemPrompt })`
 
 Key injection is implemented in `src/pi/workspace-inject.ts`:
 
 - `writeAgentWorkspaceConfig()`: writes `.oat/scope.json`, `.oat/orchestrator.json`, `.oat/agent.json`
-- `buildAgentSystemPrompt()`: builds the system prompt (agent persona + role instructions + skills hint)
+- `buildAgentSystemPrompt()`: builds the system prompt (agent persona + role instructions + records path rules)
 - Custom orchestration tools are defined in `orchestrator.ts` using `defineTool()` from `@mariozechner/pi-coding-agent`
 
 ### 3.2 Worker dynamic creation: Leader requests tasks
@@ -132,7 +133,7 @@ Orchestrator handles these in `TaskManager.registerWorkers()` and `TaskManager.d
   - `branch = <team.branch_prefix>/worker-<index>`
   - `workspacePath = <workspace.root_dir>/<workerId>`
 - Creates worker workspace: `workspaceProvider.ensureWorkspace(spec, team.leader.repos)`
-- Injects skills: worker skills = `leader.skills` + `team.worker.extra_skills`
+- Installs skills via `npx skills add`: worker skills = `leader.skills` + `team.worker.extra_skills`
 - Creates pi AgentSession with worker-specific custom tools (`notify-complete`, `report-progress`, `generate-changelog`)
 - Sends prompt to worker via `session.prompt()`
 

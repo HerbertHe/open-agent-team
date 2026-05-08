@@ -37,7 +37,7 @@ Orchestrator は `src/orchestrator/orchestrator.ts` にあり、主に以下を�
 動的な部分は `src/orchestrator/task-manager.ts` が担当します。主な責務：
 
 - `Leader` の要求を受ける：`POST /tool/request_workers`
-- 各タスクに対してローカルで `Worker` を動的生成する（worktree workspace + skill 注入 + runtime 起動）
+- 各タスクに対してローカルで `Worker` を動的生成する（worktree workspace + `npx skills` での skill インストール + runtime 起動）
 - 完了通知を受ける：`POST /tool/notify_complete`
 - git のマージを実行する：
   - `Worker` ブランチ -> `Leader` ブランチ
@@ -66,12 +66,13 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 
 > 拡張ポイント：`workspace.provider` は現状 `worktree` のみ実装されています。`shared_clone/full_clone` は factory 内でプレースホルダです。
 
-### SkillResolver（skills を workspace に同期）
+### SkillResolver（`npx skills` で skills を workspace にインストール）
 
 `src/skills/skill-resolver.ts` で実装：
 
-- `skills/<skill-name>/SKILL.md` をリポジトリルートから読み込む（`config.project.repo` を repo root として使う）
-- 選択された各 skill の `SKILL.md` を `<workspacePath>/.pi/skills/<skill-name>/SKILL.md` にコピーする
+- 各 `SkillEntry` に対して `npx skills add <source> --skill <name> -a openclaw --copy -y` を実行（`cwd` = workspace）
+- Skills は `<workspacePath>/skills/<skill-name>/SKILL.md` にインストール
+- pi-coding-agent の `DefaultResourceLoader` が発見できるよう `.pi/skills` → `skills` シンボリックリンクを作成
 
 ### Git + ドキュメントの流れ：MergeManager / ChangelogManager
 
@@ -102,7 +103,7 @@ flowchart TD
 Orchestrator は各静的 agent を次のようにセットアップします：
 
 - workspace 作成（worktree provider）
-- skills の注入と `.oat/* meta` の書き込み（`src/pi/workspace-inject.ts` 経由）
+- `npx skills add` で skills をインストールし `.oat/* meta` を書き込む（`src/pi/workspace-inject.ts` 経由）
 - `defineTool` 編成ツールの構築（TaskManager へのクロージャ）
 - `createAgentSession({ cwd, customTools, systemPrompt })` で pi AgentSession を作成
 
@@ -128,7 +129,7 @@ Orchestrator は `TaskManager.requestWorkers()` 内で `POST /tool/request_worke
   - `port = allocatePort()`（runtime の次に空いているポートに基づく）
   - `workspacePath = <workspace.root_dir>/<workerId>`
 - worker workspace を作成：`workspaceProvider.ensureWorkspace(spec, team.leader.repos)`
-- skills 注入：
+- `npx skills add` で skills をインストール：
   - worker skills = `leader.skills` + `team.worker.extra_skills`
 - `.oat/*` meta を書き込み、システムプロンプトと worker 専用ツール（`notify-complete`、`report-progress`、`generate-changelog`）を構築
 - `createAgentSession()` でインプロセス pi AgentSession を作成（独立 OS プロセスなし）

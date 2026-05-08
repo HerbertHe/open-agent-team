@@ -20,7 +20,7 @@
 | `models` | はい | record<string, string> | - | モデル alias のマップ（admin/leader/worker で利用） |
 | `admin` | はい | object | - | Admin agent の定義：prompt、model、skills |
 | `teams` | はい | array | - | 各チームには 1 つの Leader と Worker の定義が含まれます |
-| `runtime` | いいえ | object | 下表参照 | 実行モード、pi-coding-agent ディレクトリ、状態ディレクトリ |
+| `runtime` | いいえ | object | 下表参照 | 実行モード、状態ディレクトリ |
 | `workspace` | いいえ | object | 下表参照 | workspace の戦略、root dir、git lfs/sparse-checkout 挙動 |
 
 ## 2. `project`
@@ -51,7 +51,7 @@ loader の挙動：
 | `admin.description` | はい | string | - | Admin の責務テキスト（`team.json` に記入します） |
 | `admin.model` | いいえ | string | トップレベル `model` を継承 | Admin が使う model（alias でも可） |
 | `admin.prompt` | はい | string | - | Admin の prompt（`*.md` ファイルパスを受け付けます） |
-| `admin.skills` | いいえ | string[] | `[]` | Admin workspace に注入する skills |
+| `admin.skills` | いいえ | SkillEntry[] | `[]` | Admin workspace にインストールする skills（各 entry に `source` と任意の `names`、`npx skills add` でインストール） |
 
 ## 5. `runtime`
 
@@ -60,7 +60,6 @@ loader の挙動：
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | いいえ | enum (`local_process` \| `flue`) | `local_process` | runtime モード（現状は `local_process` のみ実装） |
-| `runtime.pi.agentDir` | いいえ | string | `~/.pi/agent` | pi-coding-agent グローバル agent ディレクトリ（認証情報・設定・カスタムモデル用） |
 | `runtime.persistence.state_dir` | いいえ | string | `"<team.json のディレクトリ>/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
 
 `~` の展開：
@@ -128,7 +127,7 @@ loader の挙動：
 | `leader.description` | はい | string | - | leader の責務テキスト |
 | `leader.model` | いいえ | string | `admin.model`（またはトップレベル `model`）を継承 | leader が使う model（alias でも可） |
 | `leader.prompt` | はい | string | - | leader の prompt（`*.md` のファイルパスを受け付けます） |
-| `leader.skills` | いいえ | string[] | `[]` | worker と共有する skills（spawn 時に継承し注入されます） |
+| `leader.skills` | いいえ | SkillEntry[] | `[]` | worker と共有する skills（spawn 時に継承しインストールされます） |
 | `leader.repos` | いいえ | string[] | `[]` | sparse-checkout の allowlist パス（worker が見たり変更できる範囲） |
 
 ### 7.3 `teams[].worker`
@@ -138,6 +137,6 @@ loader の挙動：
 | `worker.total` | はい | number(int, >0) | - | 期待される worker プール数。team 起動時に事前作成し、停止は orchestrator 終了時 (`stopAll`) |
 | `worker.model` | いいえ | string | `leader.model` を継承 | Worker が使う model（alias でも可） |
 | `worker.prompt` | はい | string | - | worker の prompt（`*.md` ファイルパスも可） |
-| `worker.extra_skills` | いいえ | string[] | `[]` | spawn 時に leader.skills の上に追加される skills |
+| `worker.extra_skills` | いいえ | SkillEntry[] | `[]` | spawn 時に leader.skills の上に追加される skills |
 | `worker.lifecycle` | いいえ | enum | `ephemeral_after_merge_to_main` | main へマージした後の cleanup 戦略（実装上は leader 完了時に常に cleanup されます） |
 | `worker.skill_sync` | いいえ | enum | `inherit_and_inject_on_spawn` | spawn 時の skill 同期戦略（現状は「継承して注入」で動作。`manual` は未完全実装） |

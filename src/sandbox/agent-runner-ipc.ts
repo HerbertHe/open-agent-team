@@ -36,7 +36,6 @@ export type MainToChild =
         workspacePath: string;
         model: string;
         teamName?: string;
-        skills?: string[];
       };
       agentDir: string;
       systemPrompt?: string;

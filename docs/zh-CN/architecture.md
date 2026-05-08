@@ -38,7 +38,7 @@ Orchestrator 在启动时主要做三件事：
 动态部分由 `src/orchestrator/task-manager.ts` 承担，核心职责：
 
 - 接收 `Leader` 请求：`POST /tool/request_workers`
-- 为每个任务在本地动态创建一个 `Worker`（worktree workspace + skills 注入 + runtime 启动）
+- 为每个任务在本地动态创建一个 `Worker`（worktree workspace + 通过 `npx skills` 安装 skills + runtime 启动）
 - 接收 `Worker/Leader` 完成通知：`POST /tool/notify_complete`
 - 执行 git merge：
   - `Worker` 分支 -> `Leader` 分支
@@ -67,12 +67,13 @@ Orchestrator 在启动时主要做三件事：
 
 > 扩展点：`workspace.provider` 目前只落地 `worktree`，`shared_clone/full_clone` 等策略在工厂中仍是占位。
 
-### SkillResolver（skills 同步到 workspace）
+### SkillResolver（通过 `npx skills` 安装 skills 到 workspace）
 
 由 `src/skills/skill-resolver.ts` 实现：
 
-- 从项目根目录（`config.project.repo` 作为 repo root）读取 `skills/<skill-name>/SKILL.md`
-- 把对应 SKILL.md 复制到 `<workspacePath>/.pi/skills/<skill-name>/SKILL.md`
+- 对每个 `SkillEntry`，执行 `npx skills add <source> --skill <name> -a openclaw --copy -y`，`cwd` 设为 workspace 路径
+- Skills 安装到 `<workspacePath>/skills/<skill-name>/SKILL.md`
+- 创建 `.pi/skills` → `skills` 符号链接，供 pi-coding-agent 的 `DefaultResourceLoader` 发现和加载
 
 ### Git 与文档流水线：MergeManager / ChangelogManager
 
@@ -103,7 +104,7 @@ flowchart TD
 Orchestrator 会为每个静态 agent：
 
 - 创建 workspace（worktree provider）
-- 注入 skills 并写入 `.oat/* meta`（via `src/pi/workspace-inject.ts`）
+- 通过 `npx skills add` 安装 skills 并写入 `.oat/* meta`（via `src/pi/workspace-inject.ts`）
 - 构建 `defineTool` 编排工具（闭包绑定 TaskManager）
 - 通过 `createAgentSession({ cwd, customTools, systemPrompt })` 创建 pi AgentSession
 
@@ -129,7 +130,7 @@ Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()`
   - `branch = <team.branch_prefix>/worker-<index>`
   - `workspacePath = <workspace.root_dir>/<workerId>`
 - 创建 worker workspace：`workspaceProvider.ensureWorkspace(spec, team.leader.repos)`
-- 注入 skills：worker skills = `leader.skills` + `team.worker.extra_skills`
+- 通过 `npx skills add` 安装 skills：worker skills = `leader.skills` + `team.worker.extra_skills`
 - 写入 `.oat/*` meta，构建系统提示词和 worker 专属工具（`notify-complete`、`report-progress`、`generate-changelog`）
 - 通过 `createAgentSession()` 在进程内创建 pi AgentSession（无独立 OS 进程）
 - **并行**向全部 worker 发送 prompt（fire-and-forget，不阻塞 Leader 的工具调用返回）；worker 通过 `notify-complete` 回报完成

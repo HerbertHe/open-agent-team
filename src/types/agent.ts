@@ -1,4 +1,5 @@
 import type { AgentRoleEnum } from "./enums";
+import type { SkillEntry } from "./team";
 
 /**
  * 一个具体 Agent 实例在运行时的描述（由 Orchestrator 生成）。
@@ -18,6 +19,6 @@ export interface AgentInstanceSpec {
   workspacePath: string;
   /** Agent 的模型（格式：provider/model-id，例如 anthropic/claude-opus-4-5） */
   model: string;
-  /** 当前 Agent 可用的 skills 名称列表（将注入到 workspace） */
-  skills: string[];
+  /** 当前 Agent 可用的 skills 列表（将安装到 workspace） */
+  skills: SkillEntry[];
 }

@@ -2,26 +2,25 @@
 
 本指南帮助你在本地用最少步骤跑通声明式的 `Admin -> Leader -> Worker` agent 管理结构。
 
-## 1. 准备 skills（必须）
+## 1. 配置 skills（可选）
 
-Orchestrator 会从 `team.json` 的 `project.repo` 路径下读取 skill 定义，并把它们注入到各 agent workspace 中。
-若 `project.repo` 是相对路径，会相对 `team.json` 所在目录解析。
+Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 进行管理。你在 `team.json` 中以 `SkillEntry` 格式声明 skill 来源，OAT 会在启动时自动将其安装到各 agent 的 workspace 中。
 
-请在 `project.repo` 指向的仓库根目录准备：
+每个 `SkillEntry` 包含：
+- `source`：skill 来源（GitHub 简写如 `vercel-labs/agent-skills`、完整 URL 或本地路径）
+- `names`（可选）：要安装的特定 skill 名称；省略或使用 `["*"]` 安装全部
 
-- `skills/<skill-name>/SKILL.md`
-
-例如：
-
-```text
-skills/
-  doc-search/
-    SKILL.md
-  coding-assistant/
-    SKILL.md
+在 `team.json` 中的示例：
+```json
+"skills": [
+  { "source": "vercel-labs/agent-skills", "names": ["frontend-design"] },
+  { "source": "./my-local-skills" }
+]
 ```
 
-> 提示：如果你还没有 skills，也可以先准备一个空或最基础的 `SKILL.md`，确保系统能完成注入与工具调用流程。
+启动时，OAT 会为每个 entry 执行 `npx skills add`，将 skills 安装到 `<workspace>/skills/` 目录，并创建 `.pi/skills` 符号链接以兼容 pi-coding-agent。Agent 会自动从其工作区发现并加载 skills。
+
+> 提示：你可以不配置任何 skills——只需在配置中保留 `"skills": []` 即可。
 
 ## 2. 准备 Git 仓库与分支（建议）
 
@@ -38,7 +37,7 @@ skills/
 
 `team.json` 位于仓库任意位置均可，但推荐放到仓库根目录或你容易管理的路径。
 
-下面给一个“最小骨架”示例（你需要把模型与 prompt 换成自己的内容，并填入真实 skills 名称）：
+下面给一个"最小骨架"示例（你需要把模型与 prompt 换成自己的内容）：
 
 ```json
 {

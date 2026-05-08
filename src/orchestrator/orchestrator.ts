@@ -106,8 +106,7 @@ export class Orchestrator {
     ).getProvider();
     this.workspaceProvider = workspaceProvider;
     const mergeManager = new MergeManager();
-    const skillsRoot = path.resolve(config.project.repo);
-    this.skillResolver = new SkillResolver(skillsRoot);
+    this.skillResolver = new SkillResolver();
 
     this.taskManager = new TaskManager(
       config,
@@ -499,7 +498,7 @@ export class Orchestrator {
 
     // 1) Admin workspace 配置 + 启动 pi 会话
     await this.workspaceProvider.ensureWorkspace(adminSpec, []);
-    await this.skillResolver.syncSkillsToWorkspace(
+    await this.skillResolver.installSkillsToWorkspace(
       adminSpec.skills ?? [],
       adminSpec.workspacePath,
     );
@@ -563,7 +562,6 @@ export class Orchestrator {
       description: `Admin agent`,
       role: AgentRoleEnum.Admin,
       promptText: adminPromptWithGoal,
-      skills: adminSpec.skills ?? [],
     });
 
     const adminTools = this.buildOrchestratorTools(adminSpec);
@@ -586,7 +584,7 @@ export class Orchestrator {
       const spec = leadersSpecs[i];
       const sparsePaths = team.leader.repos ?? [];
       await this.workspaceProvider.ensureWorkspace(spec, sparsePaths);
-      await this.skillResolver.syncSkillsToWorkspace(
+      await this.skillResolver.installSkillsToWorkspace(
         spec.skills ?? [],
         spec.workspacePath,
       );
@@ -652,7 +650,6 @@ export class Orchestrator {
         description: `Leader agent for ${team.name}`,
         role: AgentRoleEnum.Leader,
         promptText: team.leader.prompt,
-        skills: spec.skills ?? [],
       });
 
       const leaderTools = this.buildOrchestratorTools(spec);

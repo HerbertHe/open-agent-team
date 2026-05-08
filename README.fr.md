@@ -32,12 +32,13 @@ Par défaut, chaque agent s'exécute dans un workspace isolé créé via `git wo
 
 Pour les dépôts volumineux, vous pouvez activer sparse-checkout ; les chemins de sparse-checkout côté worker viennent de `teams[].leader.repos`.
 
-### Partage et injection des skills
+### Gestion des skills (`npx skills`)
 
-Les skills suivent la convention OpenCode `SKILL.md` :
+Les skills sont gérées via [`npx skills`](https://github.com/vercel-labs/skills) et déclarées dans `team.json` en tant qu'objets `SkillEntry` :
 
-- Source : `skills/<skill-name>/SKILL.md` à la racine du dépôt (`project.repo` ; s'il est relatif, il est résolu depuis le répertoire de `team.json`)
-- Injecté dans chaque workspace à : `.opencode/skills/<skill-name>/SKILL.md`
+- Chaque entry spécifie un `source` (dépôt GitHub, URL, ou chemin local) et un filtre `names` optionnel
+- Au démarrage, OAT exécute `npx skills add` pour chaque entry et installe les skills dans `<workspace>/skills/`
+- Un lien symbolique `.pi/skills` est créé pour la compatibilité pi-coding-agent
 
 ### Collaboration basée sur `CHANGELOG.md`
 
@@ -48,11 +49,13 @@ Lorsqu'un `Worker` est créé, l'Orchestrateur injecte une contrainte système d
 
 ## Démarrage rapide
 
-### 1) Préparer les skills
+### 1) Configurer les skills (optionnel)
 
-Dans la racine du dépôt résolue depuis `project.repo`, créez :
+Déclarez les sources de skills dans `team.json` au format `SkillEntry` :
 
-`skills/<skill-name>/SKILL.md`
+```json
+"skills": [{ "source": "vercel-labs/agent-skills", "names": ["frontend-design"] }]
+```
 
 ### 2) Écrire `team.json`
 
@@ -85,7 +88,7 @@ oat docs guide --lang fr
 
 ## Fonctionnement de la collaboration (vue d'ensemble)
 
-1. L'Orchestrateur injecte les skills/outils/plugins et démarre `Admin` ainsi que chaque `Leader`.
+1. L'Orchestrateur installe les skills via `npx skills add` et démarre `Admin` ainsi que chaque `Leader`.
 2. Un `Leader` appelle l'outil `request-workers` avec une liste de `tasks`.
 3. L'Orchestrateur envoie les tâches à un pool de `Worker` déjà pré-créé (taille = `teams[].worker.total`) :
    - se connecte au worker ciblé

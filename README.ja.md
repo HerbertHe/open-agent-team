@@ -32,12 +32,13 @@
 
 大規模リポジトリでは sparse-checkout を有効にできます。worker 側の sparse-checkout paths は `teams[].leader.repos` から取得します。
 
-### スキル共有と注入
+### スキル管理（`npx skills`）
 
-スキルは OpenCode の `SKILL.md` 規約に従います：
+スキルは [`npx skills`](https://github.com/vercel-labs/skills) で管理し、`team.json` で `SkillEntry` オブジェクトとして宣言します：
 
-- 元データ：リポジトリルート（`project.repo`。相対パスの場合は `team.json` のディレクトリ基準で解決）配下の `skills/<skill-name>/SKILL.md`
-- 各 workspace への注入先：`.opencode/skills/<skill-name>/SKILL.md`
+- 各 entry は `source`（GitHub リポジトリ、URL、ローカルパス）と任意の `names` フィルタを指定
+- 起動時に OAT は各 entry に `npx skills add` を実行し、`<workspace>/skills/` にインストール
+- pi-coding-agent 互換のため `.pi/skills` シンボリックリンクを作成
 
 ### CHANGELOG に基づく協業
 
@@ -48,11 +49,13 @@
 
 ## クイックスタート
 
-### 1) skills を準備
+### 1) skills を設定（任意）
 
-`project.repo` から解決されるリポジトリルートで次を作成します：
+`team.json` で `SkillEntry` 形式で skill ソースを宣言します：
 
-`skills/<skill-name>/SKILL.md`
+```json
+"skills": [{ "source": "vercel-labs/agent-skills", "names": ["frontend-design"] }]
+```
 
 ### 2) `team.json` を作成
 
@@ -85,7 +88,7 @@ oat docs guide --lang ja
 
 ## 協業の流れ（概要）
 
-1. Orchestrator はスキル/ツール/プラグインを注入し、`Admin` と各 `Leader` を起動します。
+1. Orchestrator は `npx skills add` でスキルをインストールし、`Admin` と各 `Leader` を起動します。
 2. `Leader` は `tasks` のリストを含めて `request-workers` ツールを呼び出します。
 3. Orchestrator は、あらかじめ作成された `Worker` プール（size = `teams[].worker.total`）にタスクを送信します：
    - 対象 worker に接続

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AgentRoleEnum } from "../types";
+import { RECORDS_DIR, todayRecordsSubPath } from "../utils/records";
 
 /** 用于计算各 Agent 可触碰的目录前缀（绝对路径，统一带尾部 path.sep） */
 export type OatWorkspaceScopeContext = {
@@ -110,11 +111,15 @@ export function buildAgentSystemPrompt(args: {
   description: string;
   role: AgentRoleEnum;
   promptText: string;
-  skills: string[];
 }): string {
-  const skillsHint = args.skills.length
-    ? `\n\n# Skills\nYou may call the following skills as needed:\n${args.skills.map((s) => `- ${s}`).join("\n")}\n`
-    : "";
+
+  const todayPath = todayRecordsSubPath();
+  const recordsHint = [
+    `\n\n## File placement rules (ALL roles must follow)`,
+    `- \`CHANGELOG.md\` MUST be placed at the workspace root directory.`,
+    `- All other work-process files (notes, drafts, analysis, logs, intermediate outputs, etc.) MUST be placed under \`${todayPath}/\` (i.e. \`${RECORDS_DIR}/yyyy-MM-dd/\`) inside the workspace root.`,
+    `- Today's date folder is \`${todayPath}/\`. Create it (mkdir -p) if it does not exist before writing files there.`,
+  ].join("\n");
 
   const workerChangelogSystem = (() => {
     if (args.role !== AgentRoleEnum.Worker) return "";
@@ -122,6 +127,7 @@ export function buildAgentSystemPrompt(args: {
       "\n\n## System constraint: CHANGELOG.md (Worker must follow)",
       "- Create or update `CHANGELOG.md` at the workspace root.",
       "- Clearly describe what you did, which key files/modules were involved, and a brief conclusion.",
+      `- All other work-process files (analysis notes, drafts, logs, etc.) must go into \`${todayPath}/\`.`,
       "- After finishing, MUST call tool `notify-complete` exactly once.",
       `- You MUST provide required args: { "agentRole": "worker", "agentId": "${args.agentName}" } (you may omit \`changelog\`).`,
       "- You may omit the `changelog` argument: orchestrator will read `CHANGELOG.md` from the workspace automatically.",
@@ -129,5 +135,5 @@ export function buildAgentSystemPrompt(args: {
     ].join("\n");
   })();
 
-  return `${args.promptText}${skillsHint}${workerChangelogSystem}`;
+  return `${args.promptText}${recordsHint}${workerChangelogSystem}`;
 }

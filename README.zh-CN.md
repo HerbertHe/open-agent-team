@@ -33,12 +33,13 @@
 
 对于较大的仓库，可启用 sparse-checkout；worker 的 sparse-checkout 路径来自 `teams[].leader.repos`。
 
-### skills 共享与注入
+### skills 管理（`npx skills`）
 
-skills 遵循 OpenCode 的 `SKILL.md` 约定：
+Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在 `team.json` 中以 `SkillEntry` 对象声明：
 
-- 源文件：仓库根目录下 `skills/<skill-name>/SKILL.md`（对应 `project.repo`；若为相对路径则按 `team.json` 所在目录解析）
-- 注入到每个 agent workspace：`.opencode/skills/<skill-name>/SKILL.md`
+- 每个 entry 指定 `source`（GitHub 仓库、URL 或本地路径）和可选的 `names` 过滤
+- 启动时 OAT 为每个 entry 执行 `npx skills add`，将 skills 安装到 `<workspace>/skills/`
+- 创建 `.pi/skills` 符号链接以兼容 pi-coding-agent
 
 ### 基于 CHANGELOG 的协作
 
@@ -49,11 +50,13 @@ skills 遵循 OpenCode 的 `SKILL.md` 约定：
 
 ## 快速上手
 
-### 1) 准备 skills
+### 1) 配置 skills（可选）
 
-在 `project.repo` 解析出的仓库根目录创建：
+在 `team.json` 中以 `SkillEntry` 格式声明 skill 来源：
 
-`skills/<skill-name>/SKILL.md`
+```json
+"skills": [{ "source": "vercel-labs/agent-skills", "names": ["frontend-design"] }]
+```
 
 ### 2) 编写 `team.json`
 
@@ -86,7 +89,7 @@ oat docs guide --lang zh-CN
 
 ## 协作工作原理（高层）
 
-1. Orchestrator 注入 skills/tools/plugins，并启动 `Admin` 与每个 `Leader`。
+1. Orchestrator 通过 `npx skills add` 安装 skills，并启动 `Admin` 与每个 `Leader`。
 2. `Leader` 调用工具 `request-workers`，提交 `tasks` 列表。
 3. Orchestrator 将任务发送到已预先创建好的 `Worker` 池（size = `teams[].worker.total`）：
    - 连接到目标 worker

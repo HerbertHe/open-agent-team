@@ -2,26 +2,25 @@
 
 このガイドではローカル環境で、宣言的な `Admin -> Leader -> Worker` の agent 管理構造を最小ステップで動かす方法を説明します。
 
-## 1. skills を準備（必須）
+## 1. skills を設定（任意）
 
-Orchestrator は `team.json` の `project.repo` のパスから skill 定義を読み取り、各 agent の workspace に注入します。
-`project.repo` が相対パスの場合は、`team.json` のディレクトリ基準で解決されます。
+Skills は [`npx skills`](https://github.com/vercel-labs/skills) で管理されます。`team.json` で `SkillEntry` 形式で skill ソースを宣言すると、OAT が起動時に各 agent の workspace に自動インストールします。
 
-`project.repo` が指すリポジトリルートで次を用意してください：
+各 `SkillEntry` には：
+- `source`：skill ソース（GitHub shorthand `vercel-labs/agent-skills`、完全な URL、またはローカルパス）
+- `names`（任意）：インストールする特定の skill 名。省略または `["*"]` で全てインストール
 
-- `skills/<skill-name>/SKILL.md`
-
-例：
-
-```text
-skills/
-  doc-search/
-    SKILL.md
-  coding-assistant/
-    SKILL.md
+`team.json` での例：
+```json
+"skills": [
+  { "source": "vercel-labs/agent-skills", "names": ["frontend-design"] },
+  { "source": "./my-local-skills" }
+]
 ```
 
-> ヒント：まだ skills が用意できていない場合でも、空または最小の `SKILL.md` を用意して注入とツール呼び出しの流れを動作確認できます。
+起動時に OAT は各 entry に対して `npx skills add` を実行し、`<workspace>/skills/` にインストールし、pi-coding-agent 互換のため `.pi/skills` シンボリックリンクを作成します。agent は自身の workspace から自動的に skills を読み込みます。
+
+> ヒント：skills なしでも開始できます。設定で `"skills": []` のままにしてください。
 
 ## 2. Git リポジトリとブランチを準備（推奨）
 
@@ -38,7 +37,7 @@ skills/
 
 `team.json` はどこに置いてもよいですが、管理しやすいようリポジトリのルートに置くのがおすすめです。
 
-以下は「最小スケルトン」例です（モデルと prompt は自分の内容に置き換え、skill 名は実在するものを指定してください）：
+以下は「最小スケルトン」例です（モデルと prompt は自分の内容に置き換えてください）：
 
 ```json
 {

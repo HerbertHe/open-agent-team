@@ -5,7 +5,33 @@
   "type": "object",
   "required": ["project", "models", "admin", "teams"],
   "additionalProperties": false,
+  "$defs": {
+    "skillEntry": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Skill source for npx skills add (GitHub shorthand, URL, or local path)"
+        },
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Specific skill names to install; omit or use ['*'] for all skills"
+        }
+      }
+    }
+  },
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for editor validation and auto-completion"
+    },
     "model": {
       "type": "string",
       "minLength": 1
@@ -20,17 +46,17 @@
           "compatible_type": {
             "type": "string",
             "enum": ["openai", "anthropic"],
-            "description": "API 兼容类型"
+            "description": "API compatibility type"
           },
           "base_url": {
             "type": "string",
             "minLength": 1,
-            "description": "API 基础地址"
+            "description": "API base URL"
           },
           "api_key": {
             "type": "string",
             "minLength": 1,
-            "description": "API 密钥"
+            "description": "API key"
           }
         }
       }
@@ -64,19 +90,6 @@
           "type": "string",
           "enum": ["local_process", "flue"],
           "default": "local_process"
-        },
-        "pi": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "pi-coding-agent runtime configuration",
-          "properties": {
-            "agentDir": {
-              "type": "string",
-              "minLength": 1,
-              "default": "~/.pi/agent",
-              "description": "pi-coding-agent global agent directory (credentials, settings, custom models)"
-            }
-          }
         },
         "persistence": {
           "type": "object",
@@ -168,8 +181,7 @@
         "skills": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "$ref": "#/$defs/skillEntry"
           },
           "default": []
         }
@@ -215,8 +227,7 @@
               "skills": {
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/skillEntry"
                 },
                 "default": []
               },
@@ -250,8 +261,7 @@
               "extra_skills": {
                 "type": "array",
                 "items": {
-                  "type": "string",
-                  "minLength": 1
+                  "$ref": "#/$defs/skillEntry"
                 },
                 "default": []
               },

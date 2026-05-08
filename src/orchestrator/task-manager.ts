@@ -1,7 +1,6 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { AgentRoleEnum } from "../types";
-import type { ResolvedConfig, AgentInstanceSpec, TeamConfig } from "../types";
+import type { ResolvedConfig, AgentInstanceSpec, TeamConfig, SkillEntry } from "../types";
 import type { WorkspaceProvider } from "../sandbox/interface";
 import type { PiSessionProvider } from "../sandbox/local-process";
 import { MergeManager } from "../git/merge-manager";
@@ -13,6 +12,7 @@ import {
   type OatWorkspaceScopeContext,
 } from "../pi/workspace-inject";
 import { logger } from "../utils/logger";
+import { todayRecordsSubPath } from "../utils/records";
 import { t } from "../i18n/i18n";
 import { defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
@@ -143,11 +143,11 @@ export class TaskManager {
     }
   }
 
-  private getSkillsForLeader(team: TeamConfig): string[] {
+  private getSkillsForLeader(team: TeamConfig): SkillEntry[] {
     return team.leader.skills ?? [];
   }
 
-  private computeWorkerSkills(team: TeamConfig): string[] {
+  private computeWorkerSkills(team: TeamConfig): SkillEntry[] {
     return [...(team.leader.skills ?? [])];
   }
 
@@ -245,9 +245,9 @@ export class TaskManager {
 
     await this.workspaceProvider.ensureWorkspace(spec, sparsePaths);
 
-    const workerSkills = [...leaderSkills, ...(team.worker.extra_skills ?? [])];
+    const workerSkills: SkillEntry[] = [...leaderSkills, ...(team.worker.extra_skills ?? [])];
     spec.skills = workerSkills;
-    await this.skillResolver.syncSkillsToWorkspace(workerSkills, spec.workspacePath);
+    await this.skillResolver.installSkillsToWorkspace(workerSkills, spec.workspacePath);
 
     const workerScopeCtx: OatWorkspaceScopeContext = {
       workspaceRoot: this.config.workspace.root_dir,
@@ -269,7 +269,6 @@ export class TaskManager {
       description: `Worker agent for ${team.name} (index ${workerIndex})`,
       role: AgentRoleEnum.Worker,
       promptText: team.worker.prompt,
-      skills: workerSkills,
     });
 
     const workerTools = this.buildWorkerTools(spec);
@@ -294,11 +293,13 @@ export class TaskManager {
   }
 
   private buildWorkerDispatchPrompt(workerId: string, taskPrompt: string): string {
+    const todayPath = todayRecordsSubPath();
     return [
       taskPrompt,
       ``,
       `Rules (MUST follow):`,
       `- Update the workspace root CHANGELOG.md according to the system constraints (if there are no code changes, still record the reason).`,
+      `- All other work-process files (analysis notes, drafts, logs, intermediate outputs) MUST be placed under \`${todayPath}/\`. Create it (mkdir -p) if it does not exist.`,
       `- Report execution progress using tool report-progress:`,
       `  { "agentId": "${workerId}", "stage": "<stage>", "message": "<short message>" }`,
       `- You MUST call report-progress at least 3 times:`,

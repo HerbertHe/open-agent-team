@@ -1,6 +1,17 @@
 import type { WorkerLifecycleEnum, WorkerSkillSyncEnum } from "./enums";
 
 /**
+ * 单条 skill 安装声明。
+ * source 支持 npx skills add 的所有格式（GitHub shorthand、完整 URL、本地路径等）。
+ * names 可选：不填或为 ["*"] 时安装该源的全部 skills。
+ */
+export interface SkillEntry {
+  /** npx skills 源（如 "vercel-labs/agent-skills"、"./my-local-skills"） */
+  source: string;
+  /** 要安装的 skill 名称列表；省略或 ["*"] 表示全部安装 */
+  names?: string[];
+}
+/**
  * Team 配置（Leader 部分）。
  * Leader 负责分解任务、按需要动态创建 Worker，并共享 skills / repos 范围。
  */
@@ -13,8 +24,8 @@ export interface TeamConfigLeader {
   model?: string;
   /** Leader 的系统/角色提示词内容（支持字符串或文件路径，由 loader 解析） */
   prompt: string;
-  /** Leader 与其下属 Worker 共享的 skills 名称列表 */
-  skills: string[];
+  /** Leader 与其下属 Worker 共享的 skills 列表 */
+  skills: SkillEntry[];
   /** Leader 负责的 repos/paths 白名单（用于 workspace sparse-checkout 或工具权限） */
   repos: string[];
 }
@@ -31,7 +42,7 @@ export interface TeamConfigWorker {
   /** Worker 的角色提示词，用于指导执行和回报方式 */
   prompt: string;
   /** 额外附加到 Worker 的 skills（在继承 Leader skills 基础上追加） */
-  extra_skills?: string[];
+  extra_skills?: SkillEntry[];
   /** Worker 生命周期策略：是否在合并进入 main 后自动回收 */
   lifecycle?: WorkerLifecycleEnum;
   /** Worker 技能同步策略：是否在动态 spawn 时自动注入 */

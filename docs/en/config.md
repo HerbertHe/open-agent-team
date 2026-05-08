@@ -52,7 +52,7 @@ Loader behavior:
 | `admin.description` | Yes | string | - | Admin responsibility text |
 | `admin.model` | No | string | inherit from top-level `model` | Model used by Admin (can be an alias) |
 | `admin.prompt` | Yes | string | - | Admin prompt (supports `*.md` file path) |
-| `admin.skills` | No | string[] | `[]` | Skills to inject into Admin workspace |
+| `admin.skills` | No | SkillEntry[] | `[]` | Skills to install into Admin workspace (each entry has `source` and optional `names`) |
 
 ## 5. `runtime`
 
@@ -61,7 +61,6 @@ Loader behavior:
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `runtime.mode` | No | enum (`local_process` \| `flue`) | `local_process` | Runtime mode (currently only implements `local_process`; each Agent runs in an isolated child process via `child_process.fork()`) |
-| `runtime.pi.agentDir` | No | string | `~/.pi/agent` | pi-coding-agent global agent directory (for credentials, settings, custom models) |
 | `runtime.persistence.state_dir` | No | string | `"<team.json dir>/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
 
 Home expansion:
@@ -131,7 +130,7 @@ Each team contains:
 | `leader.description` | Yes | string | - | Leader responsibility text |
 | `leader.model` | No | string | inherit from `admin.model` (or top-level `model`) | Model used by Leader (can be an alias) |
 | `leader.prompt` | Yes | string | - | Leader prompt (supports `*.md` file path) |
-| `leader.skills` | No | string[] | `[]` | Skills shared with Workers (inherited and injected on spawn) |
+| `leader.skills` | No | SkillEntry[] | `[]` | Skills shared with Workers (inherited and installed on spawn) |
 | `leader.repos` | No | string[] | `[]` | sparse-checkout allowlist paths (controls which paths worker workspaces can see) |
 
 ### 7.3 `teams[].worker`
@@ -141,6 +140,6 @@ Each team contains:
 | `worker.total` | Yes | number(int, >0) | - | Worker pool size. Workers are pre-created when starting a team and stopped only when the orchestrator exits (`stopAll`) |
 | `worker.model` | No | string | inherit from `leader.model` | Model used by Worker (can be an alias) |
 | `worker.prompt` | Yes | string | - | Worker prompt (supports `*.md` file path) |
-| `worker.extra_skills` | No | string[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |
+| `worker.extra_skills` | No | SkillEntry[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |
 | `worker.lifecycle` | No | enum | `ephemeral_after_merge_to_main` | Intended cleanup strategy after merging into main (current cleanup logic executes when the leader completes) |
 | `worker.skill_sync` | No | enum | `inherit_and_inject_on_spawn` | Intended skill sync strategy for dynamic spawn (current behavior is "inherit and inject") |

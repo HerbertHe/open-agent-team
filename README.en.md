@@ -32,12 +32,13 @@ By default, each agent runs in an isolated workspace created via `git worktree`,
 
 For large repos, sparse-checkout can be enabled; worker sparse-checkout paths come from `teams[].leader.repos`.
 
-### Skills sharing & injection
+### Skills management (`npx skills`)
 
-Skills follow the OpenCode `SKILL.md` convention:
+Skills are managed via [`npx skills`](https://github.com/vercel-labs/skills) and declared in `team.json` as `SkillEntry` objects:
 
-- Source: `skills/<skill-name>/SKILL.md` at the repo root (`project.repo`; if relative, resolved from the `team.json` directory)
-- Injected into each agent workspace at: `.opencode/skills/<skill-name>/SKILL.md`
+- Each entry specifies a `source` (GitHub repo, URL, or local path) and optional `names` filter
+- On startup, OAT runs `npx skills add` for each entry and installs skills into `<workspace>/skills/`
+- A `.pi/skills` symlink is created for pi-coding-agent compatibility
 
 ### CHANGELOG-driven collaboration
 
@@ -48,11 +49,13 @@ When a `Worker` is created, the orchestrator injects a system constraint into th
 
 ## Quick start
 
-### 1) Prepare skills
+### 1) Configure skills (optional)
 
-In the repository root resolved from `project.repo`, create:
+Declare skill sources in `team.json` using the `SkillEntry` format:
 
-`skills/<skill-name>/SKILL.md`
+```json
+"skills": [{ "source": "vercel-labs/agent-skills", "names": ["frontend-design"] }]
+```
 
 ### 2) Create `team.json`
 
@@ -85,7 +88,7 @@ oat docs guide --lang en
 
 ## How collaboration works (high level)
 
-1. Orchestrator injects skills/tools/plugins and starts `Admin` and each `Leader`.
+1. Orchestrator installs skills via `npx skills add` and starts `Admin` and each `Leader`.
 2. A `Leader` calls the tool `request-workers` with a list of `tasks`.
 3. Orchestrator dispatches tasks to an already pre-created `Worker` pool (size = `teams[].worker.total`):
    - connects to the target worker

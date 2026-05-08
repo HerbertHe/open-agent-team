@@ -6,6 +6,12 @@ import {
   WorkerSkillSyncEnum,
 } from "../types";
 
+/** 单条 skill 安装声明的 Zod schema */
+const SkillEntrySchema = z.object({
+  source: z.string().min(1),
+  names: z.array(z.string().min(1)).optional(),
+});
+
 export const TeamSchema = z.object({
   name: z.string().min(1),
   branch_prefix: z.string().min(1),
@@ -14,14 +20,14 @@ export const TeamSchema = z.object({
     description: z.string().min(1),
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
-    skills: z.array(z.string().min(1)).default([]),
+    skills: z.array(SkillEntrySchema).default([]),
     repos: z.array(z.string().min(1)).default([]),
   }),
   worker: z.object({
     total: z.number().int().positive(),
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
-    extra_skills: z.array(z.string().min(1)).default([]),
+    extra_skills: z.array(SkillEntrySchema).default([]),
     lifecycle: z.nativeEnum(WorkerLifecycleEnum).default(WorkerLifecycleEnum.EphemeralAfterMergeToMain),
     skill_sync: z.nativeEnum(WorkerSkillSyncEnum).default(WorkerSkillSyncEnum.InheritAndInjectOnSpawn),
   }),
@@ -47,11 +53,6 @@ export const TeamFileSchema = z.object({
   runtime: z
     .object({
       mode: z.nativeEnum(RuntimeModeEnum).default(RuntimeModeEnum.LocalProcess),
-      pi: z
-        .object({
-          agentDir: z.string().min(1).optional(),
-        })
-        .default({}),
       persistence: z
         .object({
           state_dir: z.string().min(1).optional(),
@@ -83,7 +84,7 @@ export const TeamFileSchema = z.object({
     description: z.string().min(1),
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
-    skills: z.array(z.string().min(1)).default([]),
+    skills: z.array(SkillEntrySchema).default([]),
   }),
   teams: z.array(TeamSchema).min(1),
 });
