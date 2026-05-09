@@ -87,29 +87,46 @@ At minimum, make sure:
 Run:
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
 
-- `--port`: Orchestrator HTTP port (used by tool callbacks)
 - `<goal>`: the final project goal injected into the Leader prompt
+- `--port` (optional): Orchestrator HTTP port. **If omitted, OAT auto-scans for an available port starting from 8787**
 
 If you want to set output/log language:
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
 
-## 5. Observe what you should see
+On startup, OAT creates a symlink under `~/.oat/projects/` pointing to the project directory, enabling multi-project management.
+
+## 5. Using the Dashboard
+
+OAT ships with a built-in web dashboard, automatically available after starting the Orchestrator. Open `http://localhost:<port>` in your browser.
+
+The dashboard includes:
+
+- **Dashboard**: project information overview, running project list (with delete action)
+- **Project Status**: real-time SSE event stream, Agent topology graph, progress reports. Supports switching between different project instances
+- **Project Config**: edit the project's `team.json` online with Shiki-highlighted JSON preview. Saving automatically restarts the project
+- **Settings**: global settings such as log retention days
+
+### Multi-project support
+
+The dashboard supports managing multiple running projects simultaneously. In "Project Status" and "Project Config" pages, use the project selector to switch between projects. Projects are displayed as `Config Name (Project ID)`.
+
+## 6. Observe what you should see
 
 Common observation points:
 
-- Orchestrator starts and listens on the port you provided
+- Orchestrator starts and listens on the auto-assigned or specified port
 - worker workspaces appear under `workspace.root_dir` (default `<team.json dir>/workspaces/<agentId>`)
 - each worker updates its workspace root `CHANGELOG.md` when finished
 - worker branches are merged into the corresponding leader branches
 - after a leader merges into `project.base_branch`, Orchestrator cleans up that leader and its workers (process + workspace)
 
-## 6. Status / stop
+## 7. Status / stop
 
 Check orchestrator state (read `orchestrator.json` under `state_dir`):
 
@@ -125,7 +142,23 @@ Stop (send SIGTERM to the orchestrator pid):
 oat stop
 ```
 
-## 7. View docs (multi-language)
+## 8. REST API Reference
+
+The Orchestrator exposes the following management API:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects` | List all registered projects |
+| DELETE | `/api/projects/:name` | Delete a project (must be stopped first) |
+| GET | `/api/projects/:name/config` | Read project's team.json |
+| PUT | `/api/projects/:name/config` | Update project's team.json |
+| POST | `/api/projects/:name/restart` | Restart a project |
+| GET | `/api/team-config` | Read current project's team.json |
+| PUT | `/api/team-config` | Update current project's team.json |
+| GET | `/api/global-config` | Read global config (oat.yaml) |
+| PUT | `/api/global-config` | Update global config |
+
+## 9. View docs (multi-language)
 
 You can print doc contents via CLI, for example:
 
@@ -134,3 +167,4 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
+

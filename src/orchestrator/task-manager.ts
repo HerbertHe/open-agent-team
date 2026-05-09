@@ -288,6 +288,7 @@ export class TaskManager {
       sessionId,
       payload: { leaderId, teamName: team.name, taskIndex: workerIndex },
     });
+    this.observabilityHub.enableDiskLogger(spec.workspacePath, workerId);
 
     logger.info(t("worker_registered"), { workerId });
   }

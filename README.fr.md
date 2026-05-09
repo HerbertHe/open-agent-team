@@ -67,14 +67,18 @@ Référez-vous à :
 ### 3) Démarrer l'Orchestrateur
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
+
+Le flag `--port` est optionnel — OAT scanne automatiquement un port disponible à partir de 8787.
 
 Choisir la langue de sortie/docs :
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
+
+Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki) et la gestion multi-projets.
 
 ### 4) Commandes utiles
 
@@ -104,6 +108,10 @@ oat docs guide --lang fr
 - Runtime mode : `local_process` est implémenté (démarrage de plusieurs `opencode serve` sur des ports différents).
 - Workspaces : le provider `worktree` est implémenté ; les autres providers sont des placeholders.
 - La taille du pool de workers (`teams[].worker.total`) est appliquée via un pré-démarrage au lancement de l'équipe ; les workers ne sont pas nettoyés après la fin d'un leader (uniquement à la sortie de l'orchestrateur).
+
+## Remerciements
+
+- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Le système de design du Dashboard (thème, mise en page et effets glass) est porté depuis l'UI de CPAMC.
 
 ## LICENSE
 

@@ -1,5 +1,7 @@
 import express from "express";
 import type { Server } from "node:http";
+import net from "node:net";
+import { spawn } from "node:child_process";
 import { AgentRoleEnum } from "../types";
 import type {
   OrchestratorCtorArgs,
@@ -8,6 +10,7 @@ import type {
   TeamConfig,
 } from "../types";
 import path from "node:path";
+import os from "node:os";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { PiSessionProvider } from "../sandbox/local-process";
@@ -19,6 +22,7 @@ import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
 import { logger } from "../utils/logger";
 import { t } from "../i18n/i18n";
+import { loadOatConfig, saveOatConfig } from "../utils/oat-config";
 import {
   writeAgentWorkspaceConfig,
   buildAgentSystemPrompt,
@@ -28,8 +32,8 @@ import { defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 
 function parseBaseDir(input: string): string {
-  if (input.startsWith("~/"))
-    return path.join(process.env.HOME ?? "", input.slice(2));
+  if (input.startsWith("~/") || input.startsWith("~\\"))
+    return path.join(os.homedir(), input.slice(2));
   return input;
 }
 
@@ -38,6 +42,7 @@ export class Orchestrator {
   private readonly taskManager: TaskManager;
   private readonly stateDir: string;
   private readonly stateFile: string;
+  private readonly configPath: string;
   private readonly runtimeProvider: PiSessionProvider;
   private readonly workspaceProvider: ReturnType<
     WorkspaceProviderFactory["getProvider"]
@@ -56,6 +61,7 @@ export class Orchestrator {
   ) {
     this.port = args.port;
     this.goal = args.goal;
+    this.configPath = args.configPath;
     this.dashboardDist =
       args.dashboardDist &&
       existsSync(path.join(args.dashboardDist, "index.html"))
@@ -276,6 +282,275 @@ export class Orchestrator {
       }
     });
 
+    // --- team.json read/write API ---
+    this.app.get("/api/team-config", async (_req, res) => {
+      try {
+        const raw = await fs.readFile(this.configPath, "utf8");
+        res.type("json").send(raw);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.put("/api/team-config", async (req, res) => {
+      try {
+        const content = JSON.stringify(req.body, null, 2);
+        await fs.writeFile(this.configPath, content, "utf8");
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- project-specific config read/write ---
+    this.app.get("/api/projects/:name/config", async (req, res) => {
+      try {
+        const linkRoot = path.join(os.homedir(), ".oat", "projects");
+        const linkPath = path.join(linkRoot, req.params.name);
+        const realTarget = await fs.realpath(linkPath);
+        // Try configPath from state, fallback to team.json
+        let configFilePath = path.join(realTarget, "team.json");
+        try {
+          const stateFile = path.join(realTarget, ".oat", "state", "orchestrator.json");
+          const raw = await fs.readFile(stateFile, "utf8");
+          const state = JSON.parse(raw) as Record<string, unknown>;
+          if (typeof state.configPath === "string") {
+            configFilePath = path.isAbsolute(state.configPath)
+              ? state.configPath
+              : path.join(realTarget, state.configPath);
+          }
+        } catch { /* use default */ }
+        const raw = await fs.readFile(configFilePath, "utf8");
+        res.type("json").send(raw);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.put("/api/projects/:name/config", async (req, res) => {
+      try {
+        const linkRoot = path.join(os.homedir(), ".oat", "projects");
+        const linkPath = path.join(linkRoot, req.params.name);
+        const realTarget = await fs.realpath(linkPath);
+        let configFilePath = path.join(realTarget, "team.json");
+        try {
+          const stateFile = path.join(realTarget, ".oat", "state", "orchestrator.json");
+          const raw = await fs.readFile(stateFile, "utf8");
+          const state = JSON.parse(raw) as Record<string, unknown>;
+          if (typeof state.configPath === "string") {
+            configFilePath = path.isAbsolute(state.configPath)
+              ? state.configPath
+              : path.join(realTarget, state.configPath);
+          }
+        } catch { /* use default */ }
+        const content = JSON.stringify(req.body, null, 2);
+        await fs.writeFile(configFilePath, content, "utf8");
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- multi-team project discovery ---
+    this.app.get("/api/projects", async (_req, res) => {
+      try {
+        const linkRoot = path.join(os.homedir(), ".oat", "projects");
+        let entries: Awaited<ReturnType<typeof fs.readdir>>;
+        try {
+          entries = await fs.readdir(linkRoot, { withFileTypes: true });
+        } catch {
+          res.json([]);
+          return;
+        }
+        const projects: Array<Record<string, unknown>> = [];
+        for (const entry of entries) {
+          const linkPath = path.join(linkRoot, entry.name);
+          try {
+            const realTarget = await fs.realpath(linkPath);
+            // Look for .oat/state/orchestrator.json in the project dir
+            const stateFile = path.join(realTarget, ".oat", "state", "orchestrator.json");
+            let orchState: Record<string, unknown> | null = null;
+            try {
+              const raw = await fs.readFile(stateFile, "utf8");
+              orchState = JSON.parse(raw) as Record<string, unknown>;
+            } catch {
+              // No state file — project is not running
+            }
+            let alive = false;
+            if (orchState?.pid) {
+              try {
+                process.kill(orchState.pid as number, 0);
+                alive = true;
+              } catch {
+                alive = false;
+              }
+            }
+            // Read project.name from team.json (configPath in state, or scan for team.json)
+            let projectName: string | null = null;
+            try {
+              const configPath = orchState?.configPath as string | undefined;
+              const teamJsonPath = configPath
+                ? (path.isAbsolute(configPath) ? configPath : path.join(realTarget, configPath))
+                : path.join(realTarget, "team.json");
+              const teamRaw = await fs.readFile(teamJsonPath, "utf8");
+              const teamJson = JSON.parse(teamRaw) as Record<string, unknown>;
+              const proj = teamJson.project as Record<string, unknown> | undefined;
+              if (proj?.name && typeof proj.name === "string") {
+                projectName = proj.name;
+              }
+            } catch { /* team.json not found or unreadable */ }
+            projects.push({
+              name: entry.name,
+              projectName,
+              projectRootDir: realTarget,
+              port: orchState?.orchestratorPort ?? null,
+              pid: orchState?.pid ?? null,
+              startedAt: orchState?.startedAt ?? null,
+              alive,
+            });
+          } catch {
+            // Broken symlink or access error — skip
+          }
+        }
+        res.json(projects);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- delete project ---
+    this.app.delete("/api/projects/:name", async (req, res) => {
+      try {
+        const projectName = req.params.name;
+        const linkRoot = path.join(os.homedir(), ".oat", "projects");
+        const linkPath = path.join(linkRoot, projectName);
+
+        // Resolve symlink target before deleting
+        let realTarget: string | null = null;
+        try {
+          realTarget = await fs.realpath(linkPath);
+        } catch {
+          res.status(404).json({ error: "Project link not found" });
+          return;
+        }
+
+        // Check if project is still running
+        try {
+          const stateFile = path.join(realTarget, ".oat", "state", "orchestrator.json");
+          const raw = await fs.readFile(stateFile, "utf8");
+          const state = JSON.parse(raw) as Record<string, unknown>;
+          if (state.pid) {
+            try {
+              process.kill(state.pid as number, 0);
+              res.status(409).json({ error: "Project is still running. Stop it first." });
+              return;
+            } catch {
+              // Process not running — safe to delete
+            }
+          }
+        } catch {
+          // No state file — safe to proceed
+        }
+
+        // Remove the symlink
+        try {
+          await fs.unlink(linkPath);
+        } catch {
+          // Already gone
+        }
+
+        // Remove the project directory
+        if (realTarget) {
+          try {
+            await fs.rm(realTarget, { recursive: true, force: true });
+          } catch (e) {
+            // Log but don't fail — symlink is already removed
+            logger.warn("Failed to remove project directory", {
+              path: realTarget,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+
+        res.json({ ok: true, deleted: projectName, path: realTarget });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- restart project ---
+    this.app.post("/api/projects/:name/restart", async (req, res) => {
+      try {
+        const projectName = req.params.name;
+        const linkRoot = path.join(os.homedir(), ".oat", "projects");
+        const linkPath = path.join(linkRoot, projectName);
+        const realTarget = await fs.realpath(linkPath);
+        const stateFile = path.join(realTarget, ".oat", "state", "orchestrator.json");
+
+        let state: Record<string, unknown>;
+        try {
+          const raw = await fs.readFile(stateFile, "utf8");
+          state = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          res.status(404).json({ error: "Project state not found" });
+          return;
+        }
+
+        const pid = state.pid as number | undefined;
+        const argv = state.argv as string[] | undefined;
+        if (!argv || argv.length < 2) {
+          res.status(400).json({ error: "Cannot determine startup arguments from state" });
+          return;
+        }
+
+        // Kill existing process
+        if (pid) {
+          try {
+            process.kill(pid, 0); // check if alive
+            process.kill(pid, "SIGTERM");
+            // Wait briefly for process to exit
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          } catch {
+            // Already dead
+          }
+        }
+
+        // Respawn with same argv: argv[0]=node, argv[1]=script, argv[2..]=args
+        const [execPath, ...args] = argv;
+        const child = spawn(execPath, args, {
+          cwd: realTarget,
+          detached: true,
+          stdio: "ignore",
+          env: { ...process.env },
+        });
+        child.unref();
+
+        res.json({ ok: true, restarted: projectName, newPid: child.pid });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- global config (oat.yaml) ---
+    this.app.get("/api/global-config", async (_req, res) => {
+      try {
+        const config = await loadOatConfig();
+        res.json(config);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.put("/api/global-config", async (req, res) => {
+      try {
+        const updates = req.body as Record<string, unknown>;
+        await saveOatConfig(updates);
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
     if (this.dashboardDist) {
       this.app.use(express.static(this.dashboardDist));
       this.app.use((req, res, next) => {
@@ -284,7 +559,8 @@ export class Orchestrator {
         }
         if (
           req.path.startsWith("/tool") ||
-          req.path.startsWith("/observability")
+          req.path.startsWith("/observability") ||
+          req.path.startsWith("/api")
         ) {
           return next();
         }
@@ -469,6 +745,35 @@ export class Orchestrator {
   }
 
   async start(): Promise<void> {
+    // ── 端口占用检测 ──
+    // 如果端口已被占用，优雅退出而不是 EADDRINUSE 崩溃
+    const portInUse = await new Promise<boolean>((resolve) => {
+      const tester = net.createServer();
+      tester.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") resolve(true);
+        else resolve(false);
+      });
+      tester.once("listening", () => {
+        tester.close(() => resolve(false));
+      });
+      tester.listen(this.port, "0.0.0.0");
+    });
+    if (portInUse) {
+      // 尝试从 state 文件读取已运行实例的信息
+      let existing = "";
+      try {
+        const raw = await fs.readFile(this.stateFile, "utf8");
+        const state = JSON.parse(raw) as Record<string, unknown>;
+        existing = ` (PID: ${state.pid ?? "unknown"}, started: ${state.startedAt ?? "unknown"})`;
+      } catch { /* no state file */ }
+      logger.error(
+        `Port ${this.port} is already in use${existing}. ` +
+        `Another orchestrator instance may be running. ` +
+        `Use --port <number> to specify a different port, or stop the existing instance first.`,
+      );
+      process.exit(1);
+    }
+
     // 在任何子进程启动前即注册信号处理器。
     // 若启动阶段（workspace 创建、模型加载等）耗时较长，用户 Ctrl-C 仍能触发 stopAll()
     // 避免已 fork 的子进程成为孤儿进程。
@@ -483,7 +788,11 @@ export class Orchestrator {
         {
           pid: process.pid,
           orchestratorPort: this.port,
+          configPath: this.configPath,
+          goal: this.goal,
+          argv: process.argv,
           startedAt: new Date().toISOString(),
+          projectRootDir: path.dirname(this.configPath),
         },
         null,
         2,
@@ -569,6 +878,7 @@ export class Orchestrator {
       systemPrompt: adminSystemPrompt,
       customTools: adminTools,
     });
+    this.observabilityHub.enableDiskLogger(adminSpec.workspacePath, adminSpec.id);
     const adminSessionId = adminSpec.id;
 
     // 2) Leaders workspace 配置 + 启动 pi 会话（收集 initialPrompt，延后发送）
@@ -657,6 +967,7 @@ export class Orchestrator {
         systemPrompt: leaderSystemPrompt,
         customTools: leaderTools,
       });
+      this.observabilityHub.enableDiskLogger(spec.workspacePath, spec.id);
 
       leaders.push({ sessionId: spec.id, spec, team });
       leaderInitialPrompts.push({ specId: spec.id, prompt: leaderPrompt });

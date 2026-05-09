@@ -68,31 +68,52 @@
 }
 
 .dashboard-left {
+  height: 100vh;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .dashboard-left .admin-sender-card {
   margin-bottom: 0;
+  flex: 0 0 auto;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.dashboard-left .progress-report-card {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+}
+
+.dashboard-left .progress-report-card .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.dashboard-left .admin-sender-card .ant-card-body {
+.dashboard-left .progress-report-card .progress-report-list {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dashboard-right-stack {
-  display: grid;
-  grid-template-rows: 1fr 2fr;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   min-width: 0;
   min-height: 0;
@@ -105,6 +126,7 @@
 }
 
 .graph-panel {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -128,6 +150,7 @@
 }
 
 .timeline-panel {
+  height: 50vh;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -136,6 +159,7 @@
   background: #fafafa;
   border: 1px solid #f0f0f0;
   border-radius: 8px;
+  overflow-y: auto;
 }
 
 .timeline-panel-hint {
@@ -183,7 +207,7 @@
 
 .progress-report-list {
   overflow: auto;
-  max-height: min(52vh, 520px);
+  height: 100%;
   padding-right: 4px;
 }
 
@@ -261,7 +285,7 @@
   }
 
   .dashboard-right-stack {
-    grid-template-rows: 1fr 2fr;
+    grid-template-rows: 1fr 1fr;
     min-height: min(70vh, calc(100dvh - 200px));
   }
 }
@@ -284,7 +308,7 @@
   }
 
   .dashboard-right-stack {
-    grid-template-rows: 1fr 2fr;
+    grid-template-rows: 1fr 1fr;
     min-height: min(65vh, calc(100dvh - 180px));
   }
 }
@@ -323,5 +347,19 @@
 @media (max-width: 768px) {
   .admin-sender-card .ant-card-body {
     padding: 12px;
+  }
+}
+
+/* ---------- 项目配置页面网格 ---------- */
+.config-grid {
+  display: grid;
+  grid-template-columns: 460px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .config-grid {
+    grid-template-columns: 1fr;
   }
 }

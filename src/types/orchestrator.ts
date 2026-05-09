@@ -5,6 +5,8 @@ import { AgentRoleEnum } from "./enums";
 export interface OrchestratorCtorArgs {
   goal: string;
   port: number;
+  /** team.json 的绝对路径，用于读写配置和记录项目根目录 */
+  configPath: string;
   /** 已构建的观测面板静态资源目录（通常为 <pkg>/dashboard/dist），存在则随 HTTP 一并托管 */
   dashboardDist?: string;
 }

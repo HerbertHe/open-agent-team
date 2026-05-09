@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { t } from "../i18n/i18n";
 
-/** 展开 ~/ 为家目录；其余原样返回。 */
+/** 展开 ~/ 或 ~\ 为家目录；其余原样返回。支持 Windows / macOS / Linux。 */
 export function expandHomePath(input: string): string {
-  if (input.startsWith("~/")) return path.join(os.homedir(), input.slice(2));
+  if (input.startsWith("~/") || input.startsWith("~\\"))
+    return path.join(os.homedir(), input.slice(2));
   return input;
 }
 
@@ -60,7 +61,7 @@ export function resolvePathFromTeamRoot(teamJsonAbs: string, p: string): string 
 export function resolveTeamDataPath(teamJsonAbs: string, p: string): string {
   const base = teamRootDir(teamJsonAbs);
   const t = p.trim();
-  if (t.startsWith("~/")) {
+  if (t.startsWith("~/") || t.startsWith("~\\")) {
     return path.resolve(base, t.slice(2));
   }
   const home = os.homedir();
@@ -154,4 +155,55 @@ export async function ensureHomeProjectLink(teamJsonAbs: string, projectName: st
       reason: e instanceof Error ? e.message : String(e),
     };
   }
+}
+
+/**
+ * 扫描 ~/.oat/projects/ 下的所有符号链接，
+ * 若目标目录已不存在则删除该链接。
+ */
+export async function cleanupStaleProjectLinks(): Promise<{
+  cleaned: string[];
+  errors: Array<{ link: string; error: string }>;
+}> {
+  const cleaned: string[] = [];
+  const errors: Array<{ link: string; error: string }> = [];
+  const linkRoot = path.join(os.homedir(), ".oat", "projects");
+
+  try {
+    await fs.access(linkRoot);
+  } catch {
+    // Directory doesn't exist yet — nothing to clean.
+    return { cleaned, errors };
+  }
+
+  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  try {
+    entries = await fs.readdir(linkRoot, { withFileTypes: true });
+  } catch {
+    return { cleaned, errors };
+  }
+
+  for (const entry of entries) {
+    const linkPath = path.join(linkRoot, entry.name);
+    try {
+      const st = await fs.lstat(linkPath);
+      if (!st.isSymbolicLink()) continue;
+
+      // Check if the target still exists
+      try {
+        await fs.access(linkPath);
+      } catch {
+        // Target is gone — remove the stale symlink
+        await fs.unlink(linkPath);
+        cleaned.push(linkPath);
+      }
+    } catch (e) {
+      errors.push({
+        link: linkPath,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return { cleaned, errors };
 }

@@ -87,29 +87,46 @@ Skills は [`npx skills`](https://github.com/vercel-labs/skills) で管理され
 実行：
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
 
-- `--port`：Orchestrator の HTTP ポート（ツールコールバックで使われます）
 - `<goal>`：最終的に達成したいゴール（Leader の prompt に注入されます）
+- `--port`（任意）：Orchestrator の HTTP ポート。**省略した場合、OAT はポート 8787 から自動的に空きポートを検索します**
 
 出力/ログの言語を指定する場合：
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
 
-## 5. 実行結果で確認すること
+起動時、OAT は `~/.oat/projects/` にプロジェクトディレクトリへのシンボリックリンクを作成し、マルチプロジェクト管理を可能にします。
+
+## 5. ダッシュボードの使用
+
+OAT には Web ダッシュボードが組み込まれており、Orchestrator 起動後に自動で利用可能になります。ブラウザで `http://localhost:<port>` を開いてください。
+
+ダッシュボードには以下のページがあります：
+
+- **ダッシュボード**：プロジェクト情報の概要、実行中のプロジェクト一覧（削除操作付き）
+- **プロジェクト状態**：リアルタイム SSE イベントストリーム、Agent トポロジーグラフ、進捗レポート。異なるプロジェクトインスタンス間の切り替えに対応
+- **プロジェクト設定**：プロジェクトの `team.json` をオンラインで編集。Shiki によるシンタックスハイライト付き JSON プレビュー。保存すると自動的にプロジェクトが再起動されます
+- **設定**：ログ保持日数などのグローバル設定
+
+### マルチプロジェクト対応
+
+ダッシュボードは複数の実行中プロジェクトを同時に管理できます。「プロジェクト状態」と「プロジェクト設定」ページでプロジェクトセレクターを使って切り替えます。表示形式は `設定名 (プロジェクトID)` です。
+
+## 6. 実行結果で確認すること
 
 よくある確認ポイント：
 
-- Orchestrator が起動し、指定したポートで listen していること
+- Orchestrator が起動し、自動割り当てまたは指定されたポートで listen していること
 - worker の workspace が `workspace.root_dir` 配下に出現すること（デフォルト `<team.json のディレクトリ>/workspaces/<agentId>`）
 - worker が完了すると workspace ルートの `CHANGELOG.md` を更新すること
 - worker のブランチが該当する leader ブランチにマージされること
 - leader が `project.base_branch` にマージされた後、Orchestrator がその leader と workers をクリーンアップ（プロセス + workspace）
 
-## 6. 状態確認 / 停止
+## 7. 状態確認 / 停止
 
 orchestrator 状態を確認（`state_dir` 配下の `orchestrator.json`）：
 
@@ -125,7 +142,23 @@ oat status
 oat stop
 ```
 
-## 7. ドキュメント表示（多言語）
+## 8. REST API リファレンス
+
+Orchestrator は以下の管理 API を提供します：
+
+| メソッド | パス | 説明 |
+|----------|------|------|
+| GET | `/api/projects` | 登録済みプロジェクト一覧 |
+| DELETE | `/api/projects/:name` | プロジェクトを削除（停止済みが必要） |
+| GET | `/api/projects/:name/config` | プロジェクトの team.json を読み取り |
+| PUT | `/api/projects/:name/config` | プロジェクトの team.json を更新 |
+| POST | `/api/projects/:name/restart` | プロジェクトを再起動 |
+| GET | `/api/team-config` | 現在のプロジェクトの team.json を読み取り |
+| PUT | `/api/team-config` | 現在のプロジェクトの team.json を更新 |
+| GET | `/api/global-config` | グローバル設定 (oat.yaml) を読み取り |
+| PUT | `/api/global-config` | グローバル設定を更新 |
+
+## 9. ドキュメント表示（多言語）
 
 CLI で doc を出力できます。例えば：
 
@@ -134,3 +167,4 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
+

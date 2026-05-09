@@ -67,14 +67,18 @@ Refer to:
 ### 3) Start Orchestrator
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
+
+The `--port` flag is optional — OAT auto-scans for an available port starting from 8787.
 
 Choose output/docs language:
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
+
+A built-in **web dashboard** is available at `http://localhost:<port>` after startup, providing real-time observability, project configuration editing (with Shiki-highlighted JSON preview), and multi-project management.
 
 ### 4) Useful commands
 
@@ -111,6 +115,10 @@ oat docs guide --lang en
 - `README.zh-CN.md`
 - `README.fr.md`
 - `README.ja.md`
+
+## Acknowledgments
+
+- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard design system (theme, layout, and glass effects) is ported from CPAMC's UI.
 
 ## LICENSE
 

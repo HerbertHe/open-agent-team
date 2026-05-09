@@ -1,8 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Card, Typography, message as antdMessage } from 'antd';
+import { Card, message as antdMessage } from 'antd';
 import { Sender } from '@ant-design/x';
-
-const { Paragraph } = Typography;
 
 export function AdminInstructionSender() {
   const [loading, setLoading] = useState(false);
@@ -30,11 +28,6 @@ export function AdminInstructionSender() {
 
   return (
     <Card size="small" title="向 Admin 下发指令" className="admin-sender-card">
-      <Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12, marginTop: 0 }}>
-        使用 Ant Design X 的 Sender 组件：内容经 orchestrator 发送到 Admin 的 OpenCode session（前缀{' '}
-        <Typography.Text code>DASHBOARD_INSTRUCTION</Typography.Text>
-        ）。开发模式下通过 Vite 代理访问 <Typography.Text code>/tool/admin_instruction</Typography.Text>。
-      </Paragraph>
       <Sender
         placeholder="输入要交给 Admin 的任务或补充说明…（Shift+Enter 发送）"
         loading={loading}

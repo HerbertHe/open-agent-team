@@ -1,199 +1,202 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
-import {
-  ConfigProvider,
-  Layout,
-  Typography,
-  Tag,
-  List,
-  Space,
-  Alert,
-  Input,
-  Button,
-  Select,
-  theme,
-  Spin,
-} from 'antd';
+import { useEffect, useMemo } from 'react';
+import { RouterProvider } from 'react-router-dom';
+import { ConfigProvider, theme } from 'antd';
 import { XProvider } from '@ant-design/x';
-import { useObservability } from './hooks/useObservability';
-import { AgentLogModal } from './components/AgentLogModal';
-import { AdminInstructionSender } from './components/AdminInstructionSender';
-import { ProgressReportBox } from './components/ProgressReportBox';
-import { isTimelineNoiseEvent } from './timelineEventFilter';
-import type { ObservabilitySource } from './types';
-import './App.css';
+import { useThemeStore } from './stores';
+import { router } from './router';
+import './i18n';
+import './App.less';
 
-const AgentGraph = lazy(async () => {
-  const m = await import('./components/AgentGraph');
-  return { default: m.AgentGraph };
-});
+/* ── CPAMC 调色板 — 与 themes.less 精确对应 ── */
+const LIGHT_TOKENS = {
+  colorPrimary: '#8b8680',
+  colorSuccess: '#10b981',
+  colorWarning: '#e0aa14',
+  colorError: '#c65746',
+  colorInfo: '#8b8680',
+  colorText: '#2d2a26',
+  colorTextSecondary: '#6d6760',
+  colorTextTertiary: '#a29c95',
+  colorTextQuaternary: '#c0bab3',
+  colorBgContainer: '#f0eee8',
+  colorBgElevated: '#fffdf9',
+  colorBgLayout: '#faf9f5',
+  colorBgSpotlight: '#e9e6df',
+  colorBorder: '#e3e1db',
+  colorBorderSecondary: '#e3e1db',
+  colorFillSecondary: 'rgba(139,134,128,0.08)',
+  colorFillTertiary: 'rgba(139,134,128,0.04)',
+  colorFillQuaternary: 'rgba(139,134,128,0.02)',
+  colorSplit: '#e3e1db',
+  controlItemBgActive: 'rgba(139,134,128,0.15)',
+  controlItemBgHover: '#e9e6df',
+  colorPrimaryBg: 'rgba(139,134,128,0.08)',
+  colorPrimaryBgHover: 'rgba(139,134,128,0.12)',
+  colorPrimaryBorder: '#c0bab3',
+  colorPrimaryBorderHover: '#a29c95',
+  colorPrimaryHover: '#7f7a74',
+  colorPrimaryActive: '#726d67',
+  colorPrimaryTextHover: '#7f7a74',
+  colorPrimaryTextActive: '#726d67',
+  colorPrimaryText: '#8b8680',
+  colorLink: '#8b8680',
+  colorLinkHover: '#7f7a74',
+  colorLinkActive: '#726d67',
+  colorErrorBg: 'rgba(198,87,70,0.1)',
+  colorErrorBorder: 'rgba(198,87,70,0.35)',
+  colorSuccessBg: '#d1fae5',
+  colorSuccessBorder: '#6ee7b7',
+};
 
-const { Header, Content } = Layout;
-const { Text } = Typography;
+const DARK_TOKENS = {
+  colorPrimary: '#8b8680',
+  colorSuccess: '#10b981',
+  colorWarning: '#ffd862',
+  colorError: '#c65746',
+  colorInfo: '#8b8680',
+  colorText: '#f6f4f1',
+  colorTextSecondary: '#c9c3bb',
+  colorTextTertiary: '#9c958d',
+  colorTextQuaternary: '#6f6962',
+  colorBgContainer: '#1d1b18',
+  colorBgElevated: '#2a2723',
+  colorBgLayout: '#151412',
+  colorBgSpotlight: '#262320',
+  colorBorder: '#3a3530',
+  colorBorderSecondary: '#3a3530',
+  colorFillSecondary: 'rgba(139,134,128,0.12)',
+  colorFillTertiary: 'rgba(139,134,128,0.08)',
+  colorFillQuaternary: 'rgba(139,134,128,0.04)',
+  colorSplit: '#3a3530',
+  controlItemBgActive: 'rgba(139,134,128,0.22)',
+  controlItemBgHover: '#2e2a26',
+  colorPrimaryBg: 'rgba(139,134,128,0.12)',
+  colorPrimaryBgHover: 'rgba(139,134,128,0.18)',
+  colorPrimaryBorder: '#6f6962',
+  colorPrimaryBorderHover: '#9c958d',
+  colorPrimaryHover: '#9a948e',
+  colorPrimaryActive: '#a6a099',
+  colorPrimaryTextHover: '#9a948e',
+  colorPrimaryTextActive: '#a6a099',
+  colorPrimaryText: '#8b8680',
+  colorLink: '#9a948e',
+  colorLinkHover: '#a6a099',
+  colorLinkActive: '#8b8680',
+  colorErrorBg: 'rgba(198,87,70,0.18)',
+  colorErrorBorder: 'rgba(198,87,70,0.45)',
+  colorSuccessBg: 'rgba(6,78,59,0.3)',
+  colorSuccessBorder: '#059669',
+};
 
-function formatEventLine(ev: { ts: string; source: string; type: string; agentId?: string }): string {
-  const who = ev.agentId ? ` ${ev.agentId}` : '';
-  return `[${ev.ts}] ${ev.source} ${ev.type}${who}`;
-}
+const COMPONENT_TOKENS = {
+  borderRadius: 8,
+  borderRadiusLG: 12,
+  borderRadiusSM: 6,
+  fontFamily:
+    "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+  fontSize: 14,
+  wireframe: false,
+};
 
 export default function App() {
-  const {
-    graph,
-    events,
-    agentStatus,
-    connected,
-    graphError,
-    refreshGraph,
-    lastLogLineByAgent,
-    fetchAgentLogs,
-  } = useObservability();
-  const [filter, setFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<'all' | ObservabilitySource>('all');
-  const [logModalAgentId, setLogModalAgentId] = useState<string | null>(null);
+  const currentTheme = useThemeStore((s) => s.theme);
+  const initializeTheme = useThemeStore((s) => s.initializeTheme);
 
-  const filtered = useMemo(() => {
-    let visible = events.filter((e) => !isTimelineNoiseEvent(e));
-    if (sourceFilter !== 'all') {
-      visible = visible.filter((e) => e.source === sourceFilter);
-    }
-    const q = filter.trim().toLowerCase();
-    if (!q) return visible;
-    return visible.filter(
-      (e) =>
-        e.type.toLowerCase().includes(q) ||
-        (e.agentId?.toLowerCase().includes(q) ?? false) ||
-        e.source.toLowerCase().includes(q)
-    );
-  }, [events, filter, sourceFilter]);
+  useEffect(() => {
+    const cleanup = initializeTheme();
+    return cleanup;
+  }, [initializeTheme]);
+
+  const isDark =
+    currentTheme === 'dark' ||
+    (currentTheme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const antdTheme = useMemo(
+    () => ({
+      algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+      token: {
+        ...(isDark ? DARK_TOKENS : LIGHT_TOKENS),
+        ...COMPONENT_TOKENS,
+      },
+      components: {
+        Card: {
+          colorBgContainer: isDark ? '#1d1b18' : '#f0eee8',
+          colorBorderSecondary: isDark ? '#3a3530' : '#e3e1db',
+          borderRadiusLG: 12,
+        },
+        Table: {
+          colorBgContainer: isDark ? '#1d1b18' : '#f0eee8',
+          headerBg: isDark ? '#262320' : '#e9e6df',
+          headerColor: isDark ? '#c9c3bb' : '#6d6760',
+          rowHoverBg: isDark ? '#2e2a26' : '#e9e6df',
+          borderColor: isDark ? '#3a3530' : '#e3e1db',
+        },
+        Button: {
+          colorPrimary: '#8b8680',
+          colorPrimaryHover: isDark ? '#9a948e' : '#7f7a74',
+          colorPrimaryActive: isDark ? '#a6a099' : '#726d67',
+          primaryColor: '#ffffff',
+          defaultBg: isDark ? '#262320' : '#f0eee8',
+          defaultBorderColor: isDark ? '#3a3530' : '#e3e1db',
+          defaultColor: isDark ? '#f6f4f1' : '#2d2a26',
+          defaultHoverBg: isDark ? '#2e2a26' : '#e9e6df',
+          defaultHoverBorderColor: isDark ? '#5a544d' : '#cecac4',
+          defaultHoverColor: isDark ? '#f6f4f1' : '#2d2a26',
+          borderRadius: 8,
+        },
+        Input: {
+          colorBgContainer: isDark ? '#262320' : '#faf9f5',
+          activeBorderColor: '#8b8680',
+          hoverBorderColor: isDark ? '#5a544d' : '#cecac4',
+        },
+        InputNumber: {
+          colorBgContainer: isDark ? '#262320' : '#faf9f5',
+          activeBorderColor: '#8b8680',
+          hoverBorderColor: isDark ? '#5a544d' : '#cecac4',
+        },
+        Select: {
+          colorBgContainer: isDark ? '#262320' : '#faf9f5',
+          colorBgElevated: isDark ? '#2a2723' : '#fffdf9',
+          optionActiveBg: isDark ? 'rgba(139,134,128,0.22)' : 'rgba(139,134,128,0.15)',
+          optionSelectedBg: isDark ? 'rgba(139,134,128,0.28)' : 'rgba(139,134,128,0.18)',
+        },
+        Tag: {
+          defaultBg: isDark ? '#262320' : '#e9e6df',
+          defaultColor: isDark ? '#c9c3bb' : '#6d6760',
+        },
+        Descriptions: {
+          labelBg: isDark ? '#262320' : '#e9e6df',
+          titleColor: isDark ? '#f6f4f1' : '#2d2a26',
+        },
+        Modal: {
+          contentBg: isDark ? '#1d1b18' : '#f0eee8',
+          headerBg: isDark ? '#1d1b18' : '#f0eee8',
+        },
+        Spin: {
+          colorPrimary: '#8b8680',
+        },
+        Tabs: {
+          inkBarColor: '#8b8680',
+          itemActiveColor: isDark ? '#f6f4f1' : '#2d2a26',
+          itemHoverColor: isDark ? '#c9c3bb' : '#6d6760',
+          itemSelectedColor: isDark ? '#f6f4f1' : '#2d2a26',
+        },
+        Tooltip: {
+          colorBgSpotlight: isDark ? '#2a2723' : '#2d2a26',
+          colorTextLightSolid: isDark ? '#f6f4f1' : '#ffffff',
+        },
+        Message: {
+          contentBg: isDark ? '#2a2723' : '#fffdf9',
+        },
+      },
+    }),
+    [isDark],
+  );
 
   return (
-    <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
+    <ConfigProvider theme={antdTheme}>
       <XProvider>
-      <Layout className="dashboard-layout" style={{ minHeight: '100vh', height: '100vh' }}>
-        <Header className="app-header">
-          <div className="app-header-brand">
-            <Text strong className="app-header-title">
-              Open Agent Team · 可观测
-            </Text>
-          </div>
-          <div className="app-header-actions">
-            <Tag color={connected ? 'green' : 'red'}>{connected ? 'SSE 已连接' : 'SSE 未连接'}</Tag>
-            <Button size="small" onClick={() => void refreshGraph()}>
-              刷新拓扑
-            </Button>
-          </div>
-        </Header>
-        <Content className="app-content">
-          {graphError && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="无法拉取拓扑（请确认 oat Orchestrator 已启动，且 Vite 代理目标端口正确）"
-              description={graphError}
-            />
-          )}
-          <div className="dashboard-grid">
-            <aside className="dashboard-left">
-              <AdminInstructionSender />
-              <ProgressReportBox events={events} />
-            </aside>
-            <div className="dashboard-right-stack">
-              <section className="graph-panel" aria-label="Agent 拓扑">
-                <Text strong className="dashboard-section-title">
-                  Agent 拓扑
-                </Text>
-                <Text type="secondary" className="graph-panel-hint" style={{ display: 'block', marginBottom: 8 }}>
-                  Admin → Leader → Worker；节点第二行起为进程日志摘要；点击节点查看完整日志
-                </Text>
-                <div className="graph-panel-canvas">
-                  <Suspense
-                    fallback={
-                      <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-                        <Spin tip="加载拓扑…" />
-                      </div>
-                    }
-                  >
-                    <AgentGraph
-                      data={graph}
-                      agentStatus={agentStatus}
-                      lastLogLineByAgent={lastLogLineByAgent}
-                      onNodeClick={(id) => setLogModalAgentId(id)}
-                    />
-                  </Suspense>
-                </div>
-              </section>
-              <section className="timeline-panel" aria-label="实时日志">
-                <Text strong className="dashboard-section-title">
-                  实时日志
-                </Text>
-                <Text type="secondary" className="timeline-panel-hint" style={{ display: 'block', marginBottom: 8 }}>
-                  SSE 事件流；最新事件在列表顶部
-                </Text>
-                <div className="timeline-panel-body">
-                  <div className="timeline-panel-filters">
-                    <Select<'all' | ObservabilitySource>
-                      value={sourceFilter}
-                      onChange={setSourceFilter}
-                      options={[
-                        { value: 'all', label: '全部来源' },
-                        { value: 'pi', label: 'Pi' },
-                        { value: 'orchestrator', label: 'Orchestrator' },
-                      ]}
-                      aria-label="按事件来源筛选"
-                      style={{ width: 160 }}
-                    />
-                    <Input
-                      placeholder="筛选事件类型 / agentId / source"
-                      value={filter}
-                      onChange={(e) => setFilter(e.target.value)}
-                      allowClear
-                    />
-                  </div>
-                  <List
-                    size="small"
-                    bordered
-                    className="event-list"
-                    dataSource={[...filtered].reverse()}
-                    renderItem={(item) => (
-                      <List.Item>
-                        <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                          <Text code style={{ fontSize: 11 }}>
-                            {formatEventLine(item)}
-                          </Text>
-                          {item.type === 'report_progress' ? (
-                            <pre className="event-payload">
-                              {JSON.stringify(
-                                {
-                                  stage: item.payload?.['stage'] ?? '-',
-                                  message:
-                                    typeof item.payload?.['message'] === 'string'
-                                      ? (item.payload['message'] as string)
-                                      : '',
-                                },
-                                null,
-                                2
-                              )}
-                            </pre>
-                          ) : item.payload && Object.keys(item.payload).length > 0 ? (
-                            <pre className="event-payload">{JSON.stringify(item.payload, null, 2)}</pre>
-                          ) : null}
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                </div>
-              </section>
-            </div>
-          </div>
-        </Content>
-      </Layout>
-      <AgentLogModal
-        agentId={logModalAgentId}
-        open={logModalAgentId !== null}
-        onClose={() => setLogModalAgentId(null)}
-        events={events}
-        fetchAgentLogs={fetchAgentLogs}
-      />
+        <RouterProvider router={router} />
       </XProvider>
     </ConfigProvider>
   );

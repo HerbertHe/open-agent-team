@@ -67,14 +67,18 @@
 ### 3) Orchestrator を起動
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
+
+`--port` フラグは任意です — OAT はポート 8787 から空きポートを自動的に検索します。
 
 言語指定：
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
+
+起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、マルチプロジェクト管理が利用できます。
 
 ### 4) よく使うコマンド
 
@@ -104,6 +108,10 @@ oat docs guide --lang ja
 - runtime mode：`local_process` が実装済み（異なるポートで複数の `opencode serve` を起動）
 - workspaces：`worktree` provider が実装済み。他 provider は placeholder です。
 - `teams[].worker.total` の worker プールサイズは起動時の事前作成で反映されます。leader 完了後も worker はクリーンアップされず、オーケストレーター終了時にのみ破棄されます。
+
+## 謝辞
+
+- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard のデザインシステム（テーマ、レイアウト、グラスエフェクト）は CPAMC の UI から移植されました。
 
 ## LICENSE
 

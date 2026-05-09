@@ -6,6 +6,7 @@ import { loadConfig } from "./config/loader";
 import { Orchestrator } from "./orchestrator/orchestrator";
 import { logger } from "./utils/logger";
 import {
+  cleanupStaleProjectLinks,
   ensureHomeProjectLink,
   expandHomePath,
   resolvePathFromTeamRoot,
@@ -13,6 +14,9 @@ import {
 } from "./utils/team-paths";
 import { getLang, loadLangFromOatYaml, setLang, t, type Lang } from "./i18n/i18n";
 import { fileURLToPath } from "node:url";
+import { cleanupAgentLogs } from "./utils/log-cleanup";
+import { getLogRetentionDays } from "./utils/oat-config";
+import net from "node:net";
 
 async function ensureDir(p: string): Promise<void> {
   await fs.mkdir(p, { recursive: true });
@@ -25,6 +29,47 @@ async function fileExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+const DEFAULT_PORT = 8787;
+const PORT_SCAN_LIMIT = 100; // 最多扫描 100 个端口
+
+/** 检测端口是否可用 */
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once("error", () => resolve(false));
+    tester.once("listening", () => tester.close(() => resolve(true)));
+    tester.listen(port, "0.0.0.0");
+  });
+}
+
+/**
+ * 自动解析端口：
+ * 1. 用户通过 --port 显式指定 → 直接使用
+ * 2. 存在 state 文件中记录的端口 → 优先使用
+ * 3. 从 DEFAULT_PORT (8787) 开始向上扫描可用端口
+ */
+async function resolvePort(explicitPort: number, stateFile: string): Promise<number> {
+  // 用户显式指定了端口
+  if (explicitPort > 0) return explicitPort;
+
+  // 尝试从上次启动的 state 文件读取端口
+  try {
+    const raw = await fs.readFile(stateFile, "utf8");
+    const state = JSON.parse(raw) as Record<string, unknown>;
+    const savedPort = Number(state.orchestratorPort);
+    if (savedPort > 0 && await isPortFree(savedPort)) {
+      logger.info(`Reusing port ${savedPort} from previous state`);
+      return savedPort;
+    }
+  } catch { /* no state file or unreadable */ }
+
+  // 从 8787 开始扫描
+  for (let p = DEFAULT_PORT; p < DEFAULT_PORT + PORT_SCAN_LIMIT; p++) {
+    if (await isPortFree(p)) return p;
+  }
+  throw new Error(`No available port found in range ${DEFAULT_PORT}–${DEFAULT_PORT + PORT_SCAN_LIMIT - 1}`);
 }
 
 async function resolveStateDirInput(stateDir?: string): Promise<string> {
@@ -49,7 +94,7 @@ program
     "path to team.json (default: ./team.json under cwd, or OAT_TEAM_JSON when set)",
   )
   .option("--goal <text>", "project goal prompt (optional)")
-  .option("--port <number>", "orchestrator HTTP port", "3100")
+  .option("--port <number>", "orchestrator HTTP port (0 = auto)", "0")
   .action(
     async (options: {
       port: string;
@@ -89,7 +134,28 @@ program
       logger.warn(t("log_home_project_link_skipped"), { reason: link.reason });
     }
 
-    const port = Number(options.port);
+    // Clean up stale project symlinks in ~/.oat/projects/
+    const cleanup = await cleanupStaleProjectLinks();
+    if (cleanup.cleaned.length > 0) {
+      logger.info("cleaned stale project links", { cleaned: cleanup.cleaned });
+    }
+    if (cleanup.errors.length > 0) {
+      logger.warn("errors cleaning project links", { errors: cleanup.errors });
+    }
+
+    // Clean up old agent logs based on retention config
+    try {
+      const retentionDays = await getLogRetentionDays();
+      const logCleanup = await cleanupAgentLogs(cfg.workspace.root_dir, retentionDays);
+      if (logCleanup.cleaned.length > 0) {
+        logger.info("cleaned old agent logs", { count: logCleanup.cleaned.length, retentionDays });
+      }
+    } catch (e) {
+      logger.warn("agent log cleanup failed", { error: e instanceof Error ? e.message : String(e) });
+    }
+
+    const stateFile = path.join(stateDir, "orchestrator.json");
+    const port = await resolvePort(Number(options.port), stateFile);
     const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const dashboardDist = path.join(packageRoot, "dashboard", "dist");
     const dashboardIndex = path.join(dashboardDist, "index.html");
@@ -100,6 +166,7 @@ program
     const orch = new Orchestrator(cfg, {
       goal,
       port,
+      configPath: abs,
       dashboardDist: hasDashboard ? dashboardDist : undefined,
     });
     await orch.start();

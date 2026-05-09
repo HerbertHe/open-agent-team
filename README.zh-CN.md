@@ -68,14 +68,18 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在
 ### 3) 启动 Orchestrator
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
+
+`--port` 参数可选 — OAT 会从 8787 端口开始自动扫描可用端口。
 
 选择输出/文档语言：
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
+
+启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）和多项目管理功能。
 
 ### 4) 常用命令
 
@@ -105,6 +109,10 @@ oat docs guide --lang zh-CN
 - Runtime mode：实现了 `local_process`（Orchestrator 会启动多个 `opencode serve` 进程并分配不同端口）。
 - Workspaces：实现了 `worktree` provider；其它 providers 为占位。
 - `teams[].worker.total` 的 worker 池规模会在启动 team 时被预先创建并生效；leader 完成后不会清理 worker 池（仅在 orchestrator 退出时销毁）。
+
+## 致谢
+
+- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard 的设计系统（主题、布局和毛玻璃效果）移植自 CPAMC 的 UI。
 
 ## LICENSE
 

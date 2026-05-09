@@ -87,29 +87,46 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 进行管理
 在你的终端执行：
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
 
-- `--port`：Orchestrator HTTP 服务端口（工具回调使用）
 - `<goal>`：最终要达成的项目目标（会注入到 Leader prompt 中）
+- `--port`（可选）：指定 Orchestrator HTTP 服务端口。**如果不指定，OAT 将自动从 8787 端口开始扫描可用端口**
 
 如果你要指定输出语言：
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
 
-## 5. 观察执行结果（你应该看到什么）
+启动后，OAT 会在 `~/.oat/projects/` 下创建指向项目目录的符号链接，以支持多项目管理。
+
+## 5. 使用仪表盘
+
+OAT 内置了一个 Web 仪表盘，启动 Orchestrator 后自动可用。在浏览器中访问 `http://localhost:<port>` 即可打开。
+
+仪表盘包含以下页面：
+
+- **仪表盘**：项目信息总览、运行中项目列表（可删除项目）
+- **项目状态**：实时 SSE 事件流、Agent 拓扑图、进度汇报。支持切换不同项目实例进行观测
+- **项目配置**：在线编辑项目的 `team.json` 配置，带有 Shiki 语法高亮的 JSON 实时预览。保存后自动重启对应项目
+- **设置**：日志保留天数等全局配置
+
+### 多项目支持
+
+仪表盘支持同时管理多个运行中的项目。在"项目状态"和"项目配置"页面中，可以通过项目选择器切换不同项目。项目显示格式为 `配置名称 (项目ID)`。
+
+## 6. 观察执行结果（你应该看到什么）
 
 常见观察点：
 
-- Orchestrator 启动后会监听你指定的端口
+- Orchestrator 启动后会监听自动分配或指定的端口
 - worker workspace 会出现在 `workspace.root_dir`（默认 `<team.json目录>/workspaces/<agentId>`）
 - 每个 worker 在完成后会更新其 workspace 根目录 `CHANGELOG.md`
 - worker 的分支会被合并进对应 leader 分支
 - leader 合并进入 `project.base_branch` 后，Orchestrator 会清理对应 leader 与 worker（进程 + workspace）
 
-## 6. 查看状态 / 停止
+## 7. 查看状态 / 停止
 
 查看 orchestrator 状态（读取 `state_dir` 下的 `orchestrator.json`）：
 
@@ -125,7 +142,23 @@ oat status
 oat stop
 ```
 
-## 7. 查看文档（多语言）
+## 8. REST API 参考
+
+Orchestrator 启动后提供以下管理 API：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects` | 获取所有已注册项目列表 |
+| DELETE | `/api/projects/:name` | 删除项目（需先停止） |
+| GET | `/api/projects/:name/config` | 读取指定项目的 team.json |
+| PUT | `/api/projects/:name/config` | 更新指定项目的 team.json |
+| POST | `/api/projects/:name/restart` | 重启指定项目 |
+| GET | `/api/team-config` | 读取当前项目的 team.json |
+| PUT | `/api/team-config` | 更新当前项目的 team.json |
+| GET | `/api/global-config` | 读取全局配置 (oat.yaml) |
+| PUT | `/api/global-config` | 更新全局配置 |
+
+## 9. 查看文档（多语言）
 
 你可以用 CLI 直接输出 docs 文件内容，例如：
 
@@ -134,3 +167,4 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
+

@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ObservabilityEvent, ObservabilityGraph, AgentStatus } from '../types';
 
 const MAX_TIMELINE = 400;
+
+/** SSE 重连间隔：首次 1s，之后指数退避最大 30s */
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
 
 function updateStatusFromEvent(
   prev: Record<string, AgentStatus>,
@@ -89,12 +93,73 @@ function updateStatusFromEvent(
   return next;
 }
 
-export function useObservability() {
+const GRAPH_REFRESH_TYPES = new Set([
+  'worker.spawned',
+  'worker.bootstrap.start',
+  'worker.spawn_aborted',
+  'request_workers.done',
+  'request_workers.start',
+  'register_workers.done',
+  'dispatch_worker_tasks.done',
+  'worker.task.dispatched',
+  'worker.task.prompt_sent',
+  'worker.notify_complete_timeout',
+  'leader.task.assigned',
+  'admin.dashboard_instruction',
+  'worker.dispatch_failed',
+  'agent.cleanup.worker',
+  'agent.cleanup.leader',
+  'orchestrator.ready',
+]);
+
+/**
+ * 构建指向目标 orchestrator 实例的 URL。
+ *
+ * - `baseUrl` 为空或 `undefined` 时（当前实例），返回相对路径（由 Vite 代理或 Express 静态托管处理）
+ * - `baseUrl` 非空时（远端实例），返回绝对 URL
+ */
+function resolveUrl(baseUrl: string | undefined, urlPath: string): string {
+  if (!baseUrl) return urlPath;
+  // 去掉尾部斜杠
+  const base = baseUrl.replace(/\/+$/, '');
+  return `${base}${urlPath}`;
+}
+
+export interface UseObservabilityOptions {
+  /**
+   * 目标 orchestrator 的 base URL，例如 `http://127.0.0.1:8787`。
+   * 留空则使用当前页面的相对路径（即 Vite 代理或同源 Express 服务）。
+   */
+  baseUrl?: string;
+}
+
+export function useObservability(opts?: UseObservabilityOptions) {
+  const baseUrl = opts?.baseUrl;
+
   const [graph, setGraph] = useState<ObservabilityGraph | null>(null);
   const [events, setEvents] = useState<ObservabilityEvent[]>([]);
   const [agentStatus, setAgentStatus] = useState<Record<string, AgentStatus>>({});
   const [connected, setConnected] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
+
+  // 当 baseUrl 变化时，重置状态
+  useEffect(() => {
+    setGraph(null);
+    setEvents([]);
+    setAgentStatus({});
+    setConnected(false);
+    setGraphError(null);
+  }, [baseUrl]);
+
+  /** 从 graph 中提取可用的团队列表 */
+  const teams = useMemo(() => {
+    if (!graph) return [];
+    const names = new Set<string>();
+    for (const n of graph.nodes) {
+      if (n.teamName) names.add(n.teamName);
+    }
+    return Array.from(names).sort();
+  }, [graph]);
 
   const lastLogLineByAgent = useMemo(() => {
     const m: Record<string, string> = {};
@@ -117,7 +182,7 @@ export function useObservability() {
 
   const refreshGraph = useCallback(async () => {
     try {
-      const r = await fetch('/observability/graph');
+      const r = await fetch(resolveUrl(baseUrl, '/observability/graph'));
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       const data = (await r.json()) as ObservabilityGraph;
       setGraph(data);
@@ -125,84 +190,103 @@ export function useObservability() {
     } catch (e) {
       setGraphError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [baseUrl]);
 
   useEffect(() => {
     void refreshGraph();
   }, [refreshGraph]);
 
+  // SSE with manual reconnect + exponential backoff
+  const retriesRef = useRef(0);
+
   useEffect(() => {
-    const es = new EventSource('/observability/events');
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-    const onData = (ev: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(ev.data as string) as ObservabilityEvent;
-        setEvents((prev) => {
-          // 合并高频 pi.message_update（例如 text_delta/think_delta/toolcall_delta）
-          // 目标：时间线保持“最新快照”，避免刷屏。
-          let n: ObservabilityEvent[];
-          if (parsed.type === 'pi.message_update' && parsed.agentId) {
-            const idx = (() => {
-              for (let i = prev.length - 1; i >= 0; i--) {
-                const e = prev[i];
-                if (e.type === 'pi.message_update' && e.agentId === parsed.agentId) return i;
+    let cancelled = false;
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Reset retries on baseUrl change
+    retriesRef.current = 0;
+
+    const connect = () => {
+      if (cancelled) return;
+
+      const sseUrl = resolveUrl(baseUrl, '/observability/events');
+      es = new EventSource(sseUrl);
+
+      es.onopen = () => {
+        retriesRef.current = 0;
+        setConnected(true);
+      };
+
+      es.onerror = () => {
+        setConnected(false);
+        es?.close();
+        es = null;
+
+        if (cancelled) return;
+
+        const delay = Math.min(
+          RECONNECT_BASE_MS * Math.pow(2, retriesRef.current),
+          RECONNECT_MAX_MS,
+        );
+        retriesRef.current++;
+        reconnectTimer = setTimeout(connect, delay);
+      };
+
+      const onData = (ev: MessageEvent) => {
+        try {
+          const parsed = JSON.parse(ev.data as string) as ObservabilityEvent;
+          setEvents((prev) => {
+            let n: ObservabilityEvent[];
+            if (parsed.type === 'pi.message_update' && parsed.agentId) {
+              const idx = (() => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  const e = prev[i];
+                  if (e.type === 'pi.message_update' && e.agentId === parsed.agentId) return i;
+                }
+                return -1;
+              })();
+              if (idx >= 0) {
+                n = prev.slice();
+                n[idx] = parsed;
+              } else {
+                n = [...prev, parsed];
               }
-              return -1;
-            })();
-            if (idx >= 0) {
-              n = prev.slice();
-              n[idx] = parsed;
             } else {
               n = [...prev, parsed];
             }
-          } else {
-            n = [...prev, parsed];
+            if (n.length > MAX_TIMELINE) n.splice(0, n.length - MAX_TIMELINE);
+            return n;
+          });
+          setAgentStatus((prev) => updateStatusFromEvent(prev, parsed));
+          if (GRAPH_REFRESH_TYPES.has(parsed.type)) {
+            void refreshGraph();
           }
-          if (n.length > MAX_TIMELINE) n.splice(0, n.length - MAX_TIMELINE);
-          return n;
-        });
-        setAgentStatus((prev) => updateStatusFromEvent(prev, parsed));
-        const t = parsed.type;
-        if (
-          t === 'worker.spawned' ||
-          t === 'worker.bootstrap.start' ||
-          t === 'worker.spawn_aborted' ||
-          t === 'request_workers.done' ||
-          t === 'request_workers.start' ||
-          t === 'register_workers.done' ||
-          t === 'dispatch_worker_tasks.done' ||
-          t === 'worker.task.dispatched' ||
-          t === 'worker.task.prompt_sent' ||
-          t === 'worker.notify_complete_timeout' ||
-          t === 'leader.task.assigned' ||
-          t === 'admin.dashboard_instruction' ||
-          t === 'worker.dispatch_failed' ||
-          t === 'agent.cleanup.worker' ||
-          t === 'agent.cleanup.leader' ||
-          t === 'orchestrator.ready'
-        ) {
-          void refreshGraph();
+        } catch {
+          /* ignore parse errors */
         }
-      } catch {
-        /* ignore parse errors */
-      }
+      };
+      es.addEventListener('message', onData as EventListener);
     };
-    es.addEventListener('message', onData as EventListener);
+
+    connect();
+
     return () => {
-      es.close();
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
     };
-  }, [refreshGraph]);
+  }, [baseUrl, refreshGraph]);
 
   const fetchAgentLogs = useCallback(async (agentId: string): Promise<{ process: string[]; localShare: string[] }> => {
-    const r = await fetch(`/observability/agent/${encodeURIComponent(agentId)}/logs`);
+    const r = await fetch(resolveUrl(baseUrl, `/observability/agent/${encodeURIComponent(agentId)}/logs`));
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     const data = (await r.json()) as { process: string[]; localShare?: string[] };
     return {
       process: data.process ?? [],
       localShare: data.localShare ?? [],
     };
-  }, []);
+  }, [baseUrl]);
 
   return {
     graph,
@@ -213,5 +297,6 @@ export function useObservability() {
     refreshGraph,
     lastLogLineByAgent,
     fetchAgentLogs,
+    teams,
   };
 }

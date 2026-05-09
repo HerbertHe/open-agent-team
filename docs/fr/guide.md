@@ -87,29 +87,46 @@ Au minimum, vérifiez :
 Lancez :
 
 ```bash
-oat start team.json "<goal>" --port 3100
+oat start team.json "<goal>"
 ```
 
-- `--port` : port HTTP de l'Orchestrateur (utilisé pour les callbacks d'outils)
 - `<goal>` : objectif final injecté dans le prompt du Leader
+- `--port` (optionnel) : port HTTP de l'Orchestrateur. **Si omis, OAT scanne automatiquement un port disponible à partir de 8787**
 
 Pour définir la langue de sortie/log :
 
 ```bash
-oat start team.json "<goal>" --port 3100 --lang zh-CN
+oat start team.json "<goal>" --lang zh-CN
 ```
 
-## 5. Observer le résultat
+Au démarrage, OAT crée un lien symbolique sous `~/.oat/projects/` pointant vers le répertoire du projet, permettant la gestion multi-projets.
+
+## 5. Utiliser le tableau de bord
+
+OAT embarque un tableau de bord web, automatiquement disponible après le démarrage de l'Orchestrateur. Ouvrez `http://localhost:<port>` dans votre navigateur.
+
+Le tableau de bord comprend :
+
+- **Tableau de bord** : vue d'ensemble du projet, liste des projets en cours (avec suppression)
+- **État du projet** : flux SSE en temps réel, topologie des agents, rapports de progression. Supporte le basculement entre différentes instances
+- **Configuration projet** : édition en ligne du `team.json` avec aperçu JSON coloré via Shiki. La sauvegarde redémarre automatiquement le projet
+- **Paramètres** : paramètres globaux (rétention des logs, etc.)
+
+### Support multi-projets
+
+Le tableau de bord gère plusieurs projets simultanément. Dans les pages « État du projet » et « Configuration projet », utilisez le sélecteur pour basculer. L'affichage suit le format `Nom de config (ID projet)`.
+
+## 6. Observer le résultat
 
 Points de contrôle courants :
 
-- Orchestrator démarre et écoute sur le port indiqué
+- L'Orchestrateur démarre et écoute sur le port attribué automatiquement ou spécifié
 - Les workspaces worker apparaissent sous `workspace.root_dir` (par défaut `<répertoire de team.json>/workspaces/<agentId>`)
 - Chaque worker met à jour le `CHANGELOG.md` à la racine lorsqu'il termine
 - Les branches des workers sont fusionnées dans les branches correspondantes des leaders
-- Après fusion du leader vers `project.base_branch`, Orchestrator nettoie le leader et ses workers (processus + workspace)
+- Après fusion du leader vers `project.base_branch`, l'Orchestrateur nettoie le leader et ses workers (processus + workspace)
 
-## 6. Statut / arrêt
+## 7. Statut / arrêt
 
 Vérifier l'état de l'Orchestrateur (lire `orchestrator.json` dans `state_dir`) :
 
@@ -125,7 +142,23 @@ Arrêt (envoyer SIGTERM au pid de l'Orchestrateur) :
 oat stop
 ```
 
-## 7. Afficher la documentation (multi-langue)
+## 8. Référence API REST
+
+L'Orchestrateur expose les API de gestion suivantes :
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| GET | `/api/projects` | Lister tous les projets enregistrés |
+| DELETE | `/api/projects/:name` | Supprimer un projet (doit être arrêté) |
+| GET | `/api/projects/:name/config` | Lire le team.json du projet |
+| PUT | `/api/projects/:name/config` | Mettre à jour le team.json du projet |
+| POST | `/api/projects/:name/restart` | Redémarrer un projet |
+| GET | `/api/team-config` | Lire le team.json du projet courant |
+| PUT | `/api/team-config` | Mettre à jour le team.json du projet courant |
+| GET | `/api/global-config` | Lire la config globale (oat.yaml) |
+| PUT | `/api/global-config` | Mettre à jour la config globale |
+
+## 9. Afficher la documentation (multi-langue)
 
 Vous pouvez afficher le contenu via CLI, par exemple :
 
@@ -134,3 +167,4 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
+

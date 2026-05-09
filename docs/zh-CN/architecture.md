@@ -199,7 +199,7 @@ Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()`
 
 ## 5. Orchestrator 工具 API（供 pi-coding-agent 调用）
 
-Orchestrator 在启动后会监听 `--port <PORT>`（由 CLI 参数指定），并注册以下工具路由：
+Orchestrator 在启动后会监听 HTTP 端口（由 `--port` 参数指定，或自动从 8787 开始扫描可用端口），并注册以下工具路由：
 
 - `POST /tool/request_workers`
   - 用途：由 Leader 请求创建 worker，并下发 tasks
@@ -212,6 +212,36 @@ Orchestrator 在启动后会监听 `--port <PORT>`（由 CLI 参数指定），�
   - 用途：当前为占位实现（返回 ok）
 - `POST /tool/generate_changelog`
   - 用途：按 agentId 读取其 workspace 的 CHANGELOG.md
+
+### 5.2 管理 API（供 Dashboard 和外部调用）
+
+除了 agent 工具路由外，Orchestrator 还提供管理 REST API，用于仪表盘和外部系统集成：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/projects` | 获取 `~/.oat/projects/` 下所有已注册项目列表 |
+| DELETE | `/api/projects/:name` | 删除项目（移除符号链接，需先停止进程） |
+| GET | `/api/projects/:name/config` | 读取指定项目的 team.json 配置 |
+| PUT | `/api/projects/:name/config` | 更新指定项目的 team.json 配置 |
+| POST | `/api/projects/:name/restart` | 重启指定项目（杀死旧进程并使用原始 argv 重新 spawn） |
+| GET | `/api/team-config` | 读取当前 Orchestrator 实例的 team.json |
+| PUT | `/api/team-config` | 更新当前实例的 team.json |
+| GET | `/api/global-config` | 读取全局配置 (`~/.oat/oat.yaml`) |
+| PUT | `/api/global-config` | 更新全局配置 |
+| POST | `/tool/admin_instruction` | 向 Admin agent 下发指令（由 Dashboard 调用） |
+
+### 5.3 仪表盘（Dashboard）
+
+OAT 内置了 Web 仪表盘（基于 React + Ant Design + @ant-design/x），由 Orchestrator 自动提供静态资源服务。
+
+仪表盘功能：
+
+- **仪表盘首页**：项目总览、运行中项目列表及删除操作
+- **项目状态**：通过 SSE 实时接收 ObservabilityHub 事件、Agent 拓扑图、进度汇报、向 Admin 下发指令
+- **项目配置**：在线编辑 `team.json`，左侧表单 + 右侧 Shiki 语法高亮 JSON 预览，保存后触发项目自动重启
+- **设置**：全局配置管理
+
+仪表盘支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接发现并管理多个运行中的 Orchestrator 实例。
 
 ## 6. 配置驱动点与关键默认值
 

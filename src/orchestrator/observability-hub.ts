@@ -1,10 +1,13 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { ObservabilityEvent } from "../types/observability";
 
 const DEFAULT_AGENT_LOG_CAP = 4000;
 const DEFAULT_GLOBAL_LOCAL_CAP = 2500;
 
 /**
- * 内存有界环形缓冲 + 多订阅者；用于 Dashboard SSE 与编排/pi Agent 事件汇聚。
+ * 内存有界环形缓冲 + 多订阅者 + 磁盘日志持久化。
+ * 用于 Dashboard SSE 与编排/pi Agent 事件汇聚。
  */
 export class ObservabilityHub {
   private buffer: ObservabilityEvent[] = [];
@@ -16,6 +19,9 @@ export class ObservabilityHub {
   private globalLocalShareLines: string[] = [];
   private readonly maxGlobalLocalLines: number;
 
+  /** agentId → disk log write stream info */
+  private readonly diskLoggers = new Map<string, { logsDir: string; agentId: string }>();
+
   constructor(
     maxSize = 1500,
     maxLogLinesPerAgent = DEFAULT_AGENT_LOG_CAP,
@@ -24,6 +30,37 @@ export class ObservabilityHub {
     this.maxSize = maxSize;
     this.maxLogLinesPerAgent = maxLogLinesPerAgent;
     this.maxGlobalLocalLines = maxGlobalLocalLines;
+  }
+
+  /**
+   * 为指定 Agent 启用磁盘日志，写入 <workspacePath>/logs/<agentId>-<date>.jsonl
+   */
+  enableDiskLogger(workspacePath: string, agentId: string): void {
+    const logsDir = path.join(workspacePath, "logs");
+    this.diskLoggers.set(agentId, { logsDir, agentId });
+  }
+
+  /**
+   * 禁用指定 Agent 的磁盘日志
+   */
+  disableDiskLogger(agentId: string): void {
+    this.diskLoggers.delete(agentId);
+  }
+
+  private async writeToDisk(agentId: string, event: ObservabilityEvent): Promise<void> {
+    const info = this.diskLoggers.get(agentId);
+    if (!info) return;
+
+    const date = event.ts.slice(0, 10); // YYYY-MM-DD
+    const fileName = `${agentId}-${date}.jsonl`;
+    const filePath = path.join(info.logsDir, fileName);
+
+    try {
+      await fs.mkdir(info.logsDir, { recursive: true });
+      await fs.appendFile(filePath, JSON.stringify(event) + "\n", "utf8");
+    } catch {
+      // Disk write failures should not break the event pipeline
+    }
   }
 
   emit(
@@ -40,6 +77,12 @@ export class ObservabilityHub {
         this.buffer.splice(0, this.buffer.length - this.maxSize);
       }
     }
+
+    // Disk persistence for agent events
+    if (full.agentId && this.diskLoggers.has(full.agentId)) {
+      void this.writeToDisk(full.agentId, full);
+    }
+
     for (const sub of this.subscribers) {
       try {
         sub(full);
