@@ -1,4 +1,4 @@
-# Open Agent Team (Orchestrator + OpenCode)
+# Open Agent Team
 
 This project lets you build a declarative **agent team** with a 3-layer hierarchy:
 
@@ -105,7 +105,7 @@ oat docs guide --lang en
 
 ## Current implementation notes (aligned with code)
 
-- Runtime mode: `local_process` is implemented (Orchestrator starts multiple `opencode serve` processes on different ports).
+- Runtime mode: `local_process` is implemented (Orchestrator starts multiple agent processes on different ports).
 - Workspaces: `worktree` provider is implemented; other providers are placeholders.
 - Worker pool size intent (`teams[].worker.total`) is enforced by pre-spawning workers at team startup; workers are not cleaned up after a leader completes (only on orchestrator shutdown).
 

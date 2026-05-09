@@ -1,4 +1,4 @@
-# 开放代理团队（Orchestrator + OpenCode）
+# 开放代理团队
 
 本项目让你以声明式方式构建一个包含三层的 **agent team**：
 
@@ -106,7 +106,7 @@ oat docs guide --lang zh-CN
 
 ## 当前实现要点（与代码对齐）
 
-- Runtime mode：实现了 `local_process`（Orchestrator 会启动多个 `opencode serve` 进程并分配不同端口）。
+- Runtime mode：实现了 `local_process`（Orchestrator 会启动多个 agent 进程并分配不同端口）。
 - Workspaces：实现了 `worktree` provider；其它 providers 为占位。
 - `teams[].worker.total` 的 worker 池规模会在启动 team 时被预先创建并生效；leader 完成后不会清理 worker 池（仅在 orchestrator 退出时销毁）。
 

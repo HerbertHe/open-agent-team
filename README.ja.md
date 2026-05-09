@@ -1,4 +1,4 @@
-# オープンエージェントチーム（Orchestrator + OpenCode）
+# オープンエージェントチーム
 
 本プロジェクトは、宣言的な **agent team** を次の 3 層構造で構築できるようにします：
 
@@ -105,7 +105,7 @@ oat docs guide --lang ja
 
 ## 現在の実装要点（コードに合わせて）
 
-- runtime mode：`local_process` が実装済み（異なるポートで複数の `opencode serve` を起動）
+- runtime mode：`local_process` が実装済み（異なるポートで複数のエージェントプロセスを起動）
 - workspaces：`worktree` provider が実装済み。他 provider は placeholder です。
 - `teams[].worker.total` の worker プールサイズは起動時の事前作成で反映されます。leader 完了後も worker はクリーンアップされず、オーケストレーター終了時にのみ破棄されます。
 
