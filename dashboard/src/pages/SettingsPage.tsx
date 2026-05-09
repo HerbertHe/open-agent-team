@@ -86,7 +86,7 @@ export function SettingsPage() {
                 value={retentionDays}
                 onChange={(v) => setRetentionDays(v ?? 7)}
                 style={{ width: 120 }}
-                addonAfter={t('settings.log_retention').includes('天') ? '天' : 'days'}
+                addonAfter={t('settings.days_unit')}
               />
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {t('settings.log_retention_desc')}

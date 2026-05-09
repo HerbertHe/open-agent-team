@@ -121,6 +121,7 @@ const fr = {
   'settings.save': 'Enregistrer les paramètres',
   'settings.save_success': 'Paramètres enregistrés avec succès',
   'settings.save_error': 'Échec de l\'enregistrement des paramètres',
+  'settings.days_unit': 'jours',
 
   'projects.title': 'Projets en cours',
   'projects.no_projects': 'Aucun projet trouvé',
@@ -140,6 +141,24 @@ const fr = {
   'projects.dead': 'Arrêté',
   'projects.open': 'Ouvrir',
   'projects.current': 'Actuel',
+
+  'sender.title': 'Envoyer une instruction à Admin',
+  'sender.placeholder': 'Saisissez une tâche ou des instructions pour Admin… (Shift+Entrée pour envoyer)',
+  'sender.success': 'Envoyé à Admin',
+
+  'agent_log.title': 'Logs de l\'agent',
+  'agent_log.title_with_id': 'Logs de l\'agent · {{agentId}}',
+  'agent_log.refresh': 'Actualiser les logs',
+  'agent_log.close': 'Fermer',
+  'agent_log.section_process': '── Logs du processus ──',
+  'agent_log.section_pi': '── Événements Pi ──',
+  'agent_log.section_live': '── En direct ──',
+  'agent_log.empty': '(Aucun log pour l\'instant)',
+
+  'progress.title': 'Rapports de progression',
+  'progress.hint': 'Leader/Worker/Admin peuvent signaler la progression via l\'outil report-progress (les plus récents en premier).',
+  'progress.empty': 'Aucun rapport pour l\'instant',
+  'progress.stage': 'Étape',
 };
 
 export default fr;

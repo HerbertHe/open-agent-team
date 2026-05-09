@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Button, Space, Typography } from 'antd';
+import { useTranslation } from 'react-i18next';
 import type { ObservabilityEvent } from '../types';
 
 const { Text } = Typography;
@@ -47,6 +48,7 @@ export function AgentLogModal({
   const [error, setError] = useState<string | null>(null);
   const seenEventLenRef = useRef(0);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   const load = async () => {
     if (!agentId) return;
@@ -120,17 +122,17 @@ export function AgentLogModal({
 
   return (
     <Modal
-      title={agentId ? `Agent 日志 · ${agentId}` : 'Agent 日志'}
+      title={agentId ? t('agent_log.title_with_id', { agentId }) : t('agent_log.title')}
       open={open}
       onCancel={onClose}
       width="min(900px, 96vw)"
       footer={
         <Space>
           <Button onClick={() => void load()} loading={loading}>
-            刷新日志
+            {t('agent_log.refresh')}
           </Button>
           <Button type="primary" onClick={onClose}>
-            关闭
+            {t('agent_log.close')}
           </Button>
         </Space>
       }
@@ -156,7 +158,7 @@ export function AgentLogModal({
         {/* Process log lines */}
         {processLines.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>── Process Logs ──</div>
+            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>{t('agent_log.section_process')}</div>
             {processLines.map((line, i) => (
               <div key={`p-${i}`} style={{ color: '#d4d4d4', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {line}
@@ -168,7 +170,7 @@ export function AgentLogModal({
         {/* Pi events */}
         {piEvents.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>── Pi Events ──</div>
+            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>{t('agent_log.section_pi')}</div>
             {piEvents.map((entry, i) => (
               <div key={`pi-${i}`} style={{ display: 'flex', gap: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 2 }}>
                 <span style={{ color: '#6a9955', flexShrink: 0 }}>{entry.ts}</span>
@@ -182,7 +184,7 @@ export function AgentLogModal({
         {/* Live tail */}
         {liveTail.length > 0 && (
           <div>
-            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>── Live ──</div>
+            <div style={{ color: '#569cd6', fontWeight: 600, marginBottom: 4 }}>{t('agent_log.section_live')}</div>
             {liveTail.map((entry, i) => (
               <div key={`l-${i}`} style={{ display: 'flex', gap: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 2 }}>
                 <span style={{ color: '#6a9955', flexShrink: 0 }}>{entry.ts}</span>
@@ -198,7 +200,7 @@ export function AgentLogModal({
 
         {processLines.length === 0 && piEvents.length === 0 && liveTail.length === 0 && (
           <div style={{ color: '#6a6a6a', textAlign: 'center', padding: 24 }}>
-            （暂无日志）
+            {t('agent_log.empty')}
           </div>
         )}
         <div ref={logEndRef} />

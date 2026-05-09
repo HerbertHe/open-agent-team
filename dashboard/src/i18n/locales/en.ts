@@ -148,6 +148,7 @@ const en = {
   'settings.save': 'Save Settings',
   'settings.save_success': 'Settings saved successfully',
   'settings.save_error': 'Failed to save settings',
+  'settings.days_unit': 'days',
 
   // Projects
   'projects.title': 'Running Projects',
@@ -168,6 +169,24 @@ const en = {
   'projects.dead': 'Stopped',
   'projects.open': 'Open',
   'projects.current': 'Current',
+
+  'sender.title': 'Send Instruction to Admin',
+  'sender.placeholder': 'Enter task or instructions for Admin… (Shift+Enter to send)',
+  'sender.success': 'Sent to Admin',
+
+  'agent_log.title': 'Agent Logs',
+  'agent_log.title_with_id': 'Agent Logs · {{agentId}}',
+  'agent_log.refresh': 'Refresh Logs',
+  'agent_log.close': 'Close',
+  'agent_log.section_process': '── Process Logs ──',
+  'agent_log.section_pi': '── Pi Events ──',
+  'agent_log.section_live': '── Live ──',
+  'agent_log.empty': '(No logs yet)',
+
+  'progress.title': 'Progress Reports',
+  'progress.hint': 'Leader/Worker/Admin can report progress via the report-progress tool (newest first).',
+  'progress.empty': 'No reports yet',
+  'progress.stage': 'Stage',
 };
 
 export default en;

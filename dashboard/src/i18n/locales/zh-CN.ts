@@ -121,6 +121,7 @@ const zhCN = {
   'settings.save': '保存设置',
   'settings.save_success': '设置保存成功',
   'settings.save_error': '保存设置失败',
+  'settings.days_unit': '天',
 
   'projects.title': '运行中的项目',
   'projects.no_projects': '没有发现项目',
@@ -140,6 +141,24 @@ const zhCN = {
   'projects.dead': '已停止',
   'projects.open': '打开',
   'projects.current': '当前',
+
+  'sender.title': '向 Admin 下发指令',
+  'sender.placeholder': '输入要交给 Admin 的任务或补充说明…（Shift+Enter 发送）',
+  'sender.success': '已下发到 Admin',
+
+  'agent_log.title': 'Agent 日志',
+  'agent_log.title_with_id': 'Agent 日志 · {{agentId}}',
+  'agent_log.refresh': '刷新日志',
+  'agent_log.close': '关闭',
+  'agent_log.section_process': '── Process Logs ──',
+  'agent_log.section_pi': '── Pi Events ──',
+  'agent_log.section_live': '── Live ──',
+  'agent_log.empty': '（暂无日志）',
+
+  'progress.title': '进度汇报',
+  'progress.hint': 'Leader/Worker/Admin 可通过工具 report-progress 汇报文本（时间线将按最新优先展示）。',
+  'progress.empty': '暂无汇报',
+  'progress.stage': '阶段',
 };
 
 export default zhCN;

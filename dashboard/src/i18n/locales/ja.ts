@@ -121,6 +121,7 @@ const ja = {
   'settings.save': '設定を保存',
   'settings.save_success': '設定が保存されました',
   'settings.save_error': '設定の保存に失敗しました',
+  'settings.days_unit': '日',
 
   'projects.title': '実行中のプロジェクト',
   'projects.no_projects': 'プロジェクトが見つかりません',
@@ -140,6 +141,24 @@ const ja = {
   'projects.dead': '停止',
   'projects.open': '開く',
   'projects.current': '現在',
+
+  'sender.title': 'Admin へ指示を送信',
+  'sender.placeholder': 'Admin へのタスクや補足説明を入力…（Shift+Enter で送信）',
+  'sender.success': 'Admin に送信済み',
+
+  'agent_log.title': 'エージェントログ',
+  'agent_log.title_with_id': 'エージェントログ · {{agentId}}',
+  'agent_log.refresh': 'ログを更新',
+  'agent_log.close': '閉じる',
+  'agent_log.section_process': '── プロセスログ ──',
+  'agent_log.section_pi': '── Pi イベント ──',
+  'agent_log.section_live': '── ライブ ──',
+  'agent_log.empty': '（ログがありません）',
+
+  'progress.title': '進捗レポート',
+  'progress.hint': 'Leader/Worker/Admin は report-progress ツールで進捗を報告できます（最新優先）。',
+  'progress.empty': 'レポートなし',
+  'progress.stage': 'ステージ',
 };
 
 export default ja;

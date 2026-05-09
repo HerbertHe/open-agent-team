@@ -1,5 +1,6 @@
 import { Card, List, Typography } from 'antd';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ObservabilityEvent } from '../types';
 
 const { Text } = Typography;
@@ -40,25 +41,26 @@ function pickProgressItems(events: ObservabilityEvent[], limit = 200): ProgressI
 }
 
 export function ProgressReportBox(props: { events: ObservabilityEvent[] }) {
+  const { t } = useTranslation();
   const items = useMemo(() => pickProgressItems(props.events, 200), [props.events]);
 
   return (
     <Card
       size="small"
-      title="进度汇报"
+      title={t('progress.title')}
       className="progress-report-card"
       style={{ marginTop: 12 }}
       bodyStyle={{ paddingTop: 8 }}
     >
       <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
-        Leader/Worker/Admin 可通过工具 <Text code>report-progress</Text> 汇报文本（时间线将按最新优先展示）。
+        {t('progress.hint')}
       </Text>
       <div className="progress-report-list">
         <List
           size="small"
           split={false}
           dataSource={items}
-          locale={{ emptyText: '暂无汇报' }}
+          locale={{ emptyText: t('progress.empty') }}
           renderItem={(it) => (
             <List.Item style={{ padding: '6px 0' }}>
               <div className="progress-report-item" style={{ width: '100%' }}>
@@ -74,7 +76,7 @@ export function ProgressReportBox(props: { events: ObservabilityEvent[] }) {
                   <div className="progress-report-content">
                     {it.stage ? (
                       <Text style={{ fontSize: 12 }}>
-                        <Text type="secondary">阶段</Text> {it.stage}
+                        <Text type="secondary">{t('progress.stage')}</Text> {it.stage}
                       </Text>
                     ) : null}
                     {it.message ? (

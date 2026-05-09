@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
 import { Card, message as antdMessage } from 'antd';
 import { Sender } from '@ant-design/x';
+import { useTranslation } from 'react-i18next';
 
 export function AdminInstructionSender() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [value, setValue] = useState('');
   const onSubmit = useCallback(async (text: string) => {
@@ -17,19 +19,19 @@ export function AdminInstructionSender() {
       });
       const j = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(j.error ?? `${r.status} ${r.statusText}`);
-      antdMessage.success('已下发到 Admin');
+      antdMessage.success(t('sender.success'));
       setValue('');
     } catch (e) {
       antdMessage.error(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   return (
-    <Card size="small" title="向 Admin 下发指令" className="admin-sender-card">
+    <Card size="small" title={t('sender.title')} className="admin-sender-card">
       <Sender
-        placeholder="输入要交给 Admin 的任务或补充说明…（Shift+Enter 发送）"
+        placeholder={t('sender.placeholder')}
         loading={loading}
         value={value}
         onChange={setValue}
