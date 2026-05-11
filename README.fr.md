@@ -6,7 +6,7 @@ Ce projet vous permet de construire une équipe d'agents **déclarative** avec u
 
 Vous déclarez les rôles, modèles, skills partagées et les stratégies workspace/git dans `team.json`. À l'exécution, l'Orchestrateur démarre les agents statiques (`Admin` et tous les `Leader`) puis crée dynamiquement des `Worker` lorsque un `Leader` les demande. Chaque `Worker` doit mettre à jour un `CHANGELOG.md`, qui est fusionné vers le haut :
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> résumé final de `Admin`.
+`Worker CHANGELOG` -> `Leader CHANGELOG` -> résumé final de `Admin`. Tous les rôles (Admin, Leader, Worker) sont strictement tenus d'**AJOUTER (APPEND)** leurs notes à leur fichier `CHANGELOG.md` respectif.
 
 ## Concepts clés
 
@@ -42,10 +42,11 @@ Les skills sont gérées via [`npx skills`](https://github.com/vercel-labs/skill
 
 ### Collaboration basée sur `CHANGELOG.md`
 
-Lorsqu'un `Worker` est créé, l'Orchestrateur injecte une contrainte système dans son prompt :
+Lors de l'initialisation des agents, l'Orchestrateur injecte des contraintes système :
 
-- créer/metttre à jour `CHANGELOG.md` à la racine du workspace (même s'il n'y a aucun changement de code)
-- appeler `notify-complete` et transmettre le contenu préparé de `CHANGELOG.md`
+- Tous les rôles (Admin, Leader, Worker) DOIVENT ajouter (append) leurs notes à `CHANGELOG.md` à la racine de leur workspace (même s'il n'y a aucun changement de code, enregistrez le raisonnement).
+- Toutes les sorties intermédiaires quotidiennes (notes, brouillons, logs) doivent être enregistrées sous `.oat/workspaces/<agentId>/records/<date>/`.
+- Worker et Leader appellent `notify-complete` et transmettent le contenu préparé de `CHANGELOG.md` pour le propager vers le haut.
 
 ## Démarrage rapide
 
@@ -78,7 +79,7 @@ Choisir la langue de sortie/docs :
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki), la gestion des paramètres globaux (fournisseurs de modèles, liste des modèles) et la gestion multi-projets.
+Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki), la gestion des paramètres globaux et la gestion multi-projets. Il propose également une page **Réalisations du projet (Project Achievements)** pour parcourir les enregistrements de travail quotidiens et l'historique `CHANGELOG.md` de chaque agent. Le tableau de bord utilise le chargement différé et la séparation du code (code splitting) pour des performances optimales.
 
 ### 4) Commandes utiles
 
@@ -98,7 +99,7 @@ oat docs guide --lang fr
    - se connecte au worker ciblé
    - envoie le prompt de la tâche
 4. Un `Worker` doit :
-   - mettre à jour `CHANGELOG.md` à la racine du workspace
+   - ajouter (append) ses notes au `CHANGELOG.md` à la racine du workspace
    - appeler `notify-complete` avec le contenu préparé de `CHANGELOG.md`
 5. L'Orchestrateur auto-commit toutes les modifications (`git add -A && git commit`), puis fusionne `Worker -> Leader`, demande au `Leader` de résumer, puis fusionne `Leader -> project.base_branch`.
 6. Chaque commit git d'un agent est attribué avec une identité locale unique (ex : `worker-0-teamName@project-projectName.oat`).

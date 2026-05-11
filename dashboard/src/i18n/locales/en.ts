@@ -1,6 +1,7 @@
 const en = {
   // Navigation
   'nav.dashboard': 'Dashboard',
+  'nav.achievements': 'Project Achievements',
   'nav.observability': 'Project Status',
   'nav.team_config': 'Project Config',
   'nav.settings': 'Global Settings',
@@ -238,6 +239,38 @@ const en = {
   'progress.hint': 'Leader/Worker/Admin can report progress via the report-progress tool (newest first).',
   'progress.empty': 'No reports yet',
   'progress.stage': 'Stage',
+
+  // Usage stats
+  'nav.usage': 'Usage Stats',
+  'usage.title': 'Model Usage Statistics',
+  'usage.all_projects': 'All Projects',
+  'usage.range_all': 'All',
+  'usage.range_30d': 'Last 30 Days',
+  'usage.range_7d': 'Last 7 Days',
+  'usage.range_yesterday': 'Yesterday',
+  'usage.range_today': 'Today',
+  'usage.total_requests': 'Total Requests',
+  'usage.total_input_tokens': 'Total Input Tokens',
+  'usage.total_output_tokens': 'Total Output Tokens',
+  'usage.total_cost': 'Total Cost',
+  'usage.token_trend': 'Token Usage Trend',
+  'usage.request_trend': 'Request Count Trend',
+  'usage.agent_distribution': 'Agent Distribution',
+  'usage.model_distribution': 'Model Distribution',
+  'usage.input_tokens': 'Input Tokens',
+  'usage.output_tokens': 'Output Tokens',
+  'usage.no_data': 'No Data',
+  'achievements.project': 'Project',
+  'achievements.team': 'Team',
+  'achievements.role': 'Role',
+  'achievements.date': 'Date',
+  'achievements.changelog': 'CHANGELOG',
+  'achievements.no_changelog': 'No CHANGELOG found',
+  'achievements.records': 'Records',
+  'achievements.no_records': 'No records found for the selected date',
+  'role.admin': 'Admin',
+  'role.leader': 'Leader',
+  'role.worker': 'Worker',
 };
 
 export default en;

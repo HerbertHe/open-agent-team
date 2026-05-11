@@ -6,7 +6,7 @@
 
 `team.json` でロール、モデル、共有スキル、workspace/git の方針を宣言します。実行時、Orchestrator は静的エージェント（`Admin` と全ての `Leader`）を起動し、`Leader` の要求に応じて `Worker` を動的に生成します。各 `Worker` は `CHANGELOG.md` を更新し、その内容は上位へ次のように集約されます：
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> 最終的な `Admin` のサマリー。
+`Worker CHANGELOG` -> `Leader CHANGELOG` -> 最終的な `Admin` のサマリー。全てのロール（Admin、Leader、Worker）は、それぞれの `CHANGELOG.md` を**追記（APPEND）**方式で更新するよう厳格に指示されます。
 
 ## 重要な概念
 
@@ -42,10 +42,11 @@
 
 ### CHANGELOG に基づく協業
 
-`Worker` が生成されるとき、Orchestrator は worker の prompt にシステム制約を注入します：
+エージェントを初期化する際、Orchestrator はシステム制約を注入します：
 
-- workspace ルートの `CHANGELOG.md` を作成/更新（コード変更が無くても必須）
-- `notify-complete` を呼び、用意した `CHANGELOG.md` の内容を渡す
+- すべてのロール（Admin、Leader、Worker）は、workspace ルートの `CHANGELOG.md` に**追記**で更新する必要があります（コード変更が無い場合でも理由を記録します）。
+- 日常の中間出力（ノート、ドラフト、ログなど）はすべて `.oat/workspaces/<agentId>/records/<date>/` の下に保存する必要があります。
+- Worker と Leader は `notify-complete` を呼び、用意した `CHANGELOG.md` の内容を上位へ伝えるために渡します。
 
 ## クイックスタート
 
@@ -78,7 +79,7 @@ oat start team.json "<goal>"
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、グローバル設定管理（モデルプロバイダー・モデルリスト）、マルチプロジェクト管理が利用できます。
+起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、グローバル設定管理、マルチプロジェクト管理が利用できます。さらに、各エージェントの日常の作業記録と `CHANGELOG.md` 履歴を閲覧するための **プロジェクト成果（Project Achievements）** ページも備えています。ダッシュボードは遅延読み込みとコード分割を採用しており、最適なパフォーマンスを提供します。
 
 ### 4) よく使うコマンド
 
@@ -98,7 +99,7 @@ oat docs guide --lang ja
    - 対象 worker に接続
    - タスク prompt を送信
 4. `Worker` は：
-   - workspace ルートの `CHANGELOG.md` を更新
+   - workspace ルートの `CHANGELOG.md` に追記
    - `notify-complete` を呼び、用意した `CHANGELOG.md` を渡す
 5. Orchestrator は全ての変更を自動コミット（`git add -A && git commit`）し、`Worker -> Leader` をマージ、`Leader` に要約させた後 `Leader -> project.base_branch` をマージします。
 6. 各 agent の git コミットには固有のローカルアイデンティティが付与されます（例：`worker-0-teamName@project-projectName.oat`）。

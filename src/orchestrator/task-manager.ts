@@ -13,9 +13,12 @@ import {
   type OatWorkspaceScopeContext,
 } from "../pi/workspace-inject";
 import { logger } from "../utils/logger";
+import { defineTool } from "@mariozechner/pi-coding-agent";
+import { type ToolExecuteFn } from "../sandbox/tool-util";
+import { rewriteModelProviderByCompatibleType } from "../utils/model-utils";
 import { todayRecordsSubPath } from "../utils/records";
 import { t } from "../i18n/i18n";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import type { Static } from "@sinclair/typebox";
 import { Type } from "typebox";
 import type {
   AgentRuntimeState,
@@ -240,7 +243,7 @@ export class TaskManager {
       name: workerId,
       branch,
       workspacePath: path.join(this.config.workspace.root_dir, workerId),
-      model: workerModel,
+      model: rewriteModelProviderByCompatibleType(workerModel, this.config.providers),
       skills: this.computeWorkerSkills(team),
     };
 
@@ -308,7 +311,7 @@ export class TaskManager {
       taskPrompt,
       ``,
       `Rules (MUST follow):`,
-      `- Update the workspace root CHANGELOG.md according to the system constraints (if there are no code changes, still record the reason).`,
+      `- Append your new entries to the END of the workspace root CHANGELOG.md according to the system constraints. Do NOT overwrite existing content (if there are no code changes, still record the reason).`,
       `- All other work-process files (analysis notes, drafts, logs, intermediate outputs) MUST be placed under \`${todayPath}/\`. Create it (mkdir -p) if it does not exist.`,
       `- Report execution progress using tool report-progress:`,
       `  { "agentId": "${workerId}", "stage": "<stage>", "message": "<short message>" }`,

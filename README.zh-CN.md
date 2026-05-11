@@ -6,7 +6,7 @@
 
 你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动静态 agent（`Admin` 与所有 `Leader`），并在 `Leader` 请求时动态生成 `Worker`。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> 最终 `Admin` 总结。
+`Worker CHANGELOG` -> `Leader CHANGELOG` -> 最终 `Admin` 总结。所有角色在系统约束中都被严格要求必须以**追加（APPEND）**的方式更新各自的 `CHANGELOG.md`。
 
 ## 关键概念
 
@@ -43,10 +43,11 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在
 
 ### 基于 CHANGELOG 的协作
 
-当创建一个 `Worker` 时，Orchestrator 会向 worker prompt 注入系统约束：
+在初始化 Agent 时，Orchestrator 会注入系统约束：
 
-- 在 workspace 根目录创建/更新 `CHANGELOG.md`（即使没有代码改动也要记录原因）
-- 调用 `notify-complete`，并把准备好的 `CHANGELOG.md` 内容作为入参传递
+- 所有角色（Admin, Leader, Worker）都必须在 workspace 根目录**追加更新** `CHANGELOG.md`（即使没有代码改动也要记录原因）
+- 所有日常中间产物（笔记、草稿、日志）必须保存在 `.oat/workspaces/<agentId>/records/<date>/` 目录下
+- Worker 和 Leader 需要调用 `notify-complete`，并把准备好的 `CHANGELOG.md` 内容作为入参传递以向上汇报
 
 ## 快速上手
 
@@ -79,7 +80,7 @@ oat start team.json "<goal>"
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）、全局设置管理（模型服务商、模型列表）和多项目管理功能。
+启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）、全局设置管理和多项目管理功能。它还包含一个**项目成果（Project Achievements）**页面，用于浏览各个 Agent 的每日工作记录与 `CHANGELOG.md` 历史。仪表盘采用了按需加载和分包优化以提供极致性能。
 
 ### 4) 常用命令
 
@@ -99,7 +100,7 @@ oat docs guide --lang zh-CN
    - 连接到目标 worker
    - 发送任务 prompt
 4. `Worker` 必须：
-   - 更新 workspace 根目录的 `CHANGELOG.md`
+   - 追加更新 workspace 根目录的 `CHANGELOG.md`
    - 调用 `notify-complete` 并传递准备好的 `CHANGELOG.md`
 5. Orchestrator 自动提交所有变更（`git add -A && git commit`），然后执行 `Worker -> Leader` 合并，要求 `Leader` 汇总，再执行 `Leader -> project.base_branch` 合并。
 6. 每个 agent 的 git 提交会使用独立的本地身份标识（如 `worker-0-teamName@project-projectName.oat`）。

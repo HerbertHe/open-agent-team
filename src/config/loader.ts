@@ -42,23 +42,8 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     return p;
   };
 
-  const rewriteModelProviderByCompatibleType = (fullModel: string): string => {
-    const idx = fullModel.indexOf("/");
-    if (idx <= 0) return fullModel;
-    const providerKey = fullModel.slice(0, idx);
-    const modelId = fullModel.slice(idx + 1);
-    if (!modelId) return fullModel;
-    const providerCfg = (validated.providers as any)?.[providerKey] as
-      | { compatible_type?: "openai" | "anthropic" }
-      | undefined;
-    const ct = providerCfg?.compatible_type;
-    if (ct === "openai" || ct === "anthropic") return `${ct}/${modelId}`;
-    return fullModel;
-  };
-
   const resolveModelAlias = (m: string): string => {
-    const resolved = validated.models[m] ?? m;
-    return rewriteModelProviderByCompatibleType(resolved);
+    return validated.models[m] ?? m;
   };
 
   const resolveInheritedModel = (candidate: string | undefined, fallback: string | undefined, fieldPath: string): string => {

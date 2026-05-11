@@ -121,19 +121,20 @@ export function buildAgentSystemPrompt(args: {
     `- Today's date folder is \`${todayPath}/\`. Create it (mkdir -p) if it does not exist before writing files there.`,
   ].join("\n");
 
-  const workerChangelogSystem = (() => {
-    if (args.role !== AgentRoleEnum.Worker) return "";
+  const changelogSystem = (() => {
     return [
-      "\n\n## System constraint: CHANGELOG.md (Worker must follow)",
-      "- Create or update `CHANGELOG.md` at the workspace root.",
+      "\n\n## System constraint: CHANGELOG.md (You must follow)",
+      "- Append your new entries to the END of `CHANGELOG.md` at the workspace root. Do NOT overwrite existing content.",
       "- Clearly describe what you did, which key files/modules were involved, and a brief conclusion.",
       `- All other work-process files (analysis notes, drafts, logs, etc.) must go into \`${todayPath}/\`.`,
-      "- After finishing, MUST call tool `notify-complete` exactly once.",
-      `- You MUST provide required args: { "agentRole": "worker", "agentId": "${args.agentName}" } (you may omit \`changelog\`).`,
+      ...(args.role !== AgentRoleEnum.Admin ? [
+        "- After finishing, MUST call tool `notify-complete` exactly once.",
+        `- You MUST provide required args: { "agentRole": "${args.role === AgentRoleEnum.Leader ? 'leader' : 'worker'}", "agentId": "${args.agentName}" } (you may omit \`changelog\`).`,
+      ] : []),
       "- You may omit the `changelog` argument: orchestrator will read `CHANGELOG.md` from the workspace automatically.",
       "- If there were no code changes, you must still record the reason/analysis in `CHANGELOG.md`.",
     ].join("\n");
   })();
 
-  return `${args.promptText}${recordsHint}${workerChangelogSystem}`;
+  return `${args.promptText}${recordsHint}${changelogSystem}`;
 }

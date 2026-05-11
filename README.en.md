@@ -6,7 +6,7 @@ This project lets you build a declarative **agent team** with a 3-layer hierarch
 
 You declare roles, models, shared skills, and workspace/git strategies in `team.json`. At runtime, the Orchestrator starts static agents (`Admin`, all `Leader`s) and dynamically spawns `Worker`s when a `Leader` requests them. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> final `Admin` summary.
+`Worker CHANGELOG` -> `Leader CHANGELOG` -> final `Admin` summary. All roles are strictly instructed to **APPEND** to their respective `CHANGELOG.md` files.
 
 ## Key concepts
 
@@ -42,10 +42,11 @@ Skills are managed via [`npx skills`](https://github.com/vercel-labs/skills) and
 
 ### CHANGELOG-driven collaboration
 
-When a `Worker` is created, the orchestrator injects a system constraint into the worker prompt:
+When initializing agents, the Orchestrator injects system constraints:
 
-- create/update `CHANGELOG.md` at the workspace root (even if there are no code changes)
-- call `notify-complete` and pass the prepared `CHANGELOG.md` content
+- All roles (Admin, Leader, Worker) MUST append to `CHANGELOG.md` at their workspace root (even if there are no code changes, record the reasoning).
+- All daily intermediate outputs (notes, drafts, logs) must be saved under `.oat/workspaces/<agentId>/records/<date>/`.
+- Worker and Leader call `notify-complete` and pass the prepared `CHANGELOG.md` content to propagate it upwards.
 
 ## Quick start
 
@@ -78,7 +79,7 @@ Choose output/docs language:
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-A built-in **web dashboard** is available at `http://localhost:<port>` after startup, providing real-time observability, project configuration editing (with Shiki-highlighted JSON preview), global settings management (model providers & model list), and multi-project management.
+The built-in **Web Dashboard** is available at `http://localhost:<port>`, offering real-time observability, online project configuration editing (with Shiki JSON preview), global settings management, and multi-team project management. It also features a **Project Achievements** page to browse the daily work records and `CHANGELOG.md` history of each agent. The dashboard uses lazy-loading and code splitting for optimal performance.
 
 ### 4) Useful commands
 
@@ -97,8 +98,8 @@ oat docs guide --lang en
 3. Orchestrator dispatches tasks to an already pre-created `Worker` pool (size = `teams[].worker.total`):
    - connects to the target worker
    - sends the task prompt
-4. A `Worker` must:
-   - update `CHANGELOG.md` at the workspace root
+4. `Worker` must:
+   - append to `CHANGELOG.md` at the workspace root
    - call `notify-complete` with the prepared `CHANGELOG.md` content
 5. Orchestrator auto-commits all changes (`git add -A && git commit`), then merges `Worker -> Leader`, asks `Leader` to summarize, then merges `Leader -> project.base_branch`.
 6. Each agent's git commits are attributed with a unique local identity (e.g., `worker-0-teamName@project-projectName.oat`).

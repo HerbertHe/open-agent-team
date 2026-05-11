@@ -1,5 +1,6 @@
 const ja = {
   'nav.dashboard': 'ダッシュボード',
+  'nav.achievements': 'プロジェクト成果',
   'nav.observability': 'プロジェクト状態',
   'nav.team_config': 'プロジェクト設定',
   'nav.settings': 'グローバル設定',
@@ -174,6 +175,17 @@ const ja = {
   'settings.models.clear_success': 'グローバルモデル設定をクリアしました',
 
   'projects.title': '実行中のプロジェクト',
+  'achievements.project': 'プロジェクト',
+  'achievements.team': 'チーム',
+  'achievements.role': '役割',
+  'achievements.date': '日付',
+  'achievements.changelog': 'CHANGELOG',
+  'achievements.no_changelog': 'CHANGELOGが見つかりません',
+  'achievements.records': '作業記録',
+  'achievements.no_records': '選択した日付の記録はありません',
+  'role.admin': '管理者',
+  'role.leader': 'リーダー',
+  'role.worker': 'ワーカー',
   'projects.no_projects': 'プロジェクトが見つかりません',
   'projects.actions': '操作',
   'projects.delete': '削除',
@@ -209,6 +221,27 @@ const ja = {
   'progress.hint': 'Leader/Worker/Admin は report-progress ツールで進捗を報告できます（最新優先）。',
   'progress.empty': 'レポートなし',
   'progress.stage': 'ステージ',
+
+  // Usage stats
+  'nav.usage': 'モデル統計',
+  'usage.title': 'モデル使用統計',
+  'usage.all_projects': 'すべてのプロジェクト',
+  'usage.range_all': 'すべて',
+  'usage.range_30d': '過去30日',
+  'usage.range_7d': '過去7日',
+  'usage.range_yesterday': '昨日',
+  'usage.range_today': '今日',
+  'usage.total_requests': '合計リクエスト数',
+  'usage.total_input_tokens': '合計入力トークン',
+  'usage.total_output_tokens': '合計出力トークン',
+  'usage.total_cost': '合計コスト',
+  'usage.token_trend': 'トークン使用量推移',
+  'usage.request_trend': 'リクエスト数推移',
+  'usage.agent_distribution': 'Agent 分布',
+  'usage.model_distribution': 'モデル分布',
+  'usage.input_tokens': '入力トークン',
+  'usage.output_tokens': '出力トークン',
+  'usage.no_data': 'データがありません',
 };
 
 export default ja;

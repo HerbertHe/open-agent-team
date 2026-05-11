@@ -9,6 +9,7 @@ import type {
   AgentInstanceSpec,
   TeamConfig,
 } from "../types";
+import { rewriteModelProviderByCompatibleType } from "../utils/model-utils";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
@@ -21,6 +22,7 @@ import { ChangelogManager } from "../changelog/changelog-manager";
 import { WorkspaceProviderFactory } from "../workspace/workspace-provider";
 import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
+import { UsageTracker } from "./usage-tracker";
 import { logger } from "../utils/logger";
 import { t } from "../i18n/i18n";
 import { loadOatConfig, saveOatConfig } from "../utils/oat-config";
@@ -50,6 +52,7 @@ export class Orchestrator {
   >;
   private readonly skillResolver: SkillResolver;
   private readonly observabilityHub: ObservabilityHub;
+  private readonly usageTracker: UsageTracker;
   /** 存在且含 index.html 时由 Express 托管观测 Web UI */
   private readonly dashboardDist: string | undefined;
 
@@ -82,6 +85,24 @@ export class Orchestrator {
     }
 
     this.observabilityHub = new ObservabilityHub();
+    this.usageTracker = new UsageTracker(config.project.name, (agentId, role) => {
+      let rawModel = "unknown";
+      if (role === "admin") rawModel = config.admin.model || "unknown";
+      else if (role === "leader") {
+        const teamName = agentId.replace("-lead", "");
+        const team = config.teams.find(t => t.name === teamName);
+        rawModel = team?.leader?.model || config.model || "unknown";
+      }
+      else if (role === "worker") {
+        const match = agentId.match(/(.+)-worker-\d+/);
+        if (match) {
+          const team = config.teams.find(t => t.name === match[1]);
+          rawModel = team?.worker?.model || team?.leader?.model || config.admin.model || config.model || "unknown";
+        }
+      }
+      return config.models?.[rawModel] || rawModel;
+    });
+    this.usageTracker.attach(this.observabilityHub);
 
     this.runtimeProvider = new PiSessionProvider(
       config.runtime.pi.agentDir,
@@ -352,6 +373,79 @@ export class Orchestrator {
       }
     });
 
+    // --- project achievements ---
+    this.app.get("/api/projects/:name/workspaces/:agentId/changelog", async (req, res) => {
+      try {
+        const { name, agentId } = req.params;
+        const linkPath = path.join(os.homedir(), ".oat", "projects", name);
+        const realTarget = await fs.realpath(linkPath);
+        const changelogPath = path.join(realTarget, ".oat", "workspaces", agentId, "CHANGELOG.md");
+        let content = "";
+        try {
+          content = await fs.readFile(changelogPath, "utf8");
+        } catch {
+          // File may not exist yet
+        }
+        res.json({ content });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+    this.app.get("/api/projects/:name/workspaces/:agentId/record-dates", async (req, res) => {
+      try {
+        const { name, agentId } = req.params;
+        const linkPath = path.join(os.homedir(), ".oat", "projects", name);
+        const realTarget = await fs.realpath(linkPath);
+        const recordsDir = path.join(realTarget, ".oat", "workspaces", agentId, "records");
+        
+        const dates: string[] = [];
+        try {
+          const entries = await fs.readdir(recordsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name)) {
+              dates.push(entry.name);
+            }
+          }
+        } catch {
+          // Directory may not exist
+        }
+        res.json({ dates: dates.sort().reverse() });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+
+    this.app.get("/api/projects/:name/workspaces/:agentId/records", async (req, res) => {
+      try {
+        const { name, agentId } = req.params;
+        const date = req.query.date as string;
+        if (!date) {
+          res.status(400).json({ error: "Missing date query parameter" });
+          return;
+        }
+        const linkPath = path.join(os.homedir(), ".oat", "projects", name);
+        const realTarget = await fs.realpath(linkPath);
+        const recordsDir = path.join(realTarget, ".oat", "workspaces", agentId, "records", date);
+        
+        const files: Array<{ name: string; content: string }> = [];
+        try {
+          const entries = await fs.readdir(recordsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isFile()) {
+              const content = await fs.readFile(path.join(recordsDir, entry.name), "utf8");
+              files.push({ name: entry.name, content });
+            }
+          }
+        } catch {
+          // Directory may not exist
+        }
+        res.json({ files });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
     // --- multi-team project discovery ---
     this.app.get("/api/projects", async (_req, res) => {
       try {
@@ -601,6 +695,39 @@ export class Orchestrator {
       }
     });
 
+    // --- usage stats API ---
+    this.app.get("/api/usage/projects", async (_req, res) => {
+      try {
+        const projects = await UsageTracker.listProjects();
+        res.json(projects);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.get("/api/usage/stats", async (req, res) => {
+      try {
+        const project = req.query.project as string | undefined;
+        const range = (req.query.range as string) || "all";
+        const groupBy = (req.query.groupBy as string) || "day";
+        const validRanges = ["all", "30d", "7d", "yesterday", "today"];
+        const validGroupBy = ["day", "hour"];
+        const r = validRanges.includes(range) ? range as "all" | "30d" | "7d" | "yesterday" | "today" : "all";
+        const g = validGroupBy.includes(groupBy) ? groupBy as "day" | "hour" : "day";
+
+        let stats;
+        if (!project || project === "all") {
+          stats = await UsageTracker.getAllProjectsStats(r, g);
+        } else {
+          const tracker = new UsageTracker(project);
+          stats = await tracker.getStats(r, g);
+        }
+        res.json(stats);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
     if (this.dashboardDist) {
       this.app.use(express.static(this.dashboardDist));
       this.app.use((req, res, next) => {
@@ -633,7 +760,7 @@ export class Orchestrator {
         this.config.workspace.root_dir,
         AgentRoleEnum.Admin,
       ),
-      model: adminModel,
+      model: rewriteModelProviderByCompatibleType(adminModel, this.config.providers),
       skills: this.config.admin.skills,
     };
   }
@@ -652,7 +779,7 @@ export class Orchestrator {
         this.config.workspace.root_dir,
         `${team.name}-lead`,
       ),
-      model: leaderModel,
+      model: rewriteModelProviderByCompatibleType(leaderModel, this.config.providers),
       skills: team.leader.skills,
     };
   }
