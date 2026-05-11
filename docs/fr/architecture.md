@@ -62,6 +62,7 @@ La stratégie de workspace est fournie par `src/workspace/workspace-provider.ts`
 - Créer un worktree git par agent/branche : dossier comme `<workspace.root_dir>/<spec.id>`
 - Utiliser `sparse-checkout` pour réduire l'empreinte des gros dépôts (chemins autorisés via `team.leader.repos`)
 - Optionnellement exécuter `git lfs pull`
+- Si le répertoire workspace existe mais la référence git worktree est cassée (nettoyée lors d'une exécution précédente), elle est automatiquement détectée et reconstruite
 - Nettoyer via `git worktree remove --force` et supprimer le dossier
 
 > Point d'extension : `workspace.provider` n'instancie actuellement que `worktree`. Les stratégies (`shared_clone/full_clone`) restent en placeholder dans la factory.
@@ -74,10 +75,21 @@ Implémenté dans `src/skills/skill-resolver.ts` :
 - Les skills sont installées dans `<workspacePath>/skills/<skill-name>/SKILL.md`
 - Crée un lien symbolique `.pi/skills` → `skills` pour la découverte par pi-coding-agent
 
-### Pipeline Git + documentation : MergeManager / ChangelogManager
+### Pipeline Git + documentation : MergeManager / ChangelogManager / GitIdentity
 
 - `src/git/merge-manager.ts` : exécute `merge --no-ff`, en charge des fusions `worker->leader` et `leader->main`
 - `src/changelog/changelog-manager.ts` : lit `CHANGELOG.md` à la racine du workspace
+- `src/git/git-identity.ts` : configure l'identité git `--local` (`user.name` / `user.email`) pour chaque workspace agent, et auto-commit les modifications lors de `notify-complete`
+
+#### Règles d'identité Git
+
+| Rôle | Format `user.name` | Format `user.email` |
+|------|-------------------|--------------------|
+| Admin | `{projectName}-{adminName}` | `admin@project-{projectName}.oat` |
+| Leader | `{teamName}-leader-{leaderName}` | `leader-{teamName}@project-{projectName}.oat` |
+| Worker | `{teamName}-worker-{index}` | `worker-{index}-{teamName}@project-{projectName}.oat` |
+
+L'identité est définie lors de `oat start` via `git config --local`, uniquement valable dans le répertoire workspace. Les redémarrages écrasent automatiquement.
 
 ## 3. Flux d'exécution (du démarrage à la livraison)
 
@@ -142,10 +154,12 @@ Quand `Worker` appelle `POST /tool/notify_complete` :
 
 1. `TaskManager.handleWorkerComplete()` :
    - lit/utilise le `changelog` fourni (si absent, lit `CHANGELOG.md` dans le workspace du worker)
+   - **exécute automatiquement `git add -A && git commit`** (message : `feat({teamName}): worker-{index} task complete`)
    - exécute la fusion git : `worker.spec.branch -> leader.spec.branch`
    - utilise la session du leader pour lui demander d'agréger le CHANGELOG du worker dans son propre CHANGELOG
 
 2. Quand le `Leader` appelle finalement `notify-complete` :
+   - **exécute automatiquement `git add -A && git commit`** (message : `feat({teamName}): leader task complete`)
    - `TaskManager.handleLeaderComplete()` exécute la fusion git : `leader.spec.branch -> project.base_branch`
    - lit le `CHANGELOG.md` du leader (ou utilise le changelog passé via notify-complete)
    - demande à `Admin` via sa session de produire le résumé final en incluant le CHANGELOG de l'équipe
@@ -245,6 +259,4 @@ Pour éviter des promesses qui dépassent l'implémentation, voici les limites a
 - `runtime.mode` : seule `local_process` est pleinement implémentée ; `flue` n'est pas déployé
 - `workspace.provider` : seule `worktree` est implémentée ; autres stratégies non implémentées
 - `team.worker.total` : taille du pool de workers ; pré-créés au démarrage de l'équipe ; quand un leader termine, les sessions/workspaces du leader + workers sont nettoyés automatiquement
-- `team.worker.lifecycle` / `team.worker.skill_sync` : valeurs par défaut existent, mais l'implémentation actuelle ne branche pas encore sur ces champs ; l'isolation de session est assurée par `resetSession` qui efface l'historique avant chaque re-dispatch
-
-Si vous voulez que ces intentions de config soient appliquées pleinement côté code, je peux aider à étendre `TaskManager` pour gérer le `lifecycle` et la logique `skill_sync`.
+- `team.worker.skill_sync` : la valeur par défaut existe, mais l'implémentation actuelle ne branche pas encore sur ce champ ; l'isolation de session est assurée par `resetSession` qui efface l'historique avant chaque re-dispatch

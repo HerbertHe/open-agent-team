@@ -198,7 +198,7 @@
 .event-payload {
   margin: 0;
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -361,5 +361,81 @@
 @media (max-width: 900px) {
   .config-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* JSON preview (Shiki) overflow fix */
+.shiki-preview pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  margin: 0;
+}
+
+.shiki-preview pre code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* ── Modal / Message / Notification — 统一视觉风格 ── */
+
+/* Modal: rounded, elevated, subtle backdrop */
+.ant-modal .ant-modal-content {
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+.ant-modal-mask {
+  background: rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(4px);
+}
+.ant-modal .ant-modal-header {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.ant-modal .ant-modal-body {
+  color: var(--text-secondary);
+}
+.ant-modal .ant-modal-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 12px 24px;
+}
+.ant-modal-confirm .ant-modal-confirm-title {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+.ant-modal-confirm .ant-modal-confirm-content {
+  color: var(--text-secondary) !important;
+}
+
+/* Message: pill-shaped, elevated */
+.ant-message .ant-message-notice-content {
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--border-color);
+}
+
+/* Notification */
+.ant-notification .ant-notification-notice {
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border-color);
+}
+
+/* Dark mode specific refinements */
+[data-theme='dark'] {
+  .ant-modal .ant-modal-content {
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2);
+  }
+  .ant-modal-mask {
+    background: rgba(0, 0, 0, 0.55) !important;
+  }
+  .ant-message .ant-message-notice-content {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+  .ant-notification .ant-notification-notice {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
   }
 }

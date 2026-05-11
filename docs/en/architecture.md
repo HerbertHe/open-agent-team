@@ -66,6 +66,7 @@ Workspace strategy is provided by `src/workspace/workspace-provider.ts` factory.
 - Create a git worktree workspace per agent/branch: directory like `<workspace.root_dir>/<spec.id>`
 - Use `sparse-checkout` to reduce large repo footprint (paths are allowed by `team.leader.repos`)
 - Optionally execute `git lfs pull`
+- If a workspace directory exists but the git worktree reference is broken (e.g., cleaned up by a previous run), it is automatically detected and rebuilt
 - Cleanup by `git worktree remove --force` and deleting the directory
 
 > Extension point: `workspace.provider` currently only materializes `worktree`. Other strategies (`shared_clone/full_clone`) remain placeholder implementations in the factory.
@@ -78,10 +79,21 @@ Implemented in `src/skills/skill-resolver.ts`:
 - Skills are installed into `<workspacePath>/skills/<skill-name>/SKILL.md`
 - Creates a `.pi/skills` → `skills` symlink so pi-coding-agent's `DefaultResourceLoader` can discover them
 
-### Git + documentation pipeline: MergeManager / ChangelogManager
+### Git + documentation pipeline: MergeManager / ChangelogManager / GitIdentity
 
 - `src/git/merge-manager.ts`: performs `merge --no-ff` for `worker->leader` and `leader->main`
 - `src/changelog/changelog-manager.ts`: reads `CHANGELOG.md` from the workspace root directory
+- `src/git/git-identity.ts`: sets `--local` git identity (`user.name` / `user.email`) for each agent workspace, and auto-commits changes on `notify-complete`
+
+#### Git Identity Rules
+
+| Role | `user.name` format | `user.email` format |
+|------|-------------------|--------------------|
+| Admin | `{projectName}-{adminName}` | `admin@project-{projectName}.oat` |
+| Leader | `{teamName}-leader-{leaderName}` | `leader-{teamName}@project-{projectName}.oat` |
+| Worker | `{teamName}-worker-{index}` | `worker-{index}-{teamName}@project-{projectName}.oat` |
+
+Identity is set during `oat start` via `git config --local`, scoped to the workspace directory. Repeated starts automatically overwrite.
 
 ## 3. Runtime flow (from start to delivery)
 
@@ -143,10 +155,12 @@ When `Worker` calls the `notify-complete` tool:
 
 1. `TaskManager.handleWorkerComplete()`:
    - Read/use the provided `changelog` argument (if not provided, reads worker workspace's `CHANGELOG.md`)
+   - **Auto-executes `git add -A && git commit`** to commit all worker changes (commit message: `feat({teamName}): worker-{index} task complete`)
    - Execute git merge: `worker.spec.branch -> leader.spec.branch`
    - Use the leader agent's pi session to prompt the leader to aggregate the worker's CHANGELOG
 
 2. When the `Leader` finally calls `notify-complete`:
+   - **Auto-executes `git add -A && git commit`** to commit all leader changes (commit message: `feat({teamName}): leader task complete`)
    - `TaskManager.handleLeaderComplete()` executes git merge: `leader.spec.branch -> project.base_branch`
    - Reads the leader's `CHANGELOG.md` (or uses the changelog passed via notify-complete)
    - Prompts `Admin` via its pi session to produce the final summary
@@ -247,4 +261,4 @@ To avoid "documentation promises beyond implementation", here are the current bo
 - `runtime.mode`: currently only implements `local_process` (pi in-process SDK); `flue` is not fully implemented
 - `workspace.provider`: currently only implements `worktree`; other strategies are not implemented yet
 - `team.worker.total`: worker pool size; workers are pre-created at team startup; when a leader completes, its leader + worker sessions/workspaces are automatically cleaned up
-- `team.worker.lifecycle` / `team.worker.skill_sync`: although schema/loader define default values, the current implementation does not branch on these fields yet; session isolation is achieved via `resetSession` which clears conversation history before each re-dispatch
+- `team.worker.skill_sync`: although schema/loader defines a default value, the current implementation does not branch on this field yet; session isolation is achieved via `resetSession` which clears conversation history before each re-dispatch

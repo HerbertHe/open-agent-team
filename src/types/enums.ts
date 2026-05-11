@@ -36,17 +36,7 @@ export enum RuntimeModeEnum {
   Flue = "flue",
 }
 
-/**
- * Worker 生命周期策略：
- * - EphemeralAfterMergeToMain：合并进入 main 后回收 workspace 与进程
- * - Persistent：不自动回收（用于长期迭代）
- */
-export enum WorkerLifecycleEnum {
-  /** 合并进入 main 后自动回收：stop 进程并删除 worker workspace */
-  EphemeralAfterMergeToMain = "ephemeral_after_merge_to_main",
-  /** 不自动回收：worker workspace/进程可长期保留 */
-  Persistent = "persistent",
-}
+
 
 /**
  * Worker 技能注入策略：

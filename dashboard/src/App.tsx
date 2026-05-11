@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, App as AntdApp, theme } from 'antd';
 import { XProvider } from '@ant-design/x';
 import { useThemeStore } from './stores';
 import { router } from './router';
@@ -169,8 +169,20 @@ export default function App() {
           titleColor: isDark ? '#f6f4f1' : '#2d2a26',
         },
         Modal: {
-          contentBg: isDark ? '#1d1b18' : '#f0eee8',
-          headerBg: isDark ? '#1d1b18' : '#f0eee8',
+          contentBg: isDark ? '#1d1b18' : '#fffdf9',
+          headerBg: isDark ? '#1d1b18' : '#fffdf9',
+          titleColor: isDark ? '#f6f4f1' : '#2d2a26',
+          colorIcon: isDark ? '#9c958d' : '#a29c95',
+          colorIconHover: isDark ? '#c9c3bb' : '#6d6760',
+          footerBg: 'transparent',
+        },
+        Message: {
+          contentBg: isDark ? '#2a2723' : '#fffdf9',
+          contentPaddingBlock: 10,
+          contentPaddingInline: 16,
+        },
+        Notification: {
+          colorBgElevated: isDark ? '#2a2723' : '#fffdf9',
         },
         Spin: {
           colorPrimary: '#8b8680',
@@ -185,9 +197,6 @@ export default function App() {
           colorBgSpotlight: isDark ? '#2a2723' : '#2d2a26',
           colorTextLightSolid: isDark ? '#f6f4f1' : '#ffffff',
         },
-        Message: {
-          contentBg: isDark ? '#2a2723' : '#fffdf9',
-        },
       },
     }),
     [isDark],
@@ -195,9 +204,11 @@ export default function App() {
 
   return (
     <ConfigProvider theme={antdTheme}>
-      <XProvider>
-        <RouterProvider router={router} />
-      </XProvider>
+      <AntdApp>
+        <XProvider>
+          <RouterProvider router={router} />
+        </XProvider>
+      </AntdApp>
     </ConfigProvider>
   );
 }

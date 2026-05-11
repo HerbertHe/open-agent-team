@@ -4,6 +4,7 @@ import type { ResolvedConfig, AgentInstanceSpec, TeamConfig, SkillEntry } from "
 import type { WorkspaceProvider } from "../sandbox/interface";
 import type { PiSessionProvider } from "../sandbox/local-process";
 import { MergeManager } from "../git/merge-manager";
+import { setLocalGitIdentity, commitWorkspaceChanges } from "../git/git-identity";
 import { SkillResolver } from "../skills/skill-resolver";
 import { ChangelogManager } from "../changelog/changelog-manager";
 import {
@@ -244,6 +245,14 @@ export class TaskManager {
     };
 
     await this.workspaceProvider.ensureWorkspace(spec, sparsePaths);
+
+    // 设置 worker 工作目录的 git 身份
+    const projectName = this.config.project.name;
+    await setLocalGitIdentity(
+      spec.workspacePath,
+      `${team.name}-worker-${workerIndex}`,
+      `worker-${workerIndex}-${team.name}@project-${projectName}.oat`,
+    );
 
     const workerSkills: SkillEntry[] = [...leaderSkills, ...(team.worker.extra_skills ?? [])];
     spec.skills = workerSkills;
@@ -876,6 +885,12 @@ export class TaskManager {
       payload: { leaderId: leader.spec.id, workerBranch: worker.spec.branch, leaderBranch: leader.spec.branch },
     });
 
+    // 在 merge 前先 commit worker 的所有变更
+    await commitWorkspaceChanges(
+      worker.spec.workspacePath,
+      `feat(${team.name}): worker-${worker.spec.id.split("-").pop()} task complete`,
+    );
+
     await this.mergeManager.mergeBranch(leader.spec.workspacePath, worker.spec.branch, leader.spec.branch);
 
     this.observabilityHub.emit({
@@ -920,6 +935,12 @@ export class TaskManager {
       sessionId: leader.sessionId,
       payload: { baseBranch: this.config.project.base_branch, leaderBranch: leader.spec.branch },
     });
+
+    // 在 merge 前先 commit leader 的所有变更
+    await commitWorkspaceChanges(
+      leader.spec.workspacePath,
+      `feat(${team.name}): leader task complete`,
+    );
 
     await this.mergeManager.mergeToMain(
       leader.spec.workspacePath,

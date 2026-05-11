@@ -138,5 +138,4 @@ home 展开：
 | `worker.model` | 否 | string | 继承 `leader.model` | Worker 使用的模型（可为别名） |
 | `worker.prompt` | 是 | string | - | Worker prompt（支持 `*.md` 文件路径形式） |
 | `worker.extra_skills` | 否 | SkillEntry[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后安装） |
-| `worker.lifecycle` | 否 | enum | `ephemeral_after_merge_to_main` | 配置意图：当前实现中 worker 池在 orchestrator 退出前不回收（生命周期字段未用于提前清理） |
 | `worker.skill_sync` | 否 | enum | `inherit_and_inject_on_spawn` | 配置意图：动态 spawn 时 skill 注入策略（当前版本实际行为是“继承并注入”，未实现手动模式分支） |

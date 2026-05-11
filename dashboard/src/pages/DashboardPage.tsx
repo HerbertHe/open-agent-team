@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Tag, Button, Space, Typography, Descriptions, Table, Popconfirm, message } from 'antd';
+import { Card, Tag, Button, Space, Typography, Descriptions, Table, Popconfirm, App } from 'antd';
 import { useObservability } from '../hooks/useObservability';
 
 const { Title } = Typography;
@@ -23,6 +23,7 @@ function displayProjectName(p: ProjectInfo): string {
 
 export function DashboardPage() {
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
   const { graph } = useObservability();
 
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
@@ -48,13 +49,13 @@ export function DashboardPage() {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
-        void message.error(body.error ?? `${res.status}`);
+        void messageApi.error(body.error ?? `${res.status}`);
         return;
       }
-      void message.success(t('projects.deleted'));
+      void messageApi.success(t('projects.deleted'));
       void loadProjects();
     } catch (e) {
-      void message.error(e instanceof Error ? e.message : String(e));
+      void messageApi.error(e instanceof Error ? e.message : String(e));
     }
   }, [loadProjects, t]);
 

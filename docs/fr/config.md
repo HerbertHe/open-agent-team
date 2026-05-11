@@ -138,5 +138,4 @@ Chaque équipe contient :
 | `worker.model` | Non | string | hérite de `leader.model` | Modèle utilisé par les workers (peut être un alias) |
 | `worker.prompt` | Oui | string | - | Prompt du worker (accepte un chemin `*.md`) |
 | `worker.extra_skills` | Non | SkillEntry[] | `[]` | Skills additionnelles ajoutées au moment du spawn, au-dessus de `leader.skills` |
-| `worker.lifecycle` | Non | enum | `ephemeral_after_merge_to_main` | Stratégie de cleanup attendue après merge dans main (actuellement le cleanup s'exécute toujours quand le leader finit) |
 | `worker.skill_sync` | Non | enum | `inherit_and_inject_on_spawn` | Stratégie de synchronisation des skills lors du spawn (comportement actuel : “hériter et injecter”; `manual` n'est pas complètement implémenté) |

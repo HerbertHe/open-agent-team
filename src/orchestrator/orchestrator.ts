@@ -15,6 +15,7 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { PiSessionProvider } from "../sandbox/local-process";
 import { MergeManager } from "../git/merge-manager";
+import { setLocalGitIdentity } from "../git/git-identity";
 import { SkillResolver } from "../skills/skill-resolver";
 import { ChangelogManager } from "../changelog/changelog-manager";
 import { WorkspaceProviderFactory } from "../workspace/workspace-provider";
@@ -551,6 +552,55 @@ export class Orchestrator {
       }
     });
 
+    // --- global models config (~/.oat/models.json) ---
+    const globalModelsPath = path.join(os.homedir(), ".oat", "models.json");
+
+    this.app.get("/api/global-models", async (_req, res) => {
+      try {
+        const raw = await fs.readFile(globalModelsPath, "utf8");
+        res.type("json").send(raw);
+      } catch (e: any) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+          res.json({ providers: {}, models: {} });
+        } else {
+          res.status(500).json({ error: String(e?.message ?? e) });
+        }
+      }
+    });
+
+    this.app.put("/api/global-models", async (req, res) => {
+      try {
+        const incoming = req.body as { providers?: Record<string, unknown>; models?: Record<string, unknown>; replace?: boolean };
+        const shouldReplace = incoming.replace === true;
+        // Read existing file (if any)
+        let existing: { providers: Record<string, unknown>; models: Record<string, unknown> } = { providers: {}, models: {} };
+        if (!shouldReplace) {
+          try {
+            const raw = await fs.readFile(globalModelsPath, "utf8");
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === "object") {
+              existing = {
+                providers: parsed.providers ?? {},
+                models: parsed.models ?? {},
+              };
+            }
+          } catch { /* file doesn't exist yet */ }
+        }
+        // Merge or replace
+        const result = shouldReplace
+          ? { providers: incoming.providers ?? {}, models: incoming.models ?? {} }
+          : {
+              providers: { ...existing.providers, ...(incoming.providers ?? {}) },
+              models: { ...existing.models, ...(incoming.models ?? {}) },
+            };
+        await fs.mkdir(path.dirname(globalModelsPath), { recursive: true });
+        await fs.writeFile(globalModelsPath, JSON.stringify(result, null, 2), "utf8");
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
     if (this.dashboardDist) {
       this.app.use(express.static(this.dashboardDist));
       this.app.use((req, res, next) => {
@@ -807,6 +857,12 @@ export class Orchestrator {
 
     // 1) Admin workspace 配置 + 启动 pi 会话
     await this.workspaceProvider.ensureWorkspace(adminSpec, []);
+    const projectName = this.config.project.name;
+    await setLocalGitIdentity(
+      adminSpec.workspacePath,
+      `${projectName}-${this.config.admin.name}`,
+      `admin@project-${projectName}.oat`,
+    );
     await this.skillResolver.installSkillsToWorkspace(
       adminSpec.skills ?? [],
       adminSpec.workspacePath,
@@ -894,6 +950,11 @@ export class Orchestrator {
       const spec = leadersSpecs[i];
       const sparsePaths = team.leader.repos ?? [];
       await this.workspaceProvider.ensureWorkspace(spec, sparsePaths);
+      await setLocalGitIdentity(
+        spec.workspacePath,
+        `${team.name}-leader-${team.leader.name}`,
+        `leader-${team.name}@project-${projectName}.oat`,
+      );
       await this.skillResolver.installSkillsToWorkspace(
         spec.skills ?? [],
         spec.workspacePath,

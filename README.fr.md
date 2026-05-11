@@ -78,7 +78,7 @@ Choisir la langue de sortie/docs :
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki) et la gestion multi-projets.
+Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki), la gestion des paramètres globaux (fournisseurs de modèles, liste des modèles) et la gestion multi-projets.
 
 ### 4) Commandes utiles
 
@@ -100,8 +100,9 @@ oat docs guide --lang fr
 4. Un `Worker` doit :
    - mettre à jour `CHANGELOG.md` à la racine du workspace
    - appeler `notify-complete` avec le contenu préparé de `CHANGELOG.md`
-5. L'Orchestrateur fusionne `Worker -> Leader`, demande au `Leader` de résumer, puis fusionne `Leader -> project.base_branch`.
-6. L'Orchestrateur conserve le pool de workers jusqu'au shutdown ; seul `stopAll` à la sortie de l'orchestrateur arrête/détruit les processus.
+5. L'Orchestrateur auto-commit toutes les modifications (`git add -A && git commit`), puis fusionne `Worker -> Leader`, demande au `Leader` de résumer, puis fusionne `Leader -> project.base_branch`.
+6. Chaque commit git d'un agent est attribué avec une identité locale unique (ex : `worker-0-teamName@project-projectName.oat`).
+7. L'Orchestrateur conserve le pool de workers jusqu'au shutdown ; seul `stopAll` à la sortie de l'orchestrateur arrête/détruit les processus.
 
 ## Notes actuelles (alignées avec le code)
 

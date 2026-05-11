@@ -52,10 +52,9 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
       .then(() => true)
       .catch(() => false);
 
-    if (!exists) {
-      // 目录已被删但 git 仍登记该 worktree 时，add 会报 “missing but already registered”；先 prune 再 add
+    // 提取 worktree 创建逻辑（目录不存在 或 git 引用失效时均需执行）
+    const createWorktree = async () => {
       await git.raw(["worktree", "prune"]).catch(() => undefined);
-      // 如果分支已存在则不使用 -b，避免创建失败
       const branchExists = await git
         .raw(["show-ref", "--verify", `refs/heads/${spec.branch}`])
         .then(
@@ -67,6 +66,21 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
       } else {
         await git.raw(["worktree", "add", workspacePath, "-b", spec.branch]);
       }
+    };
+
+    if (exists) {
+      // 目录存在时验证 git 仓库引用是否有效（worktree 引用可能已被 prune 或 cleanup 清除）
+      const gitValid = await simpleGit(workspacePath)
+        .raw(["rev-parse", "--git-dir"])
+        .then(() => true)
+        .catch(() => false);
+      if (!gitValid) {
+        logger.warn("Workspace directory exists but git is invalid, re-creating worktree", { workspacePath, agentId: spec.id });
+        await fs.rm(workspacePath, { force: true, recursive: true }).catch(() => undefined);
+        await createWorktree();
+      }
+    } else {
+      await createWorktree();
     }
 
     if (this.config.workspace.sparse_checkout.enabled && sparsePaths.length > 0) {

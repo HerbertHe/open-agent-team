@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react';
-import { Card, message as antdMessage } from 'antd';
+import { Card, App } from 'antd';
 import { Sender } from '@ant-design/x';
 import { useTranslation } from 'react-i18next';
 
 export function AdminInstructionSender() {
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [value, setValue] = useState('');
   const onSubmit = useCallback(async (text: string) => {
@@ -19,10 +20,10 @@ export function AdminInstructionSender() {
       });
       const j = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(j.error ?? `${r.status} ${r.statusText}`);
-      antdMessage.success(t('sender.success'));
+      messageApi.success(t('sender.success'));
       setValue('');
     } catch (e) {
-      antdMessage.error(e instanceof Error ? e.message : String(e));
+      messageApi.error(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

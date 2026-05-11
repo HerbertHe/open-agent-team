@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   RuntimeModeEnum,
   WorkspaceProviderTypeEnum,
-  WorkerLifecycleEnum,
   WorkerSkillSyncEnum,
 } from "../types";
 
@@ -28,7 +27,6 @@ export const TeamSchema = z.object({
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     extra_skills: z.array(SkillEntrySchema).default([]),
-    lifecycle: z.nativeEnum(WorkerLifecycleEnum).default(WorkerLifecycleEnum.EphemeralAfterMergeToMain),
     skill_sync: z.nativeEnum(WorkerSkillSyncEnum).default(WorkerSkillSyncEnum.InheritAndInjectOnSpawn),
   }),
 });

@@ -78,7 +78,7 @@ Choose output/docs language:
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-A built-in **web dashboard** is available at `http://localhost:<port>` after startup, providing real-time observability, project configuration editing (with Shiki-highlighted JSON preview), and multi-project management.
+A built-in **web dashboard** is available at `http://localhost:<port>` after startup, providing real-time observability, project configuration editing (with Shiki-highlighted JSON preview), global settings management (model providers & model list), and multi-project management.
 
 ### 4) Useful commands
 
@@ -100,8 +100,9 @@ oat docs guide --lang en
 4. A `Worker` must:
    - update `CHANGELOG.md` at the workspace root
    - call `notify-complete` with the prepared `CHANGELOG.md` content
-5. Orchestrator merges `Worker -> Leader`, asks `Leader` to summarize, then merges `Leader -> project.base_branch`.
-6. Orchestrator keeps the worker pool until shutdown; only `stopAll` on orchestrator exit stops/destroys processes.
+5. Orchestrator auto-commits all changes (`git add -A && git commit`), then merges `Worker -> Leader`, asks `Leader` to summarize, then merges `Leader -> project.base_branch`.
+6. Each agent's git commits are attributed with a unique local identity (e.g., `worker-0-teamName@project-projectName.oat`).
+7. Orchestrator keeps the worker pool until shutdown; only `stopAll` on orchestrator exit stops/destroys processes.
 
 ## Current implementation notes (aligned with code)
 

@@ -5,7 +5,6 @@ import { resolvePathFromTeamRoot, resolveTeamDataPath } from "../utils/team-path
 import {
   RuntimeModeEnum,
   WorkspaceProviderTypeEnum,
-  WorkerLifecycleEnum,
   WorkerSkillSyncEnum,
 } from "../types";
 import type { ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
@@ -17,7 +16,6 @@ function normalizeTeam(team: TeamConfig): TeamConfig {
     worker: {
       ...team.worker,
       extra_skills: team.worker.extra_skills ?? [],
-      lifecycle: team.worker.lifecycle ?? WorkerLifecycleEnum.EphemeralAfterMergeToMain,
       skill_sync: team.worker.skill_sync ?? WorkerSkillSyncEnum.InheritAndInjectOnSpawn,
     },
   };

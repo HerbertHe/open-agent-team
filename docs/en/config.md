@@ -141,5 +141,4 @@ Each team contains:
 | `worker.model` | No | string | inherit from `leader.model` | Model used by Worker (can be an alias) |
 | `worker.prompt` | Yes | string | - | Worker prompt (supports `*.md` file path) |
 | `worker.extra_skills` | No | SkillEntry[] | `[]` | Extra skills appended on top of leader.skills when dynamically spawning workers |
-| `worker.lifecycle` | No | enum | `ephemeral_after_merge_to_main` | Intended cleanup strategy after merging into main (current cleanup logic executes when the leader completes) |
 | `worker.skill_sync` | No | enum | `inherit_and_inject_on_spawn` | Intended skill sync strategy for dynamic spawn (current behavior is "inherit and inject") |

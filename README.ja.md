@@ -78,7 +78,7 @@ oat start team.json "<goal>"
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、マルチプロジェクト管理が利用できます。
+起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、グローバル設定管理（モデルプロバイダー・モデルリスト）、マルチプロジェクト管理が利用できます。
 
 ### 4) よく使うコマンド
 
@@ -100,8 +100,9 @@ oat docs guide --lang ja
 4. `Worker` は：
    - workspace ルートの `CHANGELOG.md` を更新
    - `notify-complete` を呼び、用意した `CHANGELOG.md` を渡す
-5. Orchestrator は `Worker -> Leader` をマージし、`Leader` に要約させた後 `Leader -> project.base_branch` をマージします。
-6. Orchestrator は worker プールを shutdown まで保持します。オーケストレーター終了時の `stopAll` のみがプロセスを停止/破棄します。
+5. Orchestrator は全ての変更を自動コミット（`git add -A && git commit`）し、`Worker -> Leader` をマージ、`Leader` に要約させた後 `Leader -> project.base_branch` をマージします。
+6. 各 agent の git コミットには固有のローカルアイデンティティが付与されます（例：`worker-0-teamName@project-projectName.oat`）。
+7. Orchestrator は worker プールを shutdown まで保持します。オーケストレーター終了時の `stopAll` のみがプロセスを停止/破棄します。
 
 ## 現在の実装要点（コードに合わせて）
 

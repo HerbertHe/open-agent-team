@@ -63,6 +63,7 @@ Orchestrator 在启动时主要做三件事：
 - 为每个 agent/branch 创建一个 git worktree workspace：目录形如 `<workspace.root_dir>/<spec.id>`
 - 使用 `sparse-checkout` 降低大仓库体积（由 `team.leader.repos` 提供允许的路径白名单）
 - 可选执行 `git lfs pull`
+- 若 workspace 目录已存在但 git worktree 引用失效（如前次运行的 cleanup 已删除），会自动检测并重建 worktree
 - 清理时会 `git worktree remove --force` 并删除目录
 
 > 扩展点：`workspace.provider` 目前只落地 `worktree`，`shared_clone/full_clone` 等策略在工厂中仍是占位。
@@ -75,10 +76,21 @@ Orchestrator 在启动时主要做三件事：
 - Skills 安装到 `<workspacePath>/skills/<skill-name>/SKILL.md`
 - 创建 `.pi/skills` → `skills` 符号链接，供 pi-coding-agent 的 `DefaultResourceLoader` 发现和加载
 
-### Git 与文档流水线：MergeManager / ChangelogManager
+### Git 与文档流水线：MergeManager / ChangelogManager / GitIdentity
 
 - `src/git/merge-manager.ts`：执行 `merge --no-ff`，负责 worker->leader 与 leader->main 的合并
 - `src/changelog/changelog-manager.ts`：负责读取 workspace 根目录的 `CHANGELOG.md`
+- `src/git/git-identity.ts`：为每个 agent workspace 设置 `--local` 级别的 git 身份（`user.name` / `user.email`），并在 `notify-complete` 时自动执行 `git add -A && git commit`
+
+#### Git 身份规则
+
+| 角色 | `user.name` 格式 | `user.email` 格式 |
+|------|------------------|-------------------|
+| Admin | `{projectName}-{adminName}` | `admin@project-{projectName}.oat` |
+| Leader | `{teamName}-leader-{leaderName}` | `leader-{teamName}@project-{projectName}.oat` |
+| Worker | `{teamName}-worker-{index}` | `worker-{index}-{teamName}@project-{projectName}.oat` |
+
+身份在 `oat start` 时设置，使用 `git config --local`，仅在该 workspace 目录内生效。多次启动会自动覆盖更新。
 
 ## 3. 运行时流程（从启动到交付）
 
@@ -142,10 +154,12 @@ Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()`
 
 1. `TaskManager.handleWorkerComplete()`：
    - 读取/使用 worker 传入的 `changelog`（若未传则读取 worker workspace 的 `CHANGELOG.md`）
+   - **自动执行 `git add -A && git commit`**，将 worker 的所有变更提交（commit message: `feat({teamName}): worker-{index} task complete`）
    - 执行 git merge：`worker.spec.branch -> leader.spec.branch`
    - 用 leader agent 的 session 发送 prompt，让 leader 根据 worker 的 CHANGELOG 汇总到自己的 CHANGELOG
 
 2. 当 leader 最终调用 `notify-complete`：
+   - **自动执行 `git add -A && git commit`**，将 leader 的所有变更提交（commit message: `feat({teamName}): leader task complete`）
    - `TaskManager.handleLeaderComplete()` 执行 git merge：`leader.spec.branch -> project.base_branch`
    - 读取 leader 的 `CHANGELOG.md`（或使用 notify-complete 传入的 changelog）
    - 用 admin agent 的 session 发送最终总结 prompt，让 admin 在交付总结中包含该团队 CHANGELOG
@@ -239,7 +253,7 @@ OAT 内置了 Web 仪表盘（基于 React + Ant Design + @ant-design/x），由
 - **仪表盘首页**：项目总览、运行中项目列表及删除操作
 - **项目状态**：通过 SSE 实时接收 ObservabilityHub 事件、Agent 拓扑图、进度汇报、向 Admin 下发指令
 - **项目配置**：在线编辑 `team.json`，左侧表单 + 右侧 Shiki 语法高亮 JSON 预览，保存后触发项目自动重启
-- **设置**：全局配置管理
+- **设置**：全局设置管理（通用配置、模型服务商列表、模型列表管理）
 
 仪表盘支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接发现并管理多个运行中的 Orchestrator 实例。
 
@@ -269,6 +283,4 @@ OAT 内置了 Web 仪表盘（基于 React + Ant Design + @ant-design/x），由
 - `runtime.mode`：当前只实现 `local_process` 运行时，`flue` 未落地
 - `workspace.provider`：当前只实现 `worktree`，其他策略尚未实现
 - `team.worker.total`：worker 池大小（team 启动时按该数量预先创建；leader 完成任务后，对应的 leader + worker session/workspace 会自动清理）
-- `team.worker.lifecycle` / `team.worker.skill_sync`：虽然在 schema/loader 中存在默认值，但当前实现暂未按该字段分支；session 隔离通过 `resetSession` 在每次重新派发任务前清空对话历史来保证
-
-如果你希望进一步把 `lifecycle` / `skill_sync` 等策略做成可配置行为，我可以继续基于代码补齐。
+- `team.worker.skill_sync`：虽然在 schema/loader 中存在默认值，但当前实现暂未按该字段分支；session 隔离通过 `resetSession` 在每次重新派发任务前清空对话历史来保证

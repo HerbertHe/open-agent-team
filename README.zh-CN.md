@@ -79,7 +79,7 @@ oat start team.json "<goal>"
 oat start team.json "<goal>" --lang zh-CN
 ```
 
-启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）和多项目管理功能。
+启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）、全局设置管理（模型服务商、模型列表）和多项目管理功能。
 
 ### 4) 常用命令
 
@@ -101,8 +101,9 @@ oat docs guide --lang zh-CN
 4. `Worker` 必须：
    - 更新 workspace 根目录的 `CHANGELOG.md`
    - 调用 `notify-complete` 并传递准备好的 `CHANGELOG.md`
-5. Orchestrator 执行 `Worker -> Leader` 合并，要求 `Leader` 汇总，然后执行 `Leader -> project.base_branch` 合并。
-6. Orchestrator 会保持 worker 池直到 shutdown；只有编排器退出时的 `stopAll` 才会停止/销毁进程。
+5. Orchestrator 自动提交所有变更（`git add -A && git commit`），然后执行 `Worker -> Leader` 合并，要求 `Leader` 汇总，再执行 `Leader -> project.base_branch` 合并。
+6. 每个 agent 的 git 提交会使用独立的本地身份标识（如 `worker-0-teamName@project-projectName.oat`）。
+7. Orchestrator 会保持 worker 池直到 shutdown；只有编排器退出时的 `stopAll` 才会停止/销毁进程。
 
 ## 当前实现要点（与代码对齐）
 

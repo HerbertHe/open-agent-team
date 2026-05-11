@@ -138,5 +138,4 @@ loader の挙動：
 | `worker.model` | いいえ | string | `leader.model` を継承 | Worker が使う model（alias でも可） |
 | `worker.prompt` | はい | string | - | worker の prompt（`*.md` ファイルパスも可） |
 | `worker.extra_skills` | いいえ | SkillEntry[] | `[]` | spawn 時に leader.skills の上に追加される skills |
-| `worker.lifecycle` | いいえ | enum | `ephemeral_after_merge_to_main` | main へマージした後の cleanup 戦略（実装上は leader 完了時に常に cleanup されます） |
 | `worker.skill_sync` | いいえ | enum | `inherit_and_inject_on_spawn` | spawn 時の skill 同期戦略（現状は「継承して注入」で動作。`manual` は未完全実装） |

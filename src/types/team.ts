@@ -1,4 +1,4 @@
-import type { WorkerLifecycleEnum, WorkerSkillSyncEnum } from "./enums";
+import type { WorkerSkillSyncEnum } from "./enums";
 
 /**
  * 单条 skill 安装声明。
@@ -43,8 +43,6 @@ export interface TeamConfigWorker {
   prompt: string;
   /** 额外附加到 Worker 的 skills（在继承 Leader skills 基础上追加） */
   extra_skills?: SkillEntry[];
-  /** Worker 生命周期策略：是否在合并进入 main 后自动回收 */
-  lifecycle?: WorkerLifecycleEnum;
   /** Worker 技能同步策略：是否在动态 spawn 时自动注入 */
   skill_sync?: WorkerSkillSyncEnum;
 }

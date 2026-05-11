@@ -62,6 +62,7 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 - agent/ブランチごとに git の worktree workspace を作成する（`<workspace.root_dir>/<spec.id>` のようなディレクトリ）
 - 大規模リポジトリのフットプリント削減のため `sparse-checkout` を使う（パスは `team.leader.repos` で許可リストとして渡す）
 - 必要に応じて `git lfs pull` を実行する
+- workspace ディレクトリが存在するが git worktree 参照が壊れている場合（前回の cleanup で削除された等）、自動検出して worktree を再作成
 - クリーンアップは `git worktree remove --force` とディレクトリ削除で行う
 
 > 拡張ポイント：`workspace.provider` は現状 `worktree` のみ実装されています。`shared_clone/full_clone` は factory 内でプレースホルダです。
@@ -74,10 +75,21 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 - Skills は `<workspacePath>/skills/<skill-name>/SKILL.md` にインストール
 - pi-coding-agent の `DefaultResourceLoader` が発見できるよう `.pi/skills` → `skills` シンボリックリンクを作成
 
-### Git + ドキュメントの流れ：MergeManager / ChangelogManager
+### Git + ドキュメントの流れ：MergeManager / ChangelogManager / GitIdentity
 
 - `src/git/merge-manager.ts`：`merge --no-ff` を実行し、`worker->leader` と `leader->main` を担当
 - `src/changelog/changelog-manager.ts`：workspace ルートの `CHANGELOG.md` を読み取る
+- `src/git/git-identity.ts`：各 agent workspace に `--local` レベルの git アイデンティティ（`user.name` / `user.email`）を設定し、`notify-complete` 時に `git add -A && git commit` を自動実行
+
+#### Git アイデンティティルール
+
+| 役割 | `user.name` フォーマット | `user.email` フォーマット |
+|------|-------------------|--------------------|
+| Admin | `{projectName}-{adminName}` | `admin@project-{projectName}.oat` |
+| Leader | `{teamName}-leader-{leaderName}` | `leader-{teamName}@project-{projectName}.oat` |
+| Worker | `{teamName}-worker-{index}` | `worker-{index}-{teamName}@project-{projectName}.oat` |
+
+アイデンティティは `oat start` 時に `git config --local` で設定され、workspace ディレクトリ内のみ有効。再起動時に自動上書き。
 
 ## 3. 実行フロー（起動から納品まで）
 
@@ -142,10 +154,12 @@ Orchestrator は `TaskManager.requestWorkers()` 内で `POST /tool/request_worke
 
 1. `TaskManager.handleWorkerComplete()`：
    - 受け取った `changelog` を読み込む/利用（渡されていなければ worker workspace の `CHANGELOG.md` を読む）
+   - **`git add -A && git commit` を自動実行**（commit message: `feat({teamName}): worker-{index} task complete`）
    - git マージを実行：`worker.spec.branch -> leader.spec.branch`
    - leader の session を使って、worker の CHANGELOG を leader 自身の CHANGELOG に集約するよう促す
 
 2. `Leader` が最終的に `notify-complete` を呼ぶと：
+   - **`git add -A && git commit` を自動実行**（commit message: `feat({teamName}): leader task complete`）
    - `TaskManager.handleLeaderComplete()` が git マージを実行：`leader.spec.branch -> project.base_branch`
    - leader の `CHANGELOG.md` を読み取る（または notify-complete で渡された changelog を利用）
    - admin の session で最終サマリーを作成させ、チームの CHANGELOG を含める
@@ -245,6 +259,4 @@ Orchestrator 起動後、`--port <PORT>`（CLI で指定）を listen し、次�
 - `runtime.mode`：現在は `local_process` のみ実装済みで、`flue` は未完
 - `workspace.provider`：現在は `worktree` のみ実装済みで、他戦略は未実装
 - `team.worker.total`：worker プールサイズ。team 起動時に事前作成。leader がタスクを完了すると、対応する leader + worker のセッション/workspace は自動的にクリーンアップされます
-- `team.worker.lifecycle` / `team.worker.skill_sync`：デフォルト値はあるが、現状の実装はこれらの項目には分岐していない；セッション隔離は `resetSession` によって再ディスパッチ前に会話履歴をクリアすることで実現
-
-これらの「設定意図」をコードでもさらに実際に反映させたい場合、`TaskManager` を拡張して `lifecycle` と `skill_sync` の挙動も反映できます。
+- `team.worker.skill_sync`：デフォルト値はあるが、現状の実装はこの項目には分岐していない；セッション隔離は `resetSession` によって再ディスパッチ前に会話履歴をクリアすることで実現

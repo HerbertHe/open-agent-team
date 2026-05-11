@@ -265,11 +265,6 @@
                 },
                 "default": []
               },
-              "lifecycle": {
-                "type": "string",
-                "enum": ["ephemeral_after_merge_to_main", "persistent"],
-                "default": "ephemeral_after_merge_to_main"
-              },
               "skill_sync": {
                 "type": "string",
                 "enum": ["inherit_and_inject_on_spawn", "manual"],
