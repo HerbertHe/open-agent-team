@@ -1,4 +1,14 @@
-# 开放代理团队
+# Open Agent Team
+
+<p align="center">
+  <img src="./logo/logo.svg" width="200" alt="Open Agent Team Logo" />
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/open-agent-team"><img src="https://img.shields.io/npm/v/open-agent-team?style=flat-square" alt="NPM Version" /></a>
+  <a href="https://www.npmjs.com/package/open-agent-team"><img src="https://img.shields.io/npm/dt/open-agent-team?style=flat-square" alt="NPM Downloads" /></a>
+</p>
+
 
 本项目让你以声明式方式构建一个包含三层的 **agent team**：
 
@@ -115,6 +125,16 @@ oat docs guide --lang zh-CN
 ## 致谢
 
 - [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard 的设计系统（主题、布局和毛玻璃效果）移植自 CPAMC 的 UI。
+
+## Star History
+
+<a href="https://star-history.com/#HerbertHe/open-agent-team&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HerbertHe/open-agent-team&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HerbertHe/open-agent-team&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HerbertHe/open-agent-team&type=Date" />
+  </picture>
+</a>
 
 ## LICENSE
 

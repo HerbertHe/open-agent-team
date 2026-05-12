@@ -10,6 +10,9 @@ function Hero() {
     <section className="relative py-24 md:py-32 flex flex-col items-center text-center px-4 overflow-hidden">
       <ParticleCanvas />
       <div className="relative z-10 flex flex-col items-center">
+        <div className="flex justify-center mb-6">
+          <img src="/logo.svg" alt="OAT Logo" className="w-20 h-20 md:w-28 md:h-28" />
+        </div>
         <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight max-w-4xl mb-6">
           {t('hero.title')}
         </h1>

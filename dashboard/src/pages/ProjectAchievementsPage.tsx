@@ -197,7 +197,7 @@ export const ProjectAchievementsPage: React.FC = () => {
   }, [selectedProject, selectedRole, selectedDate, availableDates]);
 
   return (
-    <Layout style={{ minHeight: '100%', background: 'transparent' }}>
+    <>
       <Helmet>
         <title>{`${t('nav.achievements')} - Open Agent Team`}</title>
       </Helmet>
@@ -209,7 +209,6 @@ export const ProjectAchievementsPage: React.FC = () => {
           overflow-x: auto !important;
         }
       `}</style>
-      <Content style={{ padding: '24px' }}>
         <Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24, marginTop: 0 }}>
           {t('nav.achievements', 'Project Achievements')}
         </Title>
@@ -389,7 +388,6 @@ export const ProjectAchievementsPage: React.FC = () => {
             />
           </Spin>
         </Space>
-      </Content>
-    </Layout>
+    </>
   );
 };

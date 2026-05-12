@@ -45,8 +45,9 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/80 backdrop-blur">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex gap-6 items-center">
-          <Link to="/" className="font-bold text-lg tracking-tight">
-            Open Agent Team
+          <Link to="/" className="font-bold text-lg tracking-tight flex items-center gap-2">
+            <img src="/logo.svg" alt="OAT Logo" className="w-6 h-6" />
+            <span>Open Agent Team</span>
           </Link>
           <nav className="hidden md:flex gap-2">
             <Link to="/docs" className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors rounded-md cursor-pointer">

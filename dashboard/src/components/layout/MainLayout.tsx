@@ -33,11 +33,11 @@ const THEME_CARDS: Array<{
   labelKey: string;
   colors: { bg: string; card: string; border: string; text: string; textMuted: string };
 }> = [
-  { key: 'auto', labelKey: 'theme.auto', colors: { bg: 'linear-gradient(135deg, #ffffff 0 50%, #111 50% 100%)', card: 'linear-gradient(135deg, #fff 0 50%, #1a1a1a 50% 100%)', border: '#bdbdbd', text: '#2d2a26', textMuted: 'linear-gradient(135deg, #c9c9c9 0 50%, #5a5a5a 50% 100%)' } },
-  { key: 'white', labelKey: 'theme.white', colors: { bg: '#ffffff', card: '#ffffff', border: '#e5e5e5', text: '#2d2a26', textMuted: '#a29c95' } },
-  { key: 'light', labelKey: 'theme.light', colors: { bg: '#faf9f5', card: '#f0eee8', border: '#e3e1db', text: '#2d2a26', textMuted: '#a29c95' } },
-  { key: 'dark', labelKey: 'theme.dark', colors: { bg: '#151412', card: '#1d1b18', border: '#3a3530', text: '#f6f4f1', textMuted: '#9c958d' } },
-];
+    { key: 'auto', labelKey: 'theme.auto', colors: { bg: 'linear-gradient(135deg, #ffffff 0 50%, #111 50% 100%)', card: 'linear-gradient(135deg, #fff 0 50%, #1a1a1a 50% 100%)', border: '#bdbdbd', text: '#2d2a26', textMuted: 'linear-gradient(135deg, #c9c9c9 0 50%, #5a5a5a 50% 100%)' } },
+    { key: 'white', labelKey: 'theme.white', colors: { bg: '#ffffff', card: '#ffffff', border: '#e5e5e5', text: '#2d2a26', textMuted: '#a29c95' } },
+    { key: 'light', labelKey: 'theme.light', colors: { bg: '#faf9f5', card: '#f0eee8', border: '#e3e1db', text: '#2d2a26', textMuted: '#a29c95' } },
+    { key: 'dark', labelKey: 'theme.dark', colors: { bg: '#151412', card: '#1d1b18', border: '#3a3530', text: '#f6f4f1', textMuted: '#9c958d' } },
+  ];
 
 const LANGUAGES = [
   { code: 'en' as const, labelKey: 'language.en' },
@@ -206,7 +206,7 @@ export function MainLayout() {
 
         <aside className={`${styles['sidebar']} ${sidebarOpen ? styles['open'] : ''} ${sidebarCollapsed ? styles['collapsed'] : ''}`}>
           <div className={styles['sidebar-brand']} title={t('sidebar.brand')}>
-            <div className={styles['sidebar-brand-logo']}>O</div>
+            <img src="/logo.svg" alt="OAT Logo" className={styles['sidebar-brand-logo']} />
             {showLabels && <span className={styles['sidebar-brand-title']}>{t('sidebar.brand')}</span>}
           </div>
 
