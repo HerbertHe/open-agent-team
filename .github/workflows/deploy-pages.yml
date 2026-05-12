@@ -41,3 +41,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./www/dist
           publish_branch: gh-pages
+          cname: oat.ibert.me
