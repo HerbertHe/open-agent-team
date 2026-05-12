@@ -6,12 +6,10 @@ import './i18n/config'
 import './index.css'
 import App from './App.tsx'
 
-const basename = import.meta.env.MODE === 'production' ? '/open-agent-team/' : '/';
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HelmetProvider>
-      <BrowserRouter basename={basename}>
+      <BrowserRouter basename="/">
         <App />
       </BrowserRouter>
     </HelmetProvider>
