@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Select, DatePicker, Typography, Empty, Spin, Tabs, Space, Layout } from 'antd';
+import { Card, Select, DatePicker, Typography, Empty, Spin, Tabs, Space } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
 import ReactMarkdown from 'react-markdown';
@@ -9,7 +9,6 @@ import dayjs from 'dayjs';
 import { useThemeStore } from '../stores';
 
 const { Title, Text } = Typography;
-const { Content } = Layout;
 
 interface Project {
   name: string;
@@ -74,18 +73,18 @@ export const ProjectAchievementsPage: React.FC = () => {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
-  
+
   const [teams, setTeams] = useState<TeamConfig[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>('');
-  
+
   const [selectedRole, setSelectedRole] = useState<string>(''); // e.g., 'admin', 'teamName-lead', 'teamName-worker-0'
-  
+
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   const [changelog, setChangelog] = useState<string>('');
   const [records, setRecords] = useState<{ name: string; content: string }[]>([]);
-  
+
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingRecords, setLoadingRecords] = useState(false);
@@ -136,7 +135,7 @@ export const ProjectAchievementsPage: React.FC = () => {
     if (!selectedTeam) return [];
     const team = teams.find(t => t.name === selectedTeam);
     if (!team) return [];
-    
+
     const options = [
       { label: t('role.admin', 'Admin'), value: 'admin' },
       { label: t('role.leader', 'Leader'), value: `${selectedTeam}-lead` }
@@ -150,9 +149,9 @@ export const ProjectAchievementsPage: React.FC = () => {
   // 3. Fetch changelog and available dates when project/role changes
   useEffect(() => {
     if (!selectedProject || !selectedRole) return;
-    
+
     setLoadingData(true);
-    
+
     Promise.all([
       fetch(`/api/projects/${encodeURIComponent(selectedProject)}/workspaces/${encodeURIComponent(selectedRole)}/changelog`).then(r => r.json()),
       fetch(`/api/projects/${encodeURIComponent(selectedProject)}/workspaces/${encodeURIComponent(selectedRole)}/record-dates`).then(r => r.json())
@@ -160,7 +159,7 @@ export const ProjectAchievementsPage: React.FC = () => {
       setChangelog(changelogData.content || '');
       const dates: string[] = datesData.dates || [];
       setAvailableDates(dates);
-      
+
       // Auto-select date
       if (dates.length > 0) {
         const todayStr = dayjs().format('YYYY-MM-DD');
@@ -179,13 +178,13 @@ export const ProjectAchievementsPage: React.FC = () => {
   // 4. Fetch records when project/role/date changes
   useEffect(() => {
     if (!selectedProject || !selectedRole || !selectedDate) return;
-    
+
     const dateStr = selectedDate.format('YYYY-MM-DD');
     if (availableDates.length > 0 && !availableDates.includes(dateStr)) {
       setRecords([]);
       return; // Do not fetch if the date has no records
     }
-    
+
     setLoadingRecords(true);
     fetch(`/api/projects/${encodeURIComponent(selectedProject)}/workspaces/${encodeURIComponent(selectedRole)}/records?date=${dateStr}`)
       .then(r => r.json())
@@ -209,119 +208,119 @@ export const ProjectAchievementsPage: React.FC = () => {
           overflow-x: auto !important;
         }
       `}</style>
-        <Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24, marginTop: 0 }}>
-          {t('nav.achievements', 'Project Achievements')}
-        </Title>
-        <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-          
-          <Card style={cardStyle}>
-            <Space size="large" wrap>
-              <div>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                  {t('achievements.project', 'Project')}
-                </Text>
-                <Select
-                  style={{ width: 200 }}
-                  value={selectedProject}
-                  onChange={setSelectedProject}
-                  options={projects.map(p => ({ label: p.projectName || p.name, value: p.name }))}
-                />
-              </div>
+      <Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24, marginTop: 0 }}>
+        {t('nav.achievements', 'Project Achievements')}
+      </Title>
+      <Space direction="vertical" size="large" style={{ display: 'flex' }}>
 
-              <div>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                  {t('achievements.team', 'Team')}
-                </Text>
-                <Select
-                  style={{ width: 200 }}
-                  value={selectedTeam}
-                  onChange={(v) => {
-                    setSelectedTeam(v);
-                    setSelectedRole('admin');
-                  }}
-                  disabled={loadingConfig || teams.length === 0}
-                  options={teams.map(t => ({ label: t.name, value: t.name }))}
-                />
-              </div>
+        <Card style={cardStyle}>
+          <Space size="large" wrap>
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                {t('achievements.project', 'Project')}
+              </Text>
+              <Select
+                style={{ width: 200 }}
+                value={selectedProject}
+                onChange={setSelectedProject}
+                options={projects.map(p => ({ label: p.projectName || p.name, value: p.name }))}
+              />
+            </div>
 
-              <div>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                  {t('achievements.role', 'Role')}
-                </Text>
-                <Select
-                  style={{ width: 200 }}
-                  value={selectedRole}
-                  onChange={setSelectedRole}
-                  disabled={loadingConfig || roleOptions.length === 0}
-                  options={roleOptions}
-                />
-              </div>
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                {t('achievements.team', 'Team')}
+              </Text>
+              <Select
+                style={{ width: 200 }}
+                value={selectedTeam}
+                onChange={(v) => {
+                  setSelectedTeam(v);
+                  setSelectedRole('admin');
+                }}
+                disabled={loadingConfig || teams.length === 0}
+                options={teams.map(t => ({ label: t.name, value: t.name }))}
+              />
+            </div>
 
-            </Space>
-          </Card>
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                {t('achievements.role', 'Role')}
+              </Text>
+              <Select
+                style={{ width: 200 }}
+                value={selectedRole}
+                onChange={setSelectedRole}
+                disabled={loadingConfig || roleOptions.length === 0}
+                options={roleOptions}
+              />
+            </div>
 
-          <Spin spinning={loadingData}>
-            <Tabs
-              items={[
-                {
-                  key: 'changelog',
-                  label: t('achievements.changelog', 'CHANGELOG'),
-                  children: (
-                    <Card style={{ ...cardStyle, minHeight: 400, padding: 0 }} bodyStyle={{ padding: 24 }}>
-                      {changelog ? (
-                        <div style={{ color: isDark ? '#f6f4f1' : '#1f2937', fontSize: 14, lineHeight: 1.6 }}>
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              code({ node, inline, className, children, ...props }: any) {
-                                const match = /language-(\w+)/.exec(className || '');
-                                if (!inline && match) {
-                                  return (
-                                    <ShikiRenderer 
-                                      code={String(children).replace(/\n$/, '')} 
-                                      lang={match[1]} 
-                                      isDark={isDark} 
-                                    />
-                                  );
-                                }
+          </Space>
+        </Card>
+
+        <Spin spinning={loadingData}>
+          <Tabs
+            items={[
+              {
+                key: 'changelog',
+                label: t('achievements.changelog', 'CHANGELOG'),
+                children: (
+                  <Card style={{ ...cardStyle, minHeight: 400, padding: 0 }} bodyStyle={{ padding: 24 }}>
+                    {changelog ? (
+                      <div style={{ color: isDark ? '#f6f4f1' : '#1f2937', fontSize: 14, lineHeight: 1.6 }}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ node, inline, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              if (!inline && match) {
                                 return (
-                                  <code className={className} style={{ background: isDark ? '#333' : '#eee', padding: '2px 4px', borderRadius: 4 }} {...props}>
-                                    {children}
-                                  </code>
+                                  <ShikiRenderer
+                                    code={String(children).replace(/\n$/, '')}
+                                    lang={match[1]}
+                                    isDark={isDark}
+                                  />
                                 );
                               }
-                            }}
-                          >
-                            {changelog}
-                          </ReactMarkdown>
-                        </div>
-                      ) : (
-                        <Empty description={t('achievements.no_changelog', 'No CHANGELOG found')} />
-                      )}
-                    </Card>
-                  ),
-                },
-                {
-                  key: 'records',
-                  label: t('achievements.records', 'Records'),
-                  children: (
-                    <Card style={{ ...cardStyle, minHeight: 400, padding: 0 }} bodyStyle={{ padding: 24 }}>
-                      <div style={{ marginBottom: 16 }}>
-                        <Space>
-                          <Text strong>{t('achievements.date', 'Date')}:</Text>
-                          <DatePicker 
-                            value={selectedDate} 
-                            onChange={(date) => date && setSelectedDate(date)} 
-                            allowClear={false}
-                            disabledDate={(current) => {
-                              if (current > dayjs().endOf('day')) return true;
-                              // If there are no available dates, all dates should be disabled.
-                              return !availableDates.includes(current.format('YYYY-MM-DD'));
-                            }}
-                          />
-                        </Space>
+                              return (
+                                <code className={className} style={{ background: isDark ? '#333' : '#eee', padding: '2px 4px', borderRadius: 4 }} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            }
+                          }}
+                        >
+                          {changelog}
+                        </ReactMarkdown>
                       </div>
-                      <Spin spinning={loadingRecords}>
+                    ) : (
+                      <Empty description={t('achievements.no_changelog', 'No CHANGELOG found')} />
+                    )}
+                  </Card>
+                ),
+              },
+              {
+                key: 'records',
+                label: t('achievements.records', 'Records'),
+                children: (
+                  <Card style={{ ...cardStyle, minHeight: 400, padding: 0 }} bodyStyle={{ padding: 24 }}>
+                    <div style={{ marginBottom: 16 }}>
+                      <Space>
+                        <Text strong>{t('achievements.date', 'Date')}:</Text>
+                        <DatePicker
+                          value={selectedDate}
+                          onChange={(date) => date && setSelectedDate(date)}
+                          allowClear={false}
+                          disabledDate={(current) => {
+                            if (current > dayjs().endOf('day')) return true;
+                            // If there are no available dates, all dates should be disabled.
+                            return !availableDates.includes(current.format('YYYY-MM-DD'));
+                          }}
+                        />
+                      </Space>
+                    </div>
+                    <Spin spinning={loadingRecords}>
                       {records.length > 0 ? (
                         <Tabs
                           tabPosition="left"
@@ -334,17 +333,17 @@ export const ProjectAchievementsPage: React.FC = () => {
                                 <Title level={5} style={{ marginTop: 0, marginBottom: 16 }}>{record.name}</Title>
                                 <div style={{ color: isDark ? '#f6f4f1' : '#1f2937', fontSize: 14, lineHeight: 1.6 }}>
                                   {record.name.endsWith('.md') ? (
-                                    <ReactMarkdown 
+                                    <ReactMarkdown
                                       remarkPlugins={[remarkGfm]}
                                       components={{
                                         code({ node, inline, className, children, ...props }: any) {
                                           const match = /language-(\w+)/.exec(className || '');
                                           if (!inline && match) {
                                             return (
-                                              <ShikiRenderer 
-                                                code={String(children).replace(/\n$/, '')} 
-                                                lang={match[1]} 
-                                                isDark={isDark} 
+                                              <ShikiRenderer
+                                                code={String(children).replace(/\n$/, '')}
+                                                lang={match[1]}
+                                                isDark={isDark}
                                               />
                                             );
                                           }
@@ -380,14 +379,14 @@ export const ProjectAchievementsPage: React.FC = () => {
                       ) : (
                         <Empty description={t('achievements.no_records', 'No records found for the selected date')} />
                       )}
-                      </Spin>
-                    </Card>
-                  ),
-                }
-              ]}
-            />
-          </Spin>
-        </Space>
+                    </Spin>
+                  </Card>
+                ),
+              }
+            ]}
+          />
+        </Spin>
+      </Space>
     </>
   );
 };
