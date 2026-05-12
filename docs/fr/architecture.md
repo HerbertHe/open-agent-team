@@ -53,7 +53,7 @@ L'implémentation par défaut est `local_process`, assurée par `PiSessionProvid
 - Utilise `workspacePath` comme répertoire de travail, avec systemPrompt et outils `defineTool` injectés
 - `stop` appelle `session.dispose()` pour libérer la session correspondante
 
-> Point d'extension : `RuntimeModeEnum.flue` existe comme valeur d'enum, mais l'implémentation actuelle se concentre sur `local_process`.
+> Point d'extension : `RuntimeModeEnum` existe comme valeur d'enum, mais l'implémentation actuelle se concentre sur `local_process`.
 
 ### WorkspaceProvider (isolement du workspace et gestion git worktree)
 
@@ -97,17 +97,17 @@ Ci-dessous le « flux principal » :
 
 ```mermaid
 flowchart TD
-  U[Utilisateur] --> CLI[oat start team.json "<goal>" --port PORT]
-  CLI --> O[Orchestrator.start()]
-  O --> A[Démarrer l'agent Admin]
-  O --> L[Démarrer l'agent Leader]
-  L -->|outil request-workers(tasks[])| O
-  O --> W[Créer les Workers dynamiquement]
-  W -->|outil notify-complete(changelog)| O
-  O -->|fusion worker->leader + demander au leader de résumer| L
-  L -->|outil notify-complete(changelog)| O
-  O -->|fusion leader->main + demander à admin de résumer| A
-  O --> C[Nettoyer workspace & processus des leaders/workers]
+  U["Utilisateur"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  CLI --> O["Orchestrator.start()"]
+  O --> A["Démarrer l'agent Admin"]
+  O --> L["Démarrer l'agent Leader"]
+  L -->|"outil register-workers + dispatch-worker-tasks"| O
+  O --> W["Créer dynamiquement les agents Worker"]
+  W -->|"outil notify-complete"| O
+  O -->|"fusionner worker->leader + demander au leader de résumer"| L
+  L -->|"outil notify-complete"| O
+  O -->|"fusionner leader->main + demander à l'admin de livrer"| A
+  A --> C["Nettoyer workspace & processus des leaders/workers"]
 ```
 
 ### 3.1 Phase de démarrage : injection de Admin + Leader
@@ -256,7 +256,7 @@ Le comportement est principalement lié à ces champs de `team.json` :
 
 Pour éviter des promesses qui dépassent l'implémentation, voici les limites actuelles :
 
-- `runtime.mode` : seule `local_process` est pleinement implémentée ; `flue` n'est pas déployé
+- `runtime.mode` : seule `local_process` est pleinement implémentée
 - `workspace.provider` : seule `worktree` est implémentée ; autres stratégies non implémentées
 - `team.worker.total` : taille du pool de workers ; pré-créés au démarrage de l'équipe ; quand un leader termine, les sessions/workspaces du leader + workers sont nettoyés automatiquement
 - `team.worker.skill_sync` : la valeur par défaut existe, mais l'implémentation actuelle ne branche pas encore sur ce champ ; l'isolation de session est assurée par `resetSession` qui efface l'historique avant chaque re-dispatch

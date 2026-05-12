@@ -105,6 +105,15 @@ Au démarrage, OAT crée un lien symbolique sous `~/.oat/projects/` pointant ver
 
 OAT embarque un tableau de bord web, automatiquement disponible après le démarrage de l'Orchestrateur. Ouvrez `http://localhost:<port>` dans votre navigateur.
 
+Vous pouvez également lancer le tableau de bord indépendamment (sans démarrer l'Orchestrateur) :
+
+```bash
+oat dashboard
+oat dashboard --port 9090  # port personnalisé (par défaut : 3737)
+```
+
+Cette commande démarre un serveur statique local et ouvre automatiquement le tableau de bord dans votre navigateur par défaut.
+
 Le tableau de bord comprend :
 
 - **Tableau de bord** : vue d'ensemble du projet, liste des projets en cours (avec suppression)

@@ -83,7 +83,6 @@ const ja = {
   'team_config.section.worker': 'メンバー Agent',
   // オプションラベル
   'team_config.option.local_process': 'ローカルプロセス',
-  'team_config.option.flue': 'Flue',
   'team_config.option.worktree': 'ワークツリー',
   'team_config.option.shared_clone': '共有クローン',
   'team_config.option.full_clone': 'フルクローン',
@@ -103,7 +102,6 @@ const ja = {
   'team_config.field.state_dir': '状態ディレクトリ',
   'team_config.field.provider': 'ワークスペースプロバイダー',
   'team_config.field.root_dir': 'ルートディレクトリ',
-  'team_config.field.persistent': '永続化',
   'team_config.field.remote': 'Git リモート',
   'team_config.field.lfs': 'LFS 戦略',
   'team_config.field.sparse_checkout': 'Sparse Checkout',

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Select, DatePicker, Typography, Empty, Spin, Tabs, Space, Layout } from 'antd';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { codeToHtml } from 'shiki';
@@ -197,6 +198,9 @@ export const ProjectAchievementsPage: React.FC = () => {
 
   return (
     <Layout style={{ minHeight: '100%', background: 'transparent' }}>
+      <Helmet>
+        <title>{`${t('nav.achievements')} - Open Agent Team`}</title>
+      </Helmet>
       <style>{`
         .shiki-container pre {
           padding: 16px !important;

@@ -83,7 +83,6 @@ const fr = {
   'team_config.section.worker': 'Agent Membre',
   // Labels d'options
   'team_config.option.local_process': 'Processus local',
-  'team_config.option.flue': 'Flue',
   'team_config.option.worktree': 'Arbre de travail',
   'team_config.option.shared_clone': 'Clone partagé',
   'team_config.option.full_clone': 'Clone complet',
@@ -103,7 +102,6 @@ const fr = {
   'team_config.field.state_dir': 'Répertoire d\'état',
   'team_config.field.provider': 'Fournisseur d\'espace de travail',
   'team_config.field.root_dir': 'Répertoire racine',
-  'team_config.field.persistent': 'Persistant',
   'team_config.field.remote': 'Remote Git',
   'team_config.field.lfs': 'Stratégie LFS',
   'team_config.field.sparse_checkout': 'Sparse Checkout',

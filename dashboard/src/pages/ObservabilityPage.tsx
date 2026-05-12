@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
   Typography,
   Tag,
@@ -155,6 +156,9 @@ export function ObservabilityPage() {
 
   return (
     <>
+      <Helmet>
+        <title>{`${t('nav.observability')} - Open Agent Team`}</title>
+      </Helmet>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         {/* 标题 + 项目选择器 (左侧) */}
         <Space>

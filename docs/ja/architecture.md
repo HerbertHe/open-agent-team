@@ -53,7 +53,7 @@ Orchestrator は `src/orchestrator/orchestrator.ts` にあり、主に以下を�
 - `workspacePath` を cwd とし、systemPrompt と `defineTool` カスタムツールを注入する
 - `stop` は `session.dispose()` を呼び出してセッションを解放する
 
-> 拡張ポイント：`RuntimeModeEnum.flue` は enum として存在しますが、現状は `local_process` に注力しています。
+> 拡張ポイント：`RuntimeModeEnum` は enum として存在しますが、現状は `local_process` に注力しています。
 
 ### WorkspaceProvider（workspace 隔離と git worktree 管理）
 
@@ -97,17 +97,17 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 
 ```mermaid
 flowchart TD
-  U[ユーザー] --> CLI[oat start team.json "<goal>" --port PORT]
-  CLI --> O[Orchestrator.start()]
-  O --> A[Admin agent を起動]
-  O --> L[Leader agent を起動]
-  L -->|ツール request-workers(tasks[])| O
-  O --> W[Worker を動的に生成]
-  W -->|ツール notify-complete(changelog)| O
-  O -->|worker->leader マージ + leader に要約を促す| L
-  L -->|ツール notify-complete(changelog)| O
-  O -->|leader->main マージ + admin に要約を促す| A
-  O --> C[leader/workers の workspace とプロセスをクリーンアップ]
+  U["ユーザー"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  CLI --> O["Orchestrator.start()"]
+  O --> A["Admin agent を起動"]
+  O --> L["Leader agent を起動"]
+  L -->|"tool register-workers + dispatch-worker-tasks"| O
+  O --> W["Worker agent を動的に作成"]
+  W -->|"tool notify-complete"| O
+  O -->|"worker->leader をマージ + leader に要約を要求"| L
+  L -->|"tool notify-complete"| O
+  O -->|"leader->main をマージ + admin に最終納品を要求"| A
+  O --> C["leader/workers の workspace とプロセスをクリーンアップ"]
 ```
 
 ### 3.1 起動フェーズ：Admin + Leader の注入
@@ -256,7 +256,7 @@ Orchestrator 起動後、`--port <PORT>`（CLI で指定）を listen し、次�
 
 実装を超える約束を避けるため、現時点の境界は次の通りです：
 
-- `runtime.mode`：現在は `local_process` のみ実装済みで、`flue` は未完
+- `runtime.mode`：現在は `local_process` のみ実装済み
 - `workspace.provider`：現在は `worktree` のみ実装済みで、他戦略は未実装
 - `team.worker.total`：worker プールサイズ。team 起動時に事前作成。leader がタスクを完了すると、対応する leader + worker のセッション/workspace は自動的にクリーンアップされます
 - `team.worker.skill_sync`：デフォルト値はあるが、現状の実装はこの項目には分岐していない；セッション隔離は `resetSession` によって再ディスパッチ前に会話履歴をクリアすることで実現

@@ -105,6 +105,15 @@ oat start team.json "<goal>" --lang zh-CN
 
 OAT 内置了一个 Web 仪表盘，启动 Orchestrator 后自动可用。在浏览器中访问 `http://localhost:<port>` 即可打开。
 
+你也可以单独启动仪表盘（无需启动 Orchestrator）：
+
+```bash
+oat dashboard
+oat dashboard --port 9090  # 自定义端口（默认 3737）
+```
+
+该命令会启动一个本地静态服务，并自动在默认浏览器中打开仪表盘。
+
 仪表盘包含以下页面：
 
 - **仪表盘**：项目信息总览、运行中项目列表（可删除项目）

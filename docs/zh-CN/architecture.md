@@ -54,7 +54,7 @@ Orchestrator 在启动时主要做三件事：
 - 以 `workspacePath` 作为 cwd，并注入 systemPrompt 和自定义 defineTool 工具
 - `stop` 调用 `session.dispose()` 释放对应会话
 
-> 扩展点：`RuntimeModeEnum.flue` 在代码中仅作为枚举位存在，但当前实现集中在 `local_process`。
+> 扩展点：`RuntimeModeEnum` 在代码中仅作为枚举存在，但当前实现集中在 `local_process`。
 
 ### WorkspaceProvider（工作空间隔离与 git worktree 管理）
 
@@ -98,17 +98,17 @@ Orchestrator 在启动时主要做三件事：
 
 ```mermaid
 flowchart TD
-  U[用户] --> CLI[oat start team.json "<goal>" --port PORT]
-  CLI --> O[Orchestrator.start()]
-  O --> A[启动 Admin agent]
-  O --> L[为每个 Team 启动 Leader agent]
-  L -->|工具 request-workers(tasks[])| O
-  O --> W[动态创建 Worker agents]
-  W -->|工具 notify-complete(changelog)| O
-  O -->|merge worker->leader + 提示 leader 汇总| L
-  L -->|工具 notify-complete(changelog)| O
-  O -->|merge leader->main + 提示 admin 汇总| A
-  O --> C[清理 leader 与 worker workspace/进程]
+  U["用户"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  CLI --> O["Orchestrator.start()"]
+  O --> A["启动 Admin agent"]
+  O --> L["为每个 Team 启动 Leader agent"]
+  L -->|"tool register-workers + dispatch-worker-tasks"| O
+  O --> W["动态创建 Worker agent"]
+  W -->|"tool notify-complete"| O
+  O -->|"merge worker->leader + 触发 leader 总结"| L
+  L -->|"tool notify-complete"| O
+  O -->|"merge leader->main + 触发 admin 最终交付"| A
+  A --> C["清理 leader 与 worker workspace/进程"]
 ```
 
 ### 3.1 启动阶段：Admin 与 Leader 注入
@@ -280,7 +280,7 @@ OAT 内置了 Web 仪表盘（基于 React + Ant Design + @ant-design/x），由
 
 为了避免“文档承诺超过实现”，这里列出当前明显的边界：
 
-- `runtime.mode`：当前只实现 `local_process` 运行时，`flue` 未落地
+- `runtime.mode`：当前只实现 `local_process` 运行时
 - `workspace.provider`：当前只实现 `worktree`，其他策略尚未实现
 - `team.worker.total`：worker 池大小（team 启动时按该数量预先创建；leader 完成任务后，对应的 leader + worker session/workspace 会自动清理）
 - `team.worker.skill_sync`：虽然在 schema/loader 中存在默认值，但当前实现暂未按该字段分支；session 隔离通过 `resetSession` 在每次重新派发任务前清空对话历史来保证

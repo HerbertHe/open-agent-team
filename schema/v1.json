@@ -88,7 +88,7 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["local_process", "flue"],
+          "enum": ["local_process"],
           "default": "local_process"
         },
         "persistence": {
@@ -117,10 +117,6 @@
           "type": "string",
           "minLength": 1,
           "default": "workspaces"
-        },
-        "persistent": {
-          "type": "boolean",
-          "default": true
         },
         "git": {
           "type": "object",

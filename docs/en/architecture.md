@@ -57,7 +57,7 @@ The runtime implementation is `PiSessionProvider`, implemented in `src/sandbox/l
 - Agent system prompt is set via `DefaultResourceLoader.systemPromptOverride`
 - `stop` calls `session.dispose()` to clean up the in-process session
 
-> Extension point: `RuntimeModeEnum.flue` exists as an enum value in code, but the current implementation focuses on `local_process` (pi in-process).
+> Extension point: `RuntimeModeEnum` exists as an enum value in code, but the current implementation focuses on `local_process` (pi in-process).
 
 ### WorkspaceProvider (workspace isolation and git worktree management)
 
@@ -101,16 +101,16 @@ Below is the end-to-end "main flow":
 
 ```mermaid
 flowchart TD
-  U[User] --> CLI[oat start team.json "<goal>" --port PORT]
-  CLI --> O[Orchestrator.start()]
-  O --> A[Start Admin pi AgentSession]
-  O --> L[Start Leader pi AgentSession(s)]
-  L -->|tool register-workers + dispatch-worker-tasks| O
-  O --> W[Create Worker pi AgentSessions dynamically]
-  W -->|tool notify-complete| O
-  O -->|merge worker->leader + prompt leader to summarize| L
-  L -->|tool notify-complete| O
-  O -->|merge leader->main + prompt admin to summarize| A
+  U["User"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  CLI --> O["Orchestrator.start()"]
+  O --> A["Start Admin pi AgentSession"]
+  O --> L["Start Leader pi AgentSession(s)"]
+  L -->|"tool register-workers + dispatch-worker-tasks"| O
+  O --> W["Create Worker pi AgentSessions dynamically"]
+  W -->|"tool notify-complete"| O
+  O -->|"merge worker->leader + prompt leader to summarize"| L
+  L -->|"tool notify-complete"| O
+  O -->|"merge leader->main + prompt admin to summarize"| A
 ```
 
 ### 3.1 Startup phase: Admin + Leader injection
@@ -258,7 +258,7 @@ The runtime behavior is primarily bound to these `team.json` fields:
 
 To avoid "documentation promises beyond implementation", here are the current boundaries:
 
-- `runtime.mode`: currently only implements `local_process` (pi in-process SDK); `flue` is not fully implemented
+- `runtime.mode`: currently only implements `local_process` (pi in-process SDK)
 - `workspace.provider`: currently only implements `worktree`; other strategies are not implemented yet
 - `team.worker.total`: worker pool size; workers are pre-created at team startup; when a leader completes, its leader + worker sessions/workspaces are automatically cleaned up
 - `team.worker.skill_sync`: although schema/loader defines a default value, the current implementation does not branch on this field yet; session isolation is achieved via `resetSession` which clears conversation history before each re-dispatch

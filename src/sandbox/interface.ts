@@ -19,5 +19,4 @@ export interface WorkspaceResult {
 
 export interface WorkspaceProvider {
   ensureWorkspace(spec: AgentInstanceSpec, sparsePaths: string[]): Promise<WorkspaceResult>;
-  removeWorkspace(spec: AgentInstanceSpec): Promise<void>;
 }

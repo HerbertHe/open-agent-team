@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Card, Tag, Button, Space, Typography, Descriptions, Table, Popconfirm, App } from 'antd';
 import { useObservability } from '../hooks/useObservability';
 
@@ -127,6 +128,9 @@ export function DashboardPage() {
 
   return (
     <div>
+      <Helmet>
+        <title>{`${t('nav.dashboard')} - Open Agent Team`}</title>
+      </Helmet>
       <Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24 }}>
         {t('dashboard.title')}
       </Title>

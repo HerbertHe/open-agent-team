@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Card, InputNumber, Button, App, Descriptions, Spin, Typography, Table, Space, Popconfirm, Empty, Tag } from 'antd';
 import { SaveOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 
@@ -194,6 +195,9 @@ export function SettingsPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <Helmet>
+        <title>{`${t('nav.settings')} - Open Agent Team`}</title>
+      </Helmet>
       <Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24 }}>
         {t('settings.title')}
       </Title>

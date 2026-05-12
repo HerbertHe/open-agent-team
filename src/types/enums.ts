@@ -32,8 +32,6 @@ export enum WorkspaceProviderTypeEnum {
 export enum RuntimeModeEnum {
   /** local_process：在本机以进程内 pi AgentSession SDK 运行（单机方案） */
   LocalProcess = "local_process",
-  /** flue：把 agent 执行放入 Flue 的沙箱运行时（CI/云端方案） */
-  Flue = "flue",
 }
 
 

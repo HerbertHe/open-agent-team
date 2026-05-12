@@ -87,7 +87,6 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
     root_dir: path.join(baseDir, "workspaces"),
-    persistent: true,
     git: { remote: "origin", lfs: "pull" as const },
     sparse_checkout: { enabled: true },
   };
@@ -123,7 +122,6 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
         configPathAbs,
         workspace.root_dir ?? path.join(baseDir, "workspaces")
       ),
-      persistent: workspace.persistent,
       git: workspace.git,
       sparse_checkout: workspace.sparse_checkout,
     },

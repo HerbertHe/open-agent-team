@@ -25,7 +25,6 @@
   "workspace": {
     "provider": "worktree",
     "root_dir": "workspaces",
-    "persistent": true,
     "git": {
       "remote": "origin",
       "lfs": "pull"

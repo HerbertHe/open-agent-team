@@ -27,6 +27,8 @@ type MessageKey =
   | "leader_not_found_for_team"
   | "leader_team_missing"
   | "admin_not_found"
+  | "admin_git_push_success"
+  | "admin_git_push_failed"
   | "admin_model_missing"
   | "leader_model_missing"
   | "log_startup_context"
@@ -42,7 +44,6 @@ type MessageKey =
   | "team_json_not_found_oat_env"
   | "team_json_not_found"
   | "provider_docker_disabled"
-  | "provider_flue_placeholder"
   | "workspace_provider_unimplemented"
   | "worker_registered"
   | "worker_task_dispatched"
@@ -75,6 +76,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     leader_not_found_for_team: "Leader not found for team: {teamName}",
     leader_team_missing: "Leader team missing.",
     admin_not_found: "Admin not found.",
+    admin_git_push_success: "Admin pushed successfully to remote {remote} (branch: {branch}).",
+    admin_git_push_failed: "Admin push to remote failed: {error}",
     admin_model_missing: "Resolved config missing admin.model",
     leader_model_missing: "Resolved config missing teams[{teamName}].leader.model",
     log_startup_context: "Startup context",
@@ -91,7 +94,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     team_json_not_found_oat_env: "team.json not found (OAT_TEAM_JSON): {path}",
     team_json_not_found: "team.json not found: {path} (cd to project dir or set OAT_TEAM_JSON)",
     provider_docker_disabled: "DockerProvider is not enabled. Use local_process runtime.",
-    provider_flue_placeholder: "FlueProvider is optional and not implemented in this repository.",
     workspace_provider_unimplemented: 'Workspace provider "{provider}" is not implemented yet',
     worker_registered: "Worker registered and runtime ready.",
     worker_task_dispatched: "Dispatched task to worker.",
@@ -122,6 +124,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     leader_not_found_for_team: "未找到 Team 对应的 Leader：{teamName}",
     leader_team_missing: "缺少 Leader 所属 Team。",
     admin_not_found: "未找到 Admin。",
+    admin_git_push_success: "Admin 完成后成功推送到远端 {remote} (分支: {branch})。",
+    admin_git_push_failed: "Admin 推送到远端失败: {error}",
     admin_model_missing: "解析后的配置缺少 admin.model",
     leader_model_missing: "解析后的配置缺少 teams[{teamName}].leader.model",
     log_startup_context: "启动上下文",
@@ -138,7 +142,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     team_json_not_found_oat_env: "未找到 team.json（OAT_TEAM_JSON）：{path}",
     team_json_not_found: "未找到 team.json：{path}（请切换到项目目录或设置 OAT_TEAM_JSON）",
     provider_docker_disabled: "DockerProvider 未启用，请使用 local_process 运行时。",
-    provider_flue_placeholder: "FlueProvider 为可选项，当前仓库仅提供接口占位。",
     workspace_provider_unimplemented: "Workspace 策略「{provider}」尚未实现",
     worker_registered: "Worker 已注册，运行时就绪。",
     worker_task_dispatched: "已向 Worker 下发任务。",
@@ -170,6 +173,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     leader_not_found_for_team: "Leader introuvable pour la team : {teamName}",
     leader_team_missing: "Team du leader manquante.",
     admin_not_found: "Admin introuvable.",
+    admin_git_push_success: "Le Admin a été poussé avec succès vers le remote {remote} (branche: {branch}).",
+    admin_git_push_failed: "Échec de la poussée du Admin vers le remote : {error}",
     admin_model_missing: "Configuration résolue manquante : admin.model",
     leader_model_missing: "Configuration résolue manquante : teams[{teamName}].leader.model",
     log_startup_context: "Contexte de démarrage",
@@ -186,7 +191,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     team_json_not_found_oat_env: "team.json introuvable (OAT_TEAM_JSON) : {path}",
     team_json_not_found: "team.json introuvable : {path} (placez-vous dans le projet ou définissez OAT_TEAM_JSON)",
     provider_docker_disabled: "DockerProvider n'est pas activé. Utilisez le runtime local_process.",
-    provider_flue_placeholder: "FlueProvider est optionnel et non implémenté dans ce dépôt.",
     workspace_provider_unimplemented: 'Le fournisseur de workspace « {provider} » n\'est pas encore implémenté',
     worker_registered: "Worker enregistré, runtime prêt.",
     worker_task_dispatched: "Tâche envoyée au worker.",
@@ -218,6 +222,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     leader_not_found_for_team: "Team に対応する Leader が見つかりません: {teamName}",
     leader_team_missing: "Leader の Team がありません。",
     admin_not_found: "Admin が見つかりません。",
+    admin_git_push_success: "Admin のリモート {remote} への push が成功しました (ブランチ: {branch})。",
+    admin_git_push_failed: "Admin のリモートへの push が失敗しました: {error}",
     admin_model_missing: "解決済み設定に admin.model がありません",
     leader_model_missing: "解決済み設定に teams[{teamName}].leader.model がありません",
     log_startup_context: "起動コンテキスト",
@@ -234,7 +240,6 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     team_json_not_found_oat_env: "team.json が見つかりません（OAT_TEAM_JSON）: {path}",
     team_json_not_found: "team.json が見つかりません: {path}（プロジェクトディレクトリに移動するか OAT_TEAM_JSON を設定してください）",
     provider_docker_disabled: "DockerProvider は無効です。local_process ランタイムを使用してください。",
-    provider_flue_placeholder: "FlueProvider は任意で、本リポジトリでは未実装のプレースホルダです。",
     workspace_provider_unimplemented: "Workspace プロバイダー「{provider}」は未実装です",
     worker_registered: "Worker を登録し、ランタイム準備完了。",
     worker_task_dispatched: "Worker にタスクを送信しました。",

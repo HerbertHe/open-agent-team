@@ -62,8 +62,6 @@ export interface TeamFileConfig {
     provider?: WorkspaceProviderTypeEnum;
     /** workspace 根目录 */
     root_dir?: string;
-    /** workspace 是否持久化（不销毁） */
-    persistent?: boolean;
     git?: {
       /** git remote 名称 */
       remote?: string;
@@ -106,8 +104,6 @@ export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "worksp
     provider: WorkspaceProviderTypeEnum;
     /** workspaces 根目录 */
     root_dir: string;
-    /** workspace 持久化开关 */
-    persistent: boolean;
     git: {
       /** remote 名称 */
       remote: string;

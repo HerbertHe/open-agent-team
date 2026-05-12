@@ -1,5 +1,6 @@
 import path from "node:path";
-import { AgentRoleEnum } from "../types";
+import { simpleGit } from "simple-git";
+import { AgentRoleEnum, WorkerSkillSyncEnum } from "../types";
 import type { ResolvedConfig, AgentInstanceSpec, TeamConfig, SkillEntry } from "../types";
 import type { WorkspaceProvider } from "../sandbox/interface";
 import type { PiSessionProvider } from "../sandbox/local-process";
@@ -259,7 +260,10 @@ export class TaskManager {
 
     const workerSkills: SkillEntry[] = [...leaderSkills, ...(team.worker.extra_skills ?? [])];
     spec.skills = workerSkills;
-    await this.skillResolver.installSkillsToWorkspace(workerSkills, spec.workspacePath);
+    
+    if (team.worker.skill_sync !== WorkerSkillSyncEnum.Manual) {
+      await this.skillResolver.installSkillsToWorkspace(workerSkills, spec.workspacePath);
+    }
 
     const workerScopeCtx: OatWorkspaceScopeContext = {
       workspaceRoot: this.config.workspace.root_dir,
@@ -725,6 +729,45 @@ export class TaskManager {
         throw e;
       }
     }
+    
+    if (agentRole === AgentRoleEnum.Admin) {
+      const remote = this.config.workspace.git.remote;
+      if (remote) {
+        try {
+          this.observabilityHub.emit({
+            source: "orchestrator",
+            type: "git.push.start",
+            agentId,
+            role: agentRole,
+            payload: { remote, branch: this.config.project.base_branch },
+          });
+          
+          const repoRoot = path.resolve(this.config.project.repo);
+          const git = simpleGit(repoRoot);
+          await git.push(remote, this.config.project.base_branch, { '--force': null });
+          
+          this.observabilityHub.emit({
+            source: "orchestrator",
+            type: "git.push.done",
+            agentId,
+            role: agentRole,
+            payload: { remote, branch: this.config.project.base_branch },
+          });
+          logger.success(t("admin_git_push_success", { remote, branch: this.config.project.base_branch }));
+        } catch (e) {
+          this.observabilityHub.emit({
+            source: "orchestrator",
+            type: "git.push.error",
+            agentId,
+            role: agentRole,
+            payload: { error: e instanceof Error ? e.message : String(e) },
+          });
+          logger.warn(t("admin_git_push_failed", { error: e instanceof Error ? e.message : String(e) }));
+        }
+      }
+      return { ok: true };
+    }
+
     return { ok: true };
   }
 
@@ -1009,9 +1052,6 @@ export class TaskManager {
       try {
         await this.runtimeProvider.stop(w.spec.id);
       } catch {}
-      try {
-        await this.workspaceProvider.removeWorkspace(w.spec);
-      } catch {}
       // 清理 worker 相关的所有状态 Map，防止内存泄漏与下次使用时状态污染
       this.agents.delete(w.spec.id);
       this.crashedAgents.delete(w.spec.id);
@@ -1029,9 +1069,6 @@ export class TaskManager {
     });
     try {
       await this.runtimeProvider.stop(leader.spec.id);
-    } catch {}
-    try {
-      await this.workspaceProvider.removeWorkspace(leader.spec);
     } catch {}
     // 清理 leader 相关的所有状态 Map
     this.agents.delete(leader.spec.id);

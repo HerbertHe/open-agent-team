@@ -105,6 +105,15 @@ On startup, OAT creates a symlink under `~/.oat/projects/` pointing to the proje
 
 OAT ships with a built-in web dashboard, automatically available after starting the Orchestrator. Open `http://localhost:<port>` in your browser.
 
+You can also launch the dashboard independently (without starting the Orchestrator) using:
+
+```bash
+oat dashboard
+oat dashboard --port 9090  # custom port (default: 3737)
+```
+
+This starts a local static server and automatically opens the dashboard in your default browser.
+
 The dashboard includes:
 
 - **Dashboard**: project information overview, running project list (with delete action)

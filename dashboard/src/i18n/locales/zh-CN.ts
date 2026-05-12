@@ -83,7 +83,6 @@ const zhCN = {
   'team_config.section.worker': '成员 Agent',
   // 选项标签
   'team_config.option.local_process': '本地进程',
-  'team_config.option.flue': 'Flue',
   'team_config.option.worktree': '工作树 (Worktree)',
   'team_config.option.shared_clone': '共享克隆',
   'team_config.option.full_clone': '完整克隆',
@@ -103,7 +102,6 @@ const zhCN = {
   'team_config.field.state_dir': '状态目录',
   'team_config.field.provider': '工作区提供者',
   'team_config.field.root_dir': '根目录',
-  'team_config.field.persistent': '持久化',
   'team_config.field.remote': 'Git 远端',
   'team_config.field.lfs': 'LFS 策略',
   'team_config.field.sparse_checkout': 'Sparse Checkout',

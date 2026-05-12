@@ -62,7 +62,6 @@ export const TeamFileSchema = z.object({
     .object({
       provider: z.nativeEnum(WorkspaceProviderTypeEnum).default(WorkspaceProviderTypeEnum.Worktree),
       root_dir: z.string().min(1).optional(),
-      persistent: z.boolean().default(true),
       git: z
         .object({
           remote: z.string().min(1).default("origin"),

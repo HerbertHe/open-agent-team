@@ -59,7 +59,7 @@ Comportement du loader :
 
 | Champ | Requis | Type | Valeur par défaut | Signification |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | Non | enum (`local_process` \| `flue`) | `local_process` | Mode runtime (implémente actuellement seulement `local_process`) |
+| `runtime.mode` | Non | enum (`local_process`) | `local_process` | Mode runtime (implémente actuellement seulement `local_process`) |
 | `runtime.persistence.state_dir` | Non | string | `"<répertoire de team.json>/.oat/state"` | Répertoire d'état Orchestrator (utilisé par `status/stop` via `orchestrator.json`) |
 
 Expansion de `~` :
@@ -92,7 +92,6 @@ Notes :
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | Non | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | Stratégie workspace (seul `worktree` est implémenté aujourd'hui) |
 | `workspace.root_dir` | Non | string | `"<répertoire de team.json>/workspaces"` | Répertoire racine où les workspaces sont créés |
-| `workspace.persistent` | Non | boolean | `true` | Non implémenté comme comportement différencié (placeholder) |
 | `workspace.git.remote` | Non | string | `"origin"` | Placeholder : le code actuel ne réutilise pas directement remote pour créer les worktrees |
 | `workspace.git.lfs` | Non | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | Pour le provider `worktree`, lance `git lfs pull` uniquement quand `pull` est choisi |
 | `workspace.sparse_checkout.enabled` | Non | boolean | `true` | Activer sparse-checkout (nécessite `teams[].leader.repos` pour fixer les chemins) |

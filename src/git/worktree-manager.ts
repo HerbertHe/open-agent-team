@@ -89,20 +89,37 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
       await workspaceGit.raw(["sparse-checkout", "set", ...sparsePaths]);
     }
 
-    if (this.config.workspace.git.lfs === "pull") {
+    const lfsMode = this.config.workspace.git.lfs;
+    
+    if (lfsMode === "pull" || lfsMode === "allow_pull_deny_change") {
       await simpleGit(workspacePath).raw(["lfs", "pull"]).catch(() => {
         logger.warn(t("git_lfs_pull_failed"), { agentId: spec.id });
       });
+      
+      if (lfsMode === "allow_pull_deny_change") {
+        // Setup local hooks path for this worktree to prevent LFS modifications
+        const hooksDir = path.join(workspacePath, ".githooks");
+        await fs.mkdir(hooksDir, { recursive: true });
+        
+        const preCommitHook = `#!/bin/sh
+# Prevent modifying LFS tracked files
+git diff --cached --name-only | while read file; do
+  if git check-attr filter -- "$file" | grep -q "lfs"; then
+    echo "Error: modifying LFS tracked file ($file) is denied in this workspace."
+    exit 1
+  fi
+done
+`;
+        const hookPath = path.join(hooksDir, "pre-commit");
+        await fs.writeFile(hookPath, preCommitHook, { mode: 0o755 });
+        
+        const workspaceGit = simpleGit(workspacePath);
+        await workspaceGit.raw(["config", "core.hooksPath", ".githooks"]);
+      }
+    } else if (lfsMode === "skip") {
+      // Explicitly skip lfs pull
     }
 
     return { path: workspacePath, branch: spec.branch };
-  }
-
-  async removeWorkspace(spec: AgentInstanceSpec): Promise<void> {
-    const workspacePath = path.join(this.config.workspace.root_dir, spec.id);
-    const repoRoot = path.resolve(this.config.project.repo);
-    const git = simpleGit(repoRoot);
-    await git.raw(["worktree", "remove", "--force", workspacePath]).catch(() => undefined);
-    await fs.rm(workspacePath, { force: true, recursive: true }).catch(() => undefined);
   }
 }

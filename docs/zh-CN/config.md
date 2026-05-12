@@ -59,7 +59,7 @@ loader 行为：
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | 否 | enum (`local_process` \| `flue`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
+| `runtime.mode` | 否 | enum (`local_process`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
 | `runtime.persistence.state_dir` | 否 | string | `"<team.json目录>/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 
 home 展开：
@@ -92,7 +92,6 @@ home 展开：
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | 否 | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | workspace 策略（当前仅实现 `worktree`） |
 | `workspace.root_dir` | 否 | string | `"<team.json目录>/workspaces"` | workspace 根目录（每个 agent workspace 会落在该目录下） |
-| `workspace.persistent` | 否 | boolean | `true` | 目前在工作空间创建/清理逻辑中未被实现为差异化行为（预留配置位） |
 | `workspace.git.remote` | 否 | string | `"origin"` | 预留：当前代码仅创建 worktree、未直接使用 remote 名称 |
 | `workspace.git.lfs` | 否 | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | 当前 `worktree` provider 仅在值为 `pull` 时执行 `git lfs pull` |
 | `workspace.sparse_checkout.enabled` | 否 | boolean | `true` | 是否启用 sparse-checkout（需要 leader 提供 `teams[].leader.repos` 才会设置 paths） |

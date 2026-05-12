@@ -322,6 +322,75 @@ program
     }
   });
 
+program
+  .command("dashboard")
+  .description("Open the OAT dashboard in the default browser")
+  .option("--port <number>", "serve on a specific port (default: 3737)", "3737")
+  .action(async (options: { port: string }) => {
+    const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const dashboardDist = path.join(packageRoot, "dashboard", "dist");
+    const dashboardIndex = path.join(dashboardDist, "index.html");
+
+    if (!(await fileExists(dashboardIndex))) {
+      logger.error("Dashboard build not found. Run `pnpm build:dashboard` first.", { path: dashboardDist });
+      process.exit(1);
+    }
+
+    const port = Number(options.port) || 3737;
+    const { createServer } = await import("node:http");
+    const mimeTypes: Record<string, string> = {
+      ".html": "text/html",
+      ".js": "application/javascript",
+      ".css": "text/css",
+      ".json": "application/json",
+      ".png": "image/png",
+      ".svg": "image/svg+xml",
+      ".ico": "image/x-icon",
+      ".woff": "font/woff",
+      ".woff2": "font/woff2",
+    };
+
+    const server = createServer(async (req, res) => {
+      let urlPath = req.url?.split("?")[0] ?? "/";
+      if (urlPath === "/") urlPath = "/index.html";
+
+      const filePath = path.join(dashboardDist, urlPath);
+      // Prevent directory traversal
+      if (!filePath.startsWith(dashboardDist)) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
+      }
+
+      try {
+        const data = await fs.readFile(filePath);
+        const ext = path.extname(filePath);
+        res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+        res.end(data);
+      } catch {
+        // SPA fallback: serve index.html for client-side routing
+        try {
+          const html = await fs.readFile(dashboardIndex);
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(html);
+        } catch {
+          res.writeHead(404);
+          res.end("Not Found");
+        }
+      }
+    });
+
+    server.listen(port, () => {
+      const url = `http://localhost:${port}`;
+      logger.success(`Dashboard serving at ${url}`);
+
+      // Open in default browser
+      const { exec } = require("node:child_process");
+      const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      exec(`${cmd} ${url}`);
+    });
+  });
+
 program.parseAsync();
 
 function toLang(v: any): Lang | null {

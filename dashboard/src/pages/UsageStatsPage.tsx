@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, Select, Segmented, Statistic, Row, Col, Spin, Empty, Typography } from 'antd';
 import { Column, Pie } from '@ant-design/charts';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { useThemeStore } from '../stores';
 
 interface TimelineItem {
@@ -187,6 +188,9 @@ export function UsageStatsPage() {
 
   return (
     <div style={{ padding: '0 0 24px 0' }}>
+      <Helmet>
+        <title>{`${t('nav.usage')} - Open Agent Team`}</title>
+      </Helmet>
       <Typography.Title level={3} style={{ color: 'var(--text-primary)', marginBottom: 24 }}>
         {t('usage.title')}
       </Typography.Title>

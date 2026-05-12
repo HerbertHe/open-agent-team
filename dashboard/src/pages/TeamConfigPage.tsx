@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
 import { useBlocker } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import {
   Typography,
   Button,
@@ -39,7 +40,7 @@ interface TeamFileConfig {
   project: { name: string; repo: string; base_branch: string };
   runtime?: { mode?: string; persistence?: { state_dir?: string } };
   workspace?: {
-    provider?: string; root_dir?: string; persistent?: boolean;
+    provider?: string; root_dir?: string;
     git?: { remote?: string; lfs?: string }; sparse_checkout?: { enabled?: boolean };
   };
   admin: { name: string; description: string; model?: string; prompt: string; skills: Array<{ source: string; names?: string[] }> };
@@ -605,6 +606,9 @@ export function TeamConfigPage() {
 
   return (
     <div>
+      <Helmet>
+        <title>{`${t('nav.team_config')} - Open Agent Team`}</title>
+      </Helmet>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <Space>
           <Title level={3} style={{ color: 'var(--text-primary)', margin: 0 }}>
@@ -720,7 +724,7 @@ export function TeamConfigPage() {
                   children: (
                     <>
                       <Form.Item label={t('team_config.field.mode')} name={['runtime', 'mode']}>
-                        <Select options={[{ value: 'local_process', label: t('team_config.option.local_process') }, { value: 'flue', label: t('team_config.option.flue') }]} />
+                        <Select options={[{ value: 'local_process', label: t('team_config.option.local_process') }]} />
                       </Form.Item>
                       <Form.Item label={t('team_config.field.state_dir')} name={['runtime', 'persistence', 'state_dir']}><Input readOnly /></Form.Item>
                     </>
@@ -735,7 +739,6 @@ export function TeamConfigPage() {
                         <Select options={[{ value: 'worktree', label: t('team_config.option.worktree') }, { value: 'shared_clone', label: t('team_config.option.shared_clone') }, { value: 'full_clone', label: t('team_config.option.full_clone') }]} />
                       </Form.Item>
                       <Form.Item label={t('team_config.field.root_dir')} name={['workspace', 'root_dir']}><Input readOnly /></Form.Item>
-                      <Form.Item label={t('team_config.field.persistent')} name={['workspace', 'persistent']} valuePropName="checked"><Switch /></Form.Item>
                       <Form.Item label={t('team_config.field.remote')} name={['workspace', 'git', 'remote']}><Input /></Form.Item>
                       <Form.Item label={t('team_config.field.lfs')} name={['workspace', 'git', 'lfs']}>
                         <Select options={[{ value: 'pull' }, { value: 'skip' }, { value: 'allow_pull_deny_change' }]} />

@@ -59,7 +59,7 @@ loader の挙動：
 
 | フィールド | 必須 | 型 | デフォルト | 意味 |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | いいえ | enum (`local_process` \| `flue`) | `local_process` | runtime モード（現状は `local_process` のみ実装） |
+| `runtime.mode` | いいえ | enum (`local_process`) | `local_process` | runtime モード（現状は `local_process` のみ実装） |
 | `runtime.persistence.state_dir` | いいえ | string | `"<team.json のディレクトリ>/.oat/state"` | Orchestrator の状態ディレクトリ（`status/stop` は `orchestrator.json` を読む） |
 
 `~` の展開：
@@ -92,7 +92,6 @@ loader の挙動：
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | いいえ | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | workspace 戦略（現在 `worktree` のみ実装） |
 | `workspace.root_dir` | いいえ | string | `"<team.json のディレクトリ>/workspaces"` | workspace の root ディレクトリ |
-| `workspace.persistent` | いいえ | boolean | `true` | 現時点で区別した挙動として未実装（placeholder） |
 | `workspace.git.remote` | いいえ | string | `"origin"` | placeholder：worktree 作成で remote 名を直接使いません |
 | `workspace.git.lfs` | いいえ | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | `worktree` provider では `pull` のときだけ `git lfs pull` を実行 |
 | `workspace.sparse_checkout.enabled` | いいえ | boolean | `true` | sparse-checkout を有効化（paths は `teams[].leader.repos` に依存） |

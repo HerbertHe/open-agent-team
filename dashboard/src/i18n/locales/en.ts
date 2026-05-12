@@ -101,7 +101,6 @@ const en = {
   'team_config.section.worker': 'Member Agent',
   // Option labels
   'team_config.option.local_process': 'Local Process',
-  'team_config.option.flue': 'Flue',
   'team_config.option.worktree': 'Worktree',
   'team_config.option.shared_clone': 'Shared Clone',
   'team_config.option.full_clone': 'Full Clone',
@@ -124,7 +123,6 @@ const en = {
   'team_config.field.state_dir': 'State Directory',
   'team_config.field.provider': 'Workspace Provider',
   'team_config.field.root_dir': 'Root Directory',
-  'team_config.field.persistent': 'Persistent',
   'team_config.field.remote': 'Git Remote',
   'team_config.field.lfs': 'LFS Strategy',
   'team_config.field.sparse_checkout': 'Sparse Checkout',

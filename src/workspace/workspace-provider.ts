@@ -16,9 +16,6 @@ export class WorkspaceProviderFactory {
       async ensureWorkspace(_spec: AgentInstanceSpec, _sparsePaths: string[]): Promise<{ path: string; branch: string }> {
         throw new Error(t("workspace_provider_unimplemented", { provider: p }));
       }
-      async removeWorkspace(_spec: AgentInstanceSpec) {
-        return;
-      }
     })();
   }
 }
