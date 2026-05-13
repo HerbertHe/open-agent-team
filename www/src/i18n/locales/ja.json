@@ -17,6 +17,7 @@
   "docs.guide": "ガイド",
   "docs.architecture": "アーキテクチャ",
   "docs.config": "設定",
+  "docs.cli": "CLI リファレンス",
   "theme.auto": "自動",
   "theme.white": "ホワイト",
   "theme.light": "ライト",

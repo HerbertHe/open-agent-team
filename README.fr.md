@@ -122,7 +122,7 @@ Un **tableau de bord web** intégré est disponible à `http://localhost:<port>`
 ### 4) Commandes utiles
 
 ```bash
-oat status
+oat list
 oat stop
 oat docs architecture --lang fr
 oat docs config --lang fr

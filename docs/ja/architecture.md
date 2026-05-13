@@ -72,7 +72,7 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 `src/skills/skill-resolver.ts` で実装：
 
 - 各 `SkillEntry` に対して `npx skills add <source> --skill <name> -a openclaw --copy -y` を実行（`cwd` = workspace）
-- Skills は `<workspacePath>/skills/<skill-name>/SKILL.md` にインストール
+- Skills は `<workspacePath>/skills/` にインストール
 - pi-coding-agent の `DefaultResourceLoader` が発見できるよう `.pi/skills` → `skills` シンボリックリンクを作成
 
 ### Git + ドキュメントの流れ：MergeManager / ChangelogManager / GitIdentity

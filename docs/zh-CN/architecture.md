@@ -73,7 +73,7 @@ Orchestrator 在启动时主要做三件事：
 由 `src/skills/skill-resolver.ts` 实现：
 
 - 对每个 `SkillEntry`，执行 `npx skills add <source> --skill <name> -a openclaw --copy -y`，`cwd` 设为 workspace 路径
-- Skills 安装到 `<workspacePath>/skills/<skill-name>/SKILL.md`
+- Skills 安装到 `<workspacePath>/skills/`
 - 创建 `.pi/skills` → `skills` 符号链接，供 pi-coding-agent 的 `DefaultResourceLoader` 发现和加载
 
 ### Git 与文档流水线：MergeManager / ChangelogManager / GitIdentity

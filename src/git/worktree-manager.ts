@@ -9,32 +9,64 @@ import { t } from "../i18n/i18n";
 export class WorktreeWorkspaceProvider implements WorkspaceProvider {
   constructor(private readonly config: ResolvedConfig) {}
 
-  /** 若 project.repo 下无 .git，则 git init（先创建 main）并做空提交；若 project.base_branch 为 master 则将分支重命名为 master。 */
   private async ensureGitRepository(repoRoot: string): Promise<void> {
+    // 自动将 .oat 目录加入 .gitignore，防止嵌套 git 仓库导致冲突
+    const gitignorePath = path.join(repoRoot, ".gitignore");
+    try {
+      const gitignoreContent = await fs.readFile(gitignorePath, "utf8");
+      if (!gitignoreContent.split("\n").some(line => line.trim() === ".oat" || line.trim() === ".oat/")) {
+        await fs.appendFile(gitignorePath, "\n# oat local state\n.oat/\n");
+      }
+    } catch {
+      await fs.writeFile(gitignorePath, "# oat local state\n.oat/\n", "utf8");
+    }
+
     const gitDir = path.join(repoRoot, ".git");
     const hasGit = await fs
       .access(gitDir)
       .then(() => true)
       .catch(() => false);
-    if (hasGit) return;
 
     const baseBranch = this.config.project.base_branch;
-    logger.info(t("git_repo_auto_initialized"), { repo: repoRoot, branch: baseBranch });
+
+    if (!hasGit) {
+      logger.info(t("git_repo_auto_initialized"), { repo: repoRoot, branch: baseBranch });
+      const git = simpleGit(repoRoot);
+      await git.raw(["init", "-b", "main"]);
+      await git.raw([
+        "-c",
+        "user.name=open-agent-team",
+        "-c",
+        "user.email=open-agent-team@localhost",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "chore: initial commit",
+      ]);
+      if (baseBranch !== "main") {
+        await git.raw(["branch", "-m", "main", baseBranch]);
+      }
+      return;
+    }
 
     const git = simpleGit(repoRoot);
-    await git.raw(["init", "-b", "main"]);
-    await git.raw([
-      "-c",
-      "user.name=open-agent-team",
-      "-c",
-      "user.email=open-agent-team@localhost",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "chore: initial commit",
-    ]);
-    if (baseBranch !== "main") {
-      await git.raw(["branch", "-m", "main", baseBranch]);
+    const hasCommits = await git.raw(["rev-parse", "HEAD"]).then(() => true).catch(() => false);
+    if (!hasCommits) {
+      logger.info(t("git_repo_auto_initialized"), { repo: repoRoot, branch: baseBranch });
+      await git.raw([
+        "-c",
+        "user.name=open-agent-team",
+        "-c",
+        "user.email=open-agent-team@localhost",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "chore: initial commit",
+      ]);
+      const currentBranch = await git.raw(["branch", "--show-current"]).then(s => s.trim()).catch(() => "");
+      if (currentBranch && currentBranch !== baseBranch) {
+        await git.raw(["branch", "-m", currentBranch, baseBranch]);
+      }
     }
   }
 
@@ -62,7 +94,7 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
           () => false,
         );
       if (branchExists) {
-        await git.raw(["worktree", "add", workspacePath, spec.branch]);
+        await git.raw(["worktree", "add", "--force", workspacePath, spec.branch]);
       } else {
         await git.raw(["worktree", "add", workspacePath, "-b", spec.branch]);
       }

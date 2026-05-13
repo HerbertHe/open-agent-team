@@ -152,7 +152,7 @@ Common observation points:
 Check orchestrator state (read `orchestrator.json` under `state_dir`):
 
 ```bash
-oat status
+oat list
 ```
 
 Without arguments, it infers `state_dir` from `team.json` in the current directory (same-level `.oat/state`); if `team.json` is not found, it throws an error.

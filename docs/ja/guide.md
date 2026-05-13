@@ -152,7 +152,7 @@ oat dashboard --port 9090  # カスタムポート（デフォルト: 3737）
 orchestrator 状態を確認（`state_dir` 配下の `orchestrator.json`）：
 
 ```bash
-oat status
+oat list
 ```
 
 引数を省略した場合、現在ディレクトリの `team.json` から `state_dir`（同階層の `.oat/state`）を推定します。`team.json` が見つからない場合はエラーになります。

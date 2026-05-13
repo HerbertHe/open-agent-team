@@ -122,7 +122,7 @@ oat start team.json [goal] --lang zh-CN
 ### 4) よく使うコマンド
 
 ```bash
-oat status
+oat list
 oat stop
 oat docs architecture --lang ja
 oat docs config --lang ja

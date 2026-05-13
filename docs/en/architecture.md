@@ -76,7 +76,7 @@ Workspace strategy is provided by `src/workspace/workspace-provider.ts` factory.
 Implemented in `src/skills/skill-resolver.ts`:
 
 - For each `SkillEntry` in the agent's config, runs `npx skills add <source> --skill <name> -a openclaw --copy -y` with `cwd` set to the workspace
-- Skills are installed into `<workspacePath>/skills/<skill-name>/SKILL.md`
+- Skills are installed into `<workspacePath>/skills/`
 - Creates a `.pi/skills` → `skills` symlink so pi-coding-agent's `DefaultResourceLoader` can discover them
 
 ### Git + documentation pipeline: MergeManager / ChangelogManager / GitIdentity

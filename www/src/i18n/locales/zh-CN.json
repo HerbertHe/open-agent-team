@@ -17,6 +17,7 @@
   "docs.guide": "指南",
   "docs.architecture": "架构",
   "docs.config": "配置",
+  "docs.cli": "CLI 指南",
   "theme.auto": "自动",
   "theme.white": "纯白",
   "theme.light": "浅色",

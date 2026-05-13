@@ -123,7 +123,7 @@ oat start team.json [goal] --lang zh-CN
 ### 4) 常用命令
 
 ```bash
-oat status
+oat list
 oat stop
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN

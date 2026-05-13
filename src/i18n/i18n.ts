@@ -48,7 +48,16 @@ type MessageKey =
   | "worker_registered"
   | "worker_task_dispatched"
   | "worker_already_registered"
-  | "worker_not_registered";
+  | "worker_not_registered"
+  | "started_in_background"
+  | "dashboard_hint"
+  | "project_not_found"
+  | "project_running_cannot_rm"
+  | "project_removed_success"
+  | "init_team_json_exists"
+  | "init_success"
+  | "dashboard_no_projects"
+  | "no_oat_projects_found";
 
 const messages: Record<Lang, Record<MessageKey, string>> = {
   en: {
@@ -99,6 +108,15 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_task_dispatched: "Dispatched task to worker.",
     worker_already_registered: "Worker already exists: {workerId}",
     worker_not_registered: "No registered worker for id: {workerId}. Workers are pre-spawned at startup.",
+    started_in_background: "Orchestrator started in background. Logs are written to {logPath}",
+    dashboard_hint: "Please use `oat dashboard` to open the management console.",
+    project_not_found: "Project not found or not linked: {projectId}",
+    project_running_cannot_rm: "Cannot remove running project. Please run `oat stop {projectId}` first.",
+    project_removed_success: "Project removed successfully: {projectId}",
+    init_team_json_exists: "team.json already exists in the current directory.",
+    init_success: "Initialized team.json in the current directory.",
+    dashboard_no_projects: "No projects found locally. Please run `oat start` or `oat init` to create a project first.",
+    no_oat_projects_found: "No OAT projects found.",
   },
   "zh-CN": {
     orchestrator_started: "编排器已启动。",
@@ -147,6 +165,15 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_task_dispatched: "已向 Worker 下发任务。",
     worker_already_registered: "Worker 已存在：{workerId}",
     worker_not_registered: "未找到已注册的 Worker：{workerId}。Worker 在启动时已预先创建。",
+    started_in_background: "Orchestrator 已在后台启动。日志已写入：{logPath}",
+    dashboard_hint: "请使用 `oat dashboard` 打开管理台。",
+    project_not_found: "未找到项目或项目未链接：{projectId}",
+    project_running_cannot_rm: "项目正在运行，无法删除。请先运行 `oat stop {projectId}`。",
+    project_removed_success: "项目已成功移除：{projectId}",
+    init_team_json_exists: "当前目录已存在 team.json。",
+    init_success: "已在当前目录初始化 team.json。",
+    dashboard_no_projects: "本地未发现任何项目，请先运行 `oat start` 或 `oat init` 来创建一个项目。",
+    no_oat_projects_found: "未找到任何 OAT 项目。",
   },
   fr: {
     orchestrator_started: "Orchestrateur démarré.",
@@ -196,6 +223,15 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_task_dispatched: "Tâche envoyée au worker.",
     worker_already_registered: "Worker déjà présent : {workerId}",
     worker_not_registered: "Aucun worker enregistré pour {workerId}. Les workers sont pré-créés au démarrage.",
+    started_in_background: "L'orchestrateur a démarré en arrière-plan. Journaux écrits dans {logPath}",
+    dashboard_hint: "Veuillez utiliser `oat dashboard` pour ouvrir la console de gestion.",
+    project_not_found: "Projet introuvable ou non lié : {projectId}",
+    project_running_cannot_rm: "Impossible de supprimer un projet en cours d'exécution. Veuillez d'abord exécuter `oat stop {projectId}`.",
+    project_removed_success: "Projet supprimé avec succès : {projectId}",
+    init_team_json_exists: "team.json existe déjà dans le répertoire courant.",
+    init_success: "team.json initialisé dans le répertoire courant.",
+    dashboard_no_projects: "Aucun projet trouvé localement. Veuillez d'abord exécuter `oat start` ou `oat init` pour créer un projet.",
+    no_oat_projects_found: "Aucun projet OAT trouvé.",
   },
   ja: {
     orchestrator_started: "オーケストレーターを開始しました。",
@@ -245,6 +281,15 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_task_dispatched: "Worker にタスクを送信しました。",
     worker_already_registered: "Worker は既に存在します: {workerId}",
     worker_not_registered: "登録済み Worker がありません: {workerId}。Worker は起動時に事前生成されます。",
+    started_in_background: "Orchestrator がバックグラウンドで開始されました。ログは {logPath} に書き込まれます",
+    dashboard_hint: "管理コンソールを開くには `oat dashboard` を使用してください。",
+    project_not_found: "プロジェクトが見つからないか、リンクされていません: {projectId}",
+    project_running_cannot_rm: "実行中のプロジェクトは削除できません。先に `oat stop {projectId}` を実行してください。",
+    project_removed_success: "プロジェクトが正常に削除されました: {projectId}",
+    init_team_json_exists: "現在のディレクトリに team.json が既に存在します。",
+    init_success: "現在のディレクトリに team.json を初期化しました。",
+    dashboard_no_projects: "ローカルにプロジェクトが見つかりません。まず `oat start` または `oat init` を実行してプロジェクトを作成してください。",
+    no_oat_projects_found: "OAT プロジェクトは見つかりませんでした。",
   },
 };
 

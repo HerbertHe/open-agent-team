@@ -81,8 +81,14 @@ async function resolveStateDirInput(stateDir?: string): Promise<string> {
   return path.join(path.dirname(teamJsonPath), ".oat", "state");
 }
 
+import { readFileSync } from "node:fs";
+
 const program = new Command();
-program.name("oat").description("Agent Team Orchestrator").version("0.1.0");
+
+const pkgPath = new URL("../package.json", import.meta.url);
+const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+
+program.name("oat").description("Agent Team Orchestrator").version(pkg.version, "-v, --version");
 
 program.option("--lang <lang>", "Output language: en | zh-CN | fr | ja");
 
@@ -95,11 +101,13 @@ program
   )
   .option("--goal <text>", "project goal prompt (optional)")
   .option("--port <number>", "orchestrator HTTP port (0 = auto)", "0")
+  .option("--daemon", "run orchestrator in background (internal use)")
   .action(
     async (options: {
       port: string;
       config?: string;
       goal?: string;
+      daemon?: boolean;
     }) => {
     const cliLang = toLang((program.opts() as any).lang);
     if (cliLang) setLang(cliLang);
@@ -113,10 +121,34 @@ program
     const abs = await resolveTeamJsonPath(
       configArg && configArg.length > 0 ? configArg : undefined,
     );
-    const goal = (options.goal ?? "").trim();
     const cfg = await loadConfig(abs);
     const stateDir = cfg.runtime.persistence.state_dir;
     await ensureDir(stateDir);
+
+    if (!options.daemon) {
+      const { spawn } = await import("node:child_process");
+      const fsSync = await import("node:fs");
+      const logPath = path.join(stateDir, "orchestrator.log");
+      const out = fsSync.openSync(logPath, "a");
+      const err = fsSync.openSync(logPath, "a");
+
+      const args = process.argv.slice(2);
+      if (!args.includes("--daemon")) {
+        args.push("--daemon");
+      }
+
+      const child = spawn(process.execPath, [...process.execArgv, process.argv[1], ...args], {
+        detached: true,
+        stdio: ["ignore", out, err],
+      });
+      child.unref();
+
+      logger.success(t("started_in_background", { logPath }));
+      logger.info(t("dashboard_hint"));
+      process.exit(0);
+    }
+
+    const goal = (options.goal ?? "").trim();
     logger.info(t("log_startup_context"), {
       configPath: abs,
       cliGoal: goal.length > 0 ? goal : "(empty)",
@@ -175,9 +207,10 @@ program
   });
 
 program
-  .command("status")
-  .argument("[stateDir]", "state dir")
-  .action(async (stateDir?: string) => {
+  .command("list")
+  .alias("ls")
+  .description("List all local OAT projects and their orchestrator status")
+  .action(async () => {
     const cliLang = toLang((program.opts() as any).lang);
     if (cliLang) setLang(cliLang);
     if (!cliLang) {
@@ -185,20 +218,91 @@ program
       if (oatLang) setLang(oatLang);
     }
 
-    const dir = await resolveStateDirInput(stateDir);
-    const p = path.join(dir, "orchestrator.json");
+    const os = await import("node:os");
+    const chalk = (await import("chalk")).default;
+    const linkRoot = path.join(os.homedir(), ".oat", "projects");
+    let entries: any[];
     try {
-      const raw = await fs.readFile(p, "utf8");
-      logger.info(t("log_orchestrator_json"), JSON.parse(raw));
+      entries = await fs.readdir(linkRoot, { withFileTypes: true });
     } catch {
-      logger.warn(t("orchestrator_json_not_found"), { path: p });
+      logger.info(t("no_oat_projects_found") || "No OAT projects found.");
+      return;
+    }
+
+    const projects = [];
+    for (const entry of entries) {
+      if (!entry.isSymbolicLink() && !entry.isDirectory()) continue;
+      const linkPath = path.join(linkRoot, entry.name);
+      let target: string;
+      try {
+        target = await fs.realpath(linkPath);
+      } catch {
+        continue;
+      }
+
+      let stateDir = path.join(target, ".oat", "state");
+      try {
+        const config = await loadConfig(path.join(target, "team.json"));
+        if (config.runtime?.persistence?.state_dir) {
+          stateDir = config.runtime.persistence.state_dir;
+        }
+      } catch {}
+
+      let running = false;
+      let pid: number | undefined;
+      let port: number | undefined;
+      let startTime: number | undefined;
+
+      const orchJson = path.join(stateDir, "orchestrator.json");
+      try {
+        const raw = await fs.readFile(orchJson, "utf8");
+        const data = JSON.parse(raw);
+        pid = data.pid;
+        port = data.port;
+        startTime = data.startTime;
+        if (pid) {
+          try {
+            process.kill(pid, 0);
+            running = true;
+          } catch {}
+        }
+      } catch {}
+
+      projects.push({
+        id: entry.name,
+        target,
+        running,
+        pid,
+        port,
+        startTime,
+      });
+    }
+
+    if (projects.length === 0) {
+      logger.info(t("no_oat_projects_found") || "No valid OAT projects found.");
+      return;
+    }
+
+    console.log(`\nOAT Projects (${projects.length}):\n`);
+    for (const p of projects) {
+      const statusStr = p.running 
+        ? chalk.green(`RUNNING (PID: ${p.pid}, Port: ${p.port})`) 
+        : chalk.gray(`STOPPED`);
+      console.log(`  Project: ${chalk.cyan(p.id)}`);
+      console.log(`  Path:    ${p.target}`);
+      console.log(`  Status:  ${statusStr}`);
+      if (p.running && p.startTime) {
+        console.log(`  Uptime:  ${Math.round((Date.now() - p.startTime) / 60000)} mins`);
+      }
+      console.log("");
     }
   });
 
 program
   .command("stop")
-  .argument("[stateDir]", "state dir")
-  .action(async (stateDir?: string) => {
+  .argument("[projectId]", "Project ID to stop")
+  .option("--all", "Stop all running projects")
+  .action(async (projectId: string | undefined, options: { all?: boolean }) => {
     const cliLang = toLang((program.opts() as any).lang);
     if (cliLang) setLang(cliLang);
     if (!cliLang) {
@@ -206,16 +310,126 @@ program
       if (oatLang) setLang(oatLang);
     }
 
-    const dir = await resolveStateDirInput(stateDir);
-    const p = path.join(dir, "orchestrator.json");
-    const orchState = JSON.parse(await fs.readFile(p, "utf8"));
-    const pid = orchState?.pid as number | undefined;
-    if (!pid) {
-      logger.warn(t("orchestrator_pid_not_found"));
+    if (!options.all && !projectId) {
+      logger.error("Please specify a <projectId> or use --all to stop all projects.");
+      process.exit(1);
+    }
+
+    const os = await import("node:os");
+    const linkRoot = path.join(os.homedir(), ".oat", "projects");
+    let entries: any[];
+    try {
+      entries = await fs.readdir(linkRoot, { withFileTypes: true });
+    } catch {
+      if (options.all) {
+        logger.info(t("no_oat_projects_found") || "No OAT projects found.");
+        return;
+      }
+      logger.error(t("project_not_found", { projectId: projectId! }));
       return;
     }
-    process.kill(pid, "SIGTERM");
-    logger.success(t("stop_signal_sent"));
+
+    const projectsToStop = options.all ? entries.map(e => e.name) : [projectId!];
+
+    let stoppedCount = 0;
+    for (const pidName of projectsToStop) {
+      const linkPath = path.join(linkRoot, pidName);
+      let target: string;
+      try {
+        target = await fs.realpath(linkPath);
+      } catch {
+        if (!options.all) logger.error(t("project_not_found", { projectId: pidName }));
+        continue;
+      }
+
+      let stateDir = path.join(target, ".oat", "state");
+      try {
+        const config = await loadConfig(path.join(target, "team.json"));
+        if (config.runtime?.persistence?.state_dir) {
+          stateDir = config.runtime.persistence.state_dir;
+        }
+      } catch {}
+
+      const orchJson = path.join(stateDir, "orchestrator.json");
+      try {
+        const raw = await fs.readFile(orchJson, "utf8");
+        const data = JSON.parse(raw);
+        if (data.pid) {
+          process.kill(data.pid, "SIGTERM");
+          logger.success(`Stopped project: ${pidName}`);
+          stoppedCount++;
+          continue;
+        }
+      } catch {}
+      if (!options.all) logger.warn(t("orchestrator_pid_not_found"));
+    }
+
+    if (options.all && stoppedCount === 0) {
+      logger.info("No running projects found to stop.");
+    }
+  });
+
+program
+  .command("rm")
+  .argument("<projectId>", "Project ID to remove")
+  .action(async (projectId: string) => {
+    const cliLang = toLang((program.opts() as any).lang);
+    if (cliLang) setLang(cliLang);
+    if (!cliLang) {
+      const oatLang = await loadLangFromOatYaml();
+      if (oatLang) setLang(oatLang);
+    }
+
+    const os = await import("node:os");
+    const linkPath = path.join(os.homedir(), ".oat", "projects", projectId);
+    let target: string;
+    try {
+      target = await fs.realpath(linkPath);
+    } catch {
+      logger.error(t("project_not_found", { projectId }));
+      return;
+    }
+
+    let stateDir = path.join(target, ".oat", "state");
+    let workspaceRoot = path.join(target, ".oat", "workspaces");
+    try {
+      const config = await loadConfig(path.join(target, "team.json"));
+      if (config.runtime?.persistence?.state_dir) {
+        stateDir = config.runtime.persistence.state_dir;
+      }
+      if (config.workspace?.root_dir) {
+        workspaceRoot = config.workspace.root_dir;
+      }
+    } catch {}
+
+    const orchJson = path.join(stateDir, "orchestrator.json");
+    let running = false;
+    try {
+      const raw = await fs.readFile(orchJson, "utf8");
+      const data = JSON.parse(raw);
+      if (data.pid) {
+        try {
+          process.kill(data.pid, 0);
+          running = true;
+        } catch {}
+      }
+    } catch {}
+
+    if (running) {
+      logger.error(t("project_running_cannot_rm", { projectId }));
+      process.exit(1);
+    }
+
+    try {
+      await fs.rm(stateDir, { recursive: true, force: true });
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      if ((await fs.lstat(linkPath)).isSymbolicLink() || (await fs.lstat(linkPath)).isDirectory()) {
+         await fs.unlink(linkPath);
+      }
+      logger.success(t("project_removed_success", { projectId }));
+    } catch (e) {
+      logger.error(`Failed to remove project data: ${e instanceof Error ? e.message : String(e)}`);
+    }
   });
 
 program
@@ -300,7 +514,7 @@ program
 
 program
   .command("docs")
-  .argument("<name>", "architecture | config | guide")
+  .argument("<name>", "architecture | config | guide | cli")
   .action(async (name: string) => {
     const cliLang = toLang((program.opts() as any).lang);
     if (cliLang) setLang(cliLang);
@@ -325,8 +539,22 @@ program
 program
   .command("dashboard")
   .description("Open the OAT dashboard in the default browser")
-  .option("--port <number>", "serve on a specific port (default: 3737)", "3737")
-  .action(async (options: { port: string }) => {
+  .action(async () => {
+    const os = await import("node:os");
+    const projectsDir = path.join(os.homedir(), ".oat", "projects");
+    let hasProjects = false;
+    try {
+      const entries = await fs.readdir(projectsDir);
+      if (entries.length > 0) {
+        hasProjects = true;
+      }
+    } catch {}
+
+    if (!hasProjects) {
+      logger.warn(t("dashboard_no_projects"));
+      process.exit(0);
+    }
+
     const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const dashboardDist = path.join(packageRoot, "dashboard", "dist");
     const dashboardIndex = path.join(dashboardDist, "index.html");
@@ -336,7 +564,34 @@ program
       process.exit(1);
     }
 
-    const port = Number(options.port) || 3737;
+    const dashStatePath = path.join(os.homedir(), ".oat", "dashboard.json");
+    try {
+      if (await fileExists(dashStatePath)) {
+        const dashState = JSON.parse(await fs.readFile(dashStatePath, "utf8"));
+        if (dashState.pid && dashState.port) {
+          try {
+            process.kill(dashState.pid, 0);
+            const url = `http://localhost:${dashState.port}`;
+            logger.info(`Dashboard is already running. Opening ${url}`);
+            const { exec } = await import("node:child_process");
+            const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+            exec(`${cmd} ${url}`);
+            return;
+          } catch {}
+        }
+      }
+    } catch {}
+
+    const net = await import("node:net");
+    const findAvailablePort = async (startPort: number): Promise<number> => {
+      return new Promise((resolve) => {
+        const srv = net.createServer();
+        srv.on("error", () => resolve(findAvailablePort(startPort + 1)));
+        srv.listen(startPort, () => srv.close(() => resolve(startPort)));
+      });
+    };
+
+    const port = await findAvailablePort(3737);
     const { createServer } = await import("node:http");
     const mimeTypes: Record<string, string> = {
       ".html": "text/html",
@@ -355,7 +610,6 @@ program
       if (urlPath === "/") urlPath = "/index.html";
 
       const filePath = path.join(dashboardDist, urlPath);
-      // Prevent directory traversal
       if (!filePath.startsWith(dashboardDist)) {
         res.writeHead(403);
         res.end("Forbidden");
@@ -368,7 +622,6 @@ program
         res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
         res.end(data);
       } catch {
-        // SPA fallback: serve index.html for client-side routing
         try {
           const html = await fs.readFile(dashboardIndex);
           res.writeHead(200, { "Content-Type": "text/html" });
@@ -380,15 +633,46 @@ program
       }
     });
 
-    server.listen(port, () => {
+    server.listen(port, async () => {
+      await ensureDir(path.dirname(dashStatePath));
+      await fs.writeFile(dashStatePath, JSON.stringify({ pid: process.pid, port }), "utf8");
+
       const url = `http://localhost:${port}`;
       logger.success(`Dashboard serving at ${url}`);
 
-      // Open in default browser
-      const { exec } = require("node:child_process");
+      const { exec } = await import("node:child_process");
       const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       exec(`${cmd} ${url}`);
     });
+  });
+
+program
+  .command("init")
+  .description("Initialize a new team.json in the current directory")
+  .action(async () => {
+    const cliLang = toLang((program.opts() as any).lang);
+    if (cliLang) setLang(cliLang);
+    if (!cliLang) {
+      const oatLang = await loadLangFromOatYaml();
+      if (oatLang) setLang(oatLang);
+    }
+
+    const targetPath = path.join(process.cwd(), "team.json");
+    if (await fileExists(targetPath)) {
+      logger.warn(t("init_team_json_exists"));
+      process.exit(1);
+    }
+
+    const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const examplePath = path.join(packageRoot, "team.example.json");
+
+    try {
+      await fs.copyFile(examplePath, targetPath);
+      logger.success(t("init_success"));
+    } catch (e) {
+      logger.error(`Failed to initialize team.json: ${e instanceof Error ? e.message : String(e)}`);
+      process.exit(1);
+    }
   });
 
 program.parseAsync();

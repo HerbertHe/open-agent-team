@@ -152,7 +152,7 @@ Points de contrôle courants :
 Vérifier l'état de l'Orchestrateur (lire `orchestrator.json` dans `state_dir`) :
 
 ```bash
-oat status
+oat list
 ```
 
 Sans argument, la commande déduit `state_dir` depuis `team.json` du dossier courant (même niveau `.oat/state`) ; si `team.json` est introuvable, une erreur est levée.

@@ -176,7 +176,7 @@ export async function cleanupStaleProjectLinks(): Promise<{
     return { cleaned, errors };
   }
 
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries: any[];
   try {
     entries = await fs.readdir(linkRoot, { withFileTypes: true });
   } catch {

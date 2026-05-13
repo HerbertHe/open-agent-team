@@ -17,6 +17,7 @@
   "docs.guide": "Guide",
   "docs.architecture": "Architecture",
   "docs.config": "Configuration",
+  "docs.cli": "Référence CLI",
   "theme.auto": "Auto",
   "theme.white": "Blanc",
   "theme.light": "Clair",

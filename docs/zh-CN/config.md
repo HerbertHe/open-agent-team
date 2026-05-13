@@ -1,6 +1,6 @@
 # team.json 配置说明（完整参数字典）
 
-`team.json` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader` 并在启动时预先创建 `Worker` 池。
+`team.json` 是这个项目的声明式配置入口。你可以使用 `oat init` 快速在当前目录生成一份配置模板。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader` 并在启动时预先创建 `Worker` 池。
 你可以使用项目根目录的 `schema/v1.json` 对该文件做校验。
 
 同时，loader 会做两类“运行时补齐/解析”：

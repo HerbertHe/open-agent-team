@@ -72,7 +72,7 @@ La stratégie de workspace est fournie par `src/workspace/workspace-provider.ts`
 Implémenté dans `src/skills/skill-resolver.ts` :
 
 - Pour chaque `SkillEntry`, exécute `npx skills add <source> --skill <name> -a openclaw --copy -y` avec `cwd` = workspace
-- Les skills sont installées dans `<workspacePath>/skills/<skill-name>/SKILL.md`
+- Les skills sont installées dans `<workspacePath>/skills/`
 - Crée un lien symbolique `.pi/skills` → `skills` pour la découverte par pi-coding-agent
 
 ### Pipeline Git + documentation : MergeManager / ChangelogManager / GitIdentity

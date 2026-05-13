@@ -152,7 +152,7 @@ oat dashboard --port 9090  # 自定义端口（默认 3737）
 查看 orchestrator 状态（读取 `state_dir` 下的 `orchestrator.json`）：
 
 ```bash
-oat status
+oat list
 ```
 
 不传参数时会默认按当前目录下的 `team.json` 推导 `state_dir`（即同级 `.oat/state`）；若未检测到 `team.json` 会直接报错。

@@ -122,7 +122,7 @@ The built-in **Web Dashboard** is available at `http://localhost:<port>`, offeri
 ### 4) Useful commands
 
 ```bash
-oat status
+oat list
 oat stop
 oat docs architecture --lang en
 oat docs config --lang en

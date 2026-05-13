@@ -28,7 +28,7 @@ export async function commitWorkspaceChanges(
   // 检查是否有变更需要提交
   const status = await git.status();
   if (status.staged.length === 0) {
-    logger.debug("commitWorkspaceChanges: nothing to commit", { workspacePath });
+    logger.info("commitWorkspaceChanges: nothing to commit", { workspacePath });
     return false;
   }
   await git.commit(message);

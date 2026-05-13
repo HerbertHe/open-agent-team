@@ -1,6 +1,6 @@
 # Référence de configuration `team.json` (dictionnaire complet de paramètres)
 
-`team.json` est l'entrée de la configuration déclarative de votre équipe d'agents. Orchestrator lit et analyse ce fichier, démarre `Admin / Leader` et pré-crée un pool de `Worker` au démarrage.
+`team.json` est l'entrée de la configuration déclarative de votre équipe d'agents. Vous pouvez utiliser `oat init` pour générer rapidement un modèle dans le répertoire courant. Orchestrator lit et analyse ce fichier, démarre `Admin / Leader` et pré-crée un pool de `Worker` au démarrage.
 Vous pouvez valider ce fichier avec le `schema/v1.json` à la racine du projet.
 
 En parallèle, le loader effectue deux types de complétion/parsing à l'exécution :

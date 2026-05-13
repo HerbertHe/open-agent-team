@@ -425,7 +425,7 @@ export class Orchestrator {
     this.app.get("/api/projects", async (_req, res) => {
       try {
         const linkRoot = path.join(os.homedir(), ".oat", "projects");
-        let entries: Awaited<ReturnType<typeof fs.readdir>>;
+        let entries: any[];
         try {
           entries = await fs.readdir(linkRoot, { withFileTypes: true });
         } catch {
@@ -749,7 +749,7 @@ export class Orchestrator {
       role: AgentRoleEnum.Leader,
       teamName: team.name,
       name: `${team.name}-lead`,
-      branch: team.branch_prefix,
+      branch: `${team.branch_prefix}-lead`,
       workspacePath: path.join(
         this.config.workspace.root_dir,
         `${team.name}-lead`,

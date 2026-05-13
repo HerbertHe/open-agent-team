@@ -15,11 +15,9 @@ import {
 } from "../pi/workspace-inject";
 import { logger } from "../utils/logger";
 import { defineTool } from "@mariozechner/pi-coding-agent";
-import { type ToolExecuteFn } from "../sandbox/tool-util";
 import { rewriteModelProviderByCompatibleType } from "../utils/model-utils";
 import { todayRecordsSubPath } from "../utils/records";
 import { t } from "../i18n/i18n";
-import type { Static } from "@sinclair/typebox";
 import { Type } from "typebox";
 import type {
   AgentRuntimeState,

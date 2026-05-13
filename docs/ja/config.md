@@ -1,6 +1,6 @@
 # team.json 設定リファレンス（完全なパラメータ辞書）
 
-`team.json` は宣言的に agent チーム設定を記述するための入口です。Orchestrator はこれを読み取り、解析し、`Admin / Leader` を起動した上で、起動時に `Worker` プールを事前生成します。
+`team.json` は宣言的に agent チーム設定を記述するための入口です。`oat init` を使用して、現在のディレクトリにテンプレートをすばやく生成できます。Orchestrator はこれを読み取り、解析し、`Admin / Leader` を起動した上で、起動時に `Worker` プールを事前生成します。
 このファイルはプロジェクトルートの `schema/v1.json` で検証できます。
 
 同時に loader は、実行時に次の2種類の「補完/解析」を行います：

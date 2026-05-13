@@ -61,6 +61,7 @@ export function DocViewer() {
           <Link to="/docs/guide" className={`text-sm ${docPath === 'guide' || !docPath ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.guide', 'Guide')}</Link>
           <Link to="/docs/architecture" className={`text-sm ${docPath === 'architecture' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.architecture', 'Architecture')}</Link>
           <Link to="/docs/config" className={`text-sm ${docPath === 'config' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.config', 'Configuration')}</Link>
+          <Link to="/docs/cli" className={`text-sm ${docPath === 'cli' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.cli', 'CLI Reference')}</Link>
         </nav>
       </aside>
       <main className="flex-1 min-w-0 prose prose-neutral dark:prose-invert max-w-none">

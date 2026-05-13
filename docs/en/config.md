@@ -1,6 +1,6 @@
 # team.json Configuration Reference (complete parameter dictionary)
 
-`team.json` is the entry point for declaring your agent team configuration. Orchestrator reads and parses it, starts `Admin / Leader` and pre-spawns a `Worker` pool at startup.
+`team.json` is the entry point for declaring your agent team configuration. You can use `oat init` to quickly generate a template in the current directory. Orchestrator reads and parses it, starts `Admin / Leader` and pre-spawns a `Worker` pool at startup.
 You can validate this file against the root-level `schema/v1.json`.
 
 At the same time, the loader performs two kinds of runtime "completion/parsing":
