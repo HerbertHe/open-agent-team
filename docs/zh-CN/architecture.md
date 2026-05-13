@@ -98,7 +98,7 @@ Orchestrator 在启动时主要做三件事：
 
 ```mermaid
 flowchart TD
-  U["用户"] --> CLI["oat start team.json '[goal]' --port PORT"]
+  U["用户"] --> CLI["oat start team.json '[goal]'"]
   CLI --> O["Orchestrator.start()"]
   O --> A["启动 Admin agent"]
   O --> L["为每个 Team 启动 Leader agent"]
@@ -213,7 +213,7 @@ Orchestrator 在 `TaskManager.dispatchWorkerTasks()` 中处理：
 
 ## 5. Orchestrator 工具 API（供 pi-coding-agent 调用）
 
-Orchestrator 在启动后会监听 HTTP 端口（由 `--port` 参数指定，或自动从 8787 开始扫描可用端口），并注册以下工具路由：
+Orchestrator 在启动后会监听 HTTP 端口（自动从 8787 开始扫描可用端口），并注册以下工具路由：
 
 - `POST /tool/dispatch_worker_tasks`
   - 用途：由 Leader 向预先创建的 Worker 分发任务

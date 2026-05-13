@@ -4,6 +4,20 @@
 
 ## 1. インストール
 
+**ワンライナースクリプトによるインストール (推奨):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**NPM を使用したインストール:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -103,7 +117,6 @@ oat start team.json [goal]
 ```
 
 - `[goal]`：最終的に達成したいゴール（Leader の prompt に注入されます）
-- `--port`（任意）：Orchestrator の HTTP ポート。**省略した場合、OAT はポート 8787 から自動的に空きポートを検索します**
 
 出力/ログの言語を指定する場合：
 
@@ -121,7 +134,6 @@ Orchestratorを起動せずに、ダッシュボードのみを単独で起動�
 
 ```bash
 oat dashboard
-oat dashboard --port 9090  # カスタムポート（デフォルト: 3737）
 ```
 
 このコマンドはローカルの静的サーバーを起動し、デフォルトブラウザで自動的にダッシュボードを開きます。

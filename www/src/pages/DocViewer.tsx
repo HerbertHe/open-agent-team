@@ -6,6 +6,7 @@ import { codeToHtml } from 'shiki';
 import { useParams, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Mermaid } from '../components/Mermaid';
+import { Copy, Check } from 'lucide-react';
 
 // Import all markdown files as raw strings
 const markdownModules = import.meta.glob('../../../docs/**/*.md', { query: '?raw', import: 'default' });
@@ -81,6 +82,7 @@ export function DocViewer() {
               code({ node, inline, className, children, ...props }: any) {
                 const match = /language-(\w+)/.exec(className || '');
                 const [html, setHtml] = useState<string>('');
+                const [copied, setCopied] = useState(false);
                 const [isDark, setIsDark] = useState(() => {
                   const attr = document.documentElement.getAttribute('data-theme');
                   if (attr === 'dark') return true;
@@ -115,25 +117,43 @@ export function DocViewer() {
                 }, [children, inline, match, isDark]);
 
                 if (!inline && match) {
+                  const rawCode = String(children).replace(/\n$/, '');
                   if (match[1] === 'mermaid') {
-                    return <Mermaid chart={String(children).replace(/\n$/, '')} isDark={isDark} />;
+                    return <Mermaid chart={rawCode} isDark={isDark} />;
                   }
                   
-                  return html ? (
-                    <div dangerouslySetInnerHTML={{ __html: html }} />
-                  ) : (
-                    <pre 
-                      className={className} 
-                      style={{ 
-                        backgroundColor: isDark ? '#121212' : '#ffffff', 
-                        color: isDark ? '#dbd7ca' : '#393a34',
-                        padding: '1em',
-                        borderRadius: '0.25rem',
-                        overflowX: 'auto'
-                      }}
-                    >
-                      <code {...props}>{children}</code>
-                    </pre>
+                  const handleCopy = () => {
+                    navigator.clipboard.writeText(rawCode);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  };
+
+                  return (
+                    <div className="group relative">
+                      {html ? (
+                        <div dangerouslySetInnerHTML={{ __html: html }} />
+                      ) : (
+                        <pre 
+                          className={className} 
+                          style={{ 
+                            backgroundColor: isDark ? '#121212' : '#ffffff', 
+                            color: isDark ? '#dbd7ca' : '#393a34',
+                            padding: '1em',
+                            borderRadius: '0.25rem',
+                            overflowX: 'auto'
+                          }}
+                        >
+                          <code {...props}>{children}</code>
+                        </pre>
+                      )}
+                      <button
+                        onClick={handleCopy}
+                        className="absolute top-2 right-2 p-1.5 rounded-md cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border shadow-sm"
+                        aria-label="Copy code"
+                      >
+                        {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
                   );
                 }
                 return <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props}>{children}</code>;

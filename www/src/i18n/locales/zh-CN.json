@@ -29,5 +29,8 @@
   "feature.observe.title": "实时可视看板",
   "feature.observe.desc": "内置可视化管理后台，实时掌控整个团队的运行状态。",
   "hero.subtitle1": "一个配置文件，一支 AI 团队。",
-  "hero.subtitle2": "声明角色、分配技能、隔离工作流，全部自动完成。"
+  "hero.subtitle2": "声明角色、分配技能、隔离工作流，全部自动完成。",
+  "quickstart.title": "快速上手",
+  "quickstart.subtitle": "一行命令，即可拥有。",
+  "quickstart.oneliner": "一键脚本"
 }

@@ -22,6 +22,20 @@
 
 ### 1. インストール
 
+**ワンライナースクリプトによるインストール (推奨):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**NPM を使用したインストール:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -109,7 +123,6 @@ oat dashboard
 oat start team.json [goal]
 ```
 
-`--port` フラグは任意です — OAT はポート 8787 から空きポートを自動的に検索します。
 
 言語指定：
 

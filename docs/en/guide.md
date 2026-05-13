@@ -4,6 +4,20 @@ This guide helps you run the declarative `Admin -> Leader -> Worker` agent manag
 
 ## 1. Install
 
+**Via One-liner Script (Recommended):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**Via NPM:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -103,7 +117,6 @@ oat start team.json [goal]
 ```
 
 - `[goal]`: the final project goal injected into the Leader prompt
-- `--port` (optional): Orchestrator HTTP port. **If omitted, OAT auto-scans for an available port starting from 8787**
 
 If you want to set output/log language:
 
@@ -121,7 +134,6 @@ You can also launch the dashboard independently (without starting the Orchestrat
 
 ```bash
 oat dashboard
-oat dashboard --port 9090  # custom port (default: 3737)
 ```
 
 This starts a local static server and automatically opens the dashboard in your default browser.

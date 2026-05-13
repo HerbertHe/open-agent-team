@@ -1,8 +1,11 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, LayoutDashboard } from 'lucide-react';
+import { ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, LayoutDashboard, Copy, Check, Terminal } from 'lucide-react';
 import { ParticleCanvas } from '../components/ParticleCanvas';
+import { codeToHtml } from 'shiki';
+import { motion } from 'framer-motion';
 
 function Hero() {
   const { t } = useTranslation();
@@ -50,6 +53,158 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
   skills: <Puzzle size={28} className="text-primary" />,
   observe: <LayoutDashboard size={28} className="text-primary" />,
 };
+
+function QuickStart() {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<'one-liner' | 'npm'>('one-liner');
+  const [os, setOs] = useState<'unix' | 'windows'>(() => {
+    if (typeof window !== 'undefined' && window.navigator) {
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      if (userAgent.includes('win')) return 'windows';
+    }
+    return 'unix';
+  });
+  const [copied, setCopied] = useState(false);
+
+  const getCommand = () => {
+    if (mode === 'npm') return 'npm i open-agent-team -g';
+    if (os === 'unix') return 'curl -fsSL https://oat.ibert.me/install.sh | bash';
+    return 'powershell -c "irm https://oat.ibert.me/install.ps1 | iex"';
+  };
+
+  const command = getCommand();
+
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof document === 'undefined') return false;
+    const attr = document.documentElement.getAttribute('data-theme');
+    if (attr === 'dark') return true;
+    if (attr === 'white' || attr === 'light') return false;
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const observer = new MutationObserver(() => {
+      const attr = document.documentElement.getAttribute('data-theme');
+      if (attr === 'dark') setIsDark(true);
+      else if (attr === 'white' || attr === 'light') setIsDark(false);
+      else setIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => {
+      const attr = document.documentElement.getAttribute('data-theme');
+      if (!attr || attr === 'auto') setIsDark(e.matches);
+    };
+    mq.addEventListener('change', handler);
+    return () => { observer.disconnect(); mq.removeEventListener('change', handler); };
+  }, []);
+
+  const [html, setHtml] = useState<string>('');
+  useEffect(() => {
+    codeToHtml(command, {
+      lang: os === 'windows' && mode !== 'npm' ? 'powershell' : 'bash',
+      theme: isDark ? 'vitesse-dark' : 'vitesse-light'
+    }).then(setHtml);
+  }, [command, isDark, os, mode]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <section className="py-24 px-4 max-w-4xl mx-auto w-full">
+      <div className="text-center mb-10">
+        <h2 className="text-3xl font-bold mb-4">{t('quickstart.title', 'Quick Start')}</h2>
+        <p className="text-muted-foreground">{t('quickstart.subtitle', "One command, and it's yours.")}</p>
+      </div>
+      
+      <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm mx-auto max-w-3xl">
+        {/* Terminal Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-4 py-3 bg-muted/50 border-b border-border gap-3">
+          
+          <div className="flex items-center gap-4">
+            {/* Window Dots */}
+            <div className="flex items-center gap-1.5 hidden sm:flex">
+              <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+            </div>
+            
+            {/* Mode Tabs */}
+            <div className="flex items-center p-1 rounded-lg bg-muted relative">
+              {['one-liner', 'npm'].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m as any)}
+                  className={`relative z-10 px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors ${mode === m ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {m === 'one-liner' ? t('quickstart.oneliner', 'One-liner') : 'npm'}
+                  {mode === m && (
+                    <motion.div
+                      layoutId="mode-slider"
+                      className="absolute inset-0 bg-background rounded-md shadow-sm border border-border -z-10"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* OS Tabs */}
+          <div className="flex items-center p-1 rounded-lg bg-muted relative">
+            {['unix', 'windows'].map((o) => (
+              <button
+                key={o}
+                onClick={() => setOs(o as any)}
+                className={`relative z-10 px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors ${os === o ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {o === 'unix' ? 'macOS & Linux' : 'Windows'}
+                {os === o && (
+                  <motion.div
+                    layoutId="os-slider"
+                    className="absolute inset-0 bg-background rounded-md shadow-sm border border-border -z-10"
+                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+          
+        </div>
+        
+        {/* Terminal Body */}
+        <div 
+          className="py-4 px-5 relative group font-mono text-sm overflow-x-auto min-h-[80px] flex items-center"
+          style={{ backgroundColor: isDark ? '#121212' : '#ffffff', color: isDark ? '#dbd7ca' : '#393a34' }}
+        >
+          <div className="flex items-center gap-3 pr-12">
+            <span className="text-primary shrink-0 font-bold">$</span>
+            {html ? (
+              <div 
+                dangerouslySetInnerHTML={{ __html: html }} 
+                className="[&>pre]:!bg-transparent [&>pre]:!p-0 [&>pre]:!m-0" 
+              />
+            ) : (
+              <code className="whitespace-pre">{command}</code>
+            )}
+          </div>
+          
+          <button
+            onClick={handleCopy}
+            className="absolute top-1/2 -translate-y-1/2 right-4 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer shadow-sm border border-border bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+            aria-label="Copy command"
+          >
+            {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function Features() {
   const { t } = useTranslation();
@@ -113,6 +268,7 @@ export function Home() {
       </Helmet>
       <main className="flex-1">
         <Hero />
+        <QuickStart />
         <Features />
       </main>
       <Footer />

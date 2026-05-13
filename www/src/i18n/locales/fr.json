@@ -29,5 +29,8 @@
   "feature.observe.title": "Tableau de Bord en Direct",
   "feature.observe.desc": "Surveillez toute votre équipe en temps réel grâce au tableau de bord visuel intégré.",
   "hero.subtitle1": "Un fichier de configuration, une équipe IA.",
-  "hero.subtitle2": "Déclarez les rôles, assignez les compétences, isolez les workflows — le tout automatiquement."
+  "hero.subtitle2": "Déclarez les rôles, assignez les compétences, isolez les workflows — le tout automatiquement.",
+  "quickstart.title": "Démarrage Rapide",
+  "quickstart.subtitle": "Une ligne de commande, et c'est à vous.",
+  "quickstart.oneliner": "Script"
 }

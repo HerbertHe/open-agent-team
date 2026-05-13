@@ -31,7 +31,6 @@ oat start [options]
 **选项：**
 - `--config <path>`：`team.json` 配置文件的路径。如果不提供，默认读取当前目录下的 `./team.json`，或读取环境变量 `OAT_TEAM_JSON` 指定的路径。
 - `--goal <text>`：项目的最终目标，会注入到 Leader agent 的 prompt 中（可选）。你也可以直接作为参数追加：`oat start team.json "我的目标"`。
-- `--port <number>`：Orchestrator HTTP 服务（可观测面板 API）的端口。默认为 `0`（自动从 8787 开始扫描可用端口）。
 
 ---
 

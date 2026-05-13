@@ -4,6 +4,20 @@ Ce guide vous aide à lancer localement la structure déclarative `Admin -> Lead
 
 ## 1. Installation
 
+**Via script en une ligne (Recommandé) :**
+
+**macOS & Linux :**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows :**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**Via NPM :**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -103,7 +117,6 @@ oat start team.json [goal]
 ```
 
 - `[goal]` : objectif final injecté dans le prompt du Leader
-- `--port` (optionnel) : port HTTP de l'Orchestrateur. **Si omis, OAT scanne automatiquement un port disponible à partir de 8787**
 
 Pour définir la langue de sortie/log :
 
@@ -121,7 +134,6 @@ Vous pouvez également lancer le tableau de bord indépendamment (sans démarrer
 
 ```bash
 oat dashboard
-oat dashboard --port 9090  # port personnalisé (par défaut : 3737)
 ```
 
 Cette commande démarre un serveur statique local et ouvre automatiquement le tableau de bord dans votre navigateur par défaut.

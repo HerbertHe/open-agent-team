@@ -31,7 +31,6 @@ oat start [options]
 **オプション：**
 - `--config <path>`：`team.json` 設定ファイルのパス。省略した場合、カレントディレクトリの `./team.json`、または環境変数 `OAT_TEAM_JSON` で指定されたパスが使用されます。
 - `--goal <text>`：プロジェクトの最終目標（任意）。Leader エージェントのプロンプトに注入されます。または、コマンドの末尾に引数として渡すこともできます：`oat start team.json "私の目標"`。
-- `--port <number>`：Orchestrator HTTP サーバー（可観測性ダッシュボード API）のポート番号。デフォルトは `0`（8787 から自動的に空きポートをスキャンします）。
 
 ---
 

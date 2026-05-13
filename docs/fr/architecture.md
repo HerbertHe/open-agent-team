@@ -97,7 +97,7 @@ Ci-dessous le « flux principal » :
 
 ```mermaid
 flowchart TD
-  U["Utilisateur"] --> CLI["oat start team.json '[goal]' --port PORT"]
+  U["Utilisateur"] --> CLI["oat start team.json '[goal]'"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Démarrer l'agent Admin"]
   O --> L["Démarrer l'agent Leader"]
@@ -213,7 +213,7 @@ En cas d'échec : un warning est enregistré, puis Orchestrator continue.
 
 ## 5. API d'outils Orchestrateur (pour les appels pi-coding-agent)
 
-Après démarrage, Orchestrator écoute `--port <PORT>` et enregistre les routes d'outils :
+Après démarrage, Orchestrator écoute un port scanné automatiquement et enregistre les routes d'outils :
 
 - `POST /tool/dispatch_worker_tasks`
   - Utilisation : dispatcher des prompts de tâches aux workers pré-créés

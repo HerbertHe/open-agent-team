@@ -22,6 +22,20 @@ You declare roles, models, shared skills, and workspace/git strategies in `team.
 
 ### 1. Install
 
+**Via One-liner Script (Recommended):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**Via NPM:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -109,7 +123,6 @@ Refer to:
 oat start team.json [goal]
 ```
 
-The `--port` flag is optional — OAT auto-scans for an available port starting from 8787.
 
 Choose output/docs language:
 

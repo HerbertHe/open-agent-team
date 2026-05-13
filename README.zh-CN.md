@@ -22,6 +22,20 @@
 
 ### 1. 安装
 
+**通过一键脚本安装 (推荐):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**通过 NPM 安装:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -110,7 +124,6 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在
 oat start team.json [goal]
 ```
 
-`--port` 参数可选 — OAT 会从 8787 端口开始自动扫描可用端口。
 
 选择输出/文档语言：
 

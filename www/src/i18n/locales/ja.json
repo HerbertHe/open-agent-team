@@ -29,5 +29,8 @@
   "feature.observe.title": "リアルタイムダッシュボード",
   "feature.observe.desc": "内蔵のビジュアルダッシュボードでチーム全体をリアルタイムに監視できます。",
   "hero.subtitle1": "1つの設定ファイル、1つのAIチーム。",
-  "hero.subtitle2": "役割の宣言、スキルの割り当て、ワークフローの隔離 — すべて自動で完了。"
+  "hero.subtitle2": "役割の宣言、スキルの割り当て、ワークフローの隔離 — すべて自動で完了。",
+  "quickstart.title": "クイックスタート",
+  "quickstart.subtitle": "たった1行のコマンドで、すべてをその手に。",
+  "quickstart.oneliner": "ワンライナー"
 }

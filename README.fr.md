@@ -22,6 +22,20 @@ Vous déclarez les rôles, modèles, skills partagées et les stratégies worksp
 
 ### 1. Installation
 
+**Via script en une ligne (Recommandé) :**
+
+**macOS & Linux :**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows :**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**Via NPM :**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -109,7 +123,6 @@ Référez-vous à :
 oat start team.json [goal]
 ```
 
-Le flag `--port` est optionnel — OAT scanne automatiquement un port disponible à partir de 8787.
 
 Choisir la langue de sortie/docs :
 

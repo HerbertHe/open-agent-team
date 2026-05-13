@@ -97,7 +97,7 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 
 ```mermaid
 flowchart TD
-  U["ユーザー"] --> CLI["oat start team.json '[goal]' --port PORT"]
+  U["ユーザー"] --> CLI["oat start team.json '[goal]'"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Admin agent を起動"]
   O --> L["Leader agent を起動"]
@@ -213,7 +213,7 @@ Orchestrator は `TaskManager.dispatchWorkerTasks()` 内で処理します：
 
 ## 5. Orchestrator ツール API（pi-coding-agent から呼び出す）
 
-Orchestrator 起動後、`--port <PORT>`（CLI で指定）を listen し、次のツールルートを登録します：
+Orchestrator 起動後、自動的にスキャンされたポートを listen し、次のツールルートを登録します：
 
 - `POST /tool/dispatch_worker_tasks`
   - 用途：事前生成された worker にタスクプロンプトを送信

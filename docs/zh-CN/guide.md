@@ -4,6 +4,20 @@
 
 ## 1. 安装
 
+**通过一键脚本安装 (推荐):**
+
+**macOS & Linux:**
+```bash
+curl -fsSL https://oat.ibert.me/install.sh | bash
+```
+
+**Windows:**
+```powershell
+powershell -c "irm https://oat.ibert.me/install.ps1 | iex"
+```
+
+**通过 NPM 安装:**
+
 ```bash
 npm i open-agent-team -g
 ```
@@ -103,7 +117,6 @@ oat start team.json [goal]
 ```
 
 - `[goal]`：最终要达成的项目目标（会注入到 Leader prompt 中）
-- `--port`（可选）：指定 Orchestrator HTTP 服务端口。**如果不指定，OAT 将自动从 8787 端口开始扫描可用端口**
 
 如果你要指定输出语言：
 
@@ -121,7 +134,6 @@ OAT 内置了一个 Web 仪表盘，启动 Orchestrator 后自动可用。在浏
 
 ```bash
 oat dashboard
-oat dashboard --port 9090  # 自定义端口（默认 3737）
 ```
 
 该命令会启动一个本地静态服务，并自动在默认浏览器中打开仪表盘。

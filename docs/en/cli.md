@@ -31,7 +31,6 @@ oat start [options]
 **Options:**
 - `--config <path>`: Path to your `team.json` configuration file. If omitted, defaults to `./team.json` in the current working directory, or the path specified by the `OAT_TEAM_JSON` environment variable.
 - `--goal <text>`: An optional final project goal prompt injected into the Leader agents. Alternatively, you can pass it as a trailing argument: `oat start team.json "My goal"`.
-- `--port <number>`: Port number for the Orchestrator's HTTP server (Observability Dashboard API). Default is `0` (auto-scans for an available port starting from 8787).
 
 ---
 

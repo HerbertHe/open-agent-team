@@ -101,7 +101,7 @@ Below is the end-to-end "main flow":
 
 ```mermaid
 flowchart TD
-  U["User"] --> CLI["oat start team.json '[goal]' --port PORT"]
+  U["User"] --> CLI["oat start team.json '[goal]'"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Start Admin pi AgentSession"]
   O --> L["Start Leader pi AgentSession(s)"]
@@ -211,7 +211,7 @@ Worker path restrictions are enforced via `.oat/scope.json`:
 
 ## 5. Orchestrator tool API (for pi tool calls and external REST)
 
-After Orchestrator starts, it listens on `--port <PORT>` (provided by the CLI) and registers these tool routes:
+After Orchestrator starts, it listens on an auto-scanned port and registers these tool routes:
 
 - `POST /tool/dispatch_worker_tasks`
   - Purpose: dispatch task prompts to pre-spawned workers
