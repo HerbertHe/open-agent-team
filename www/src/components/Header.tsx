@@ -69,7 +69,7 @@ export function Header() {
             <button 
               onClick={() => setLangMenuOpen(!langMenuOpen)}
               onBlur={() => setTimeout(() => setLangMenuOpen(false), 200)}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted flex items-center gap-2" 
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted flex items-center gap-2 cursor-pointer" 
               title="Switch Language"
             >
               <Globe size={18} />
@@ -81,7 +81,7 @@ export function Header() {
                   <button
                     key={code}
                     onClick={() => selectLang(code)}
-                    className={`px-4 py-2 text-sm text-left hover:bg-muted transition-colors ${i18n.language === code ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
+                    className={`px-4 py-2 text-sm text-left hover:bg-muted transition-colors cursor-pointer ${i18n.language === code ? 'text-foreground font-bold' : 'text-muted-foreground'}`}
                   >
                     {label}
                   </button>
@@ -93,7 +93,7 @@ export function Header() {
             <button 
               onClick={() => setThemeMenuOpen(!themeMenuOpen)}
               onBlur={() => setTimeout(() => setThemeMenuOpen(false), 200)}
-              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted" 
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted cursor-pointer" 
               title="Toggle Theme"
             >
               {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
@@ -104,7 +104,7 @@ export function Header() {
                   <button
                     key={tc.key}
                     onClick={() => selectTheme(tc.key)}
-                    className={`theme-card ${theme === tc.key ? 'active' : ''}`}
+                    className={`theme-card cursor-pointer ${theme === tc.key ? 'active' : ''}`}
                     title={t(`theme.${tc.key}`, tc.label)}
                   >
                     <div className="theme-card-preview" style={{ background: tc.colors.bg, border: `1px solid ${tc.colors.border}` }}>

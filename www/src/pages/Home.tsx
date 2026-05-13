@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, LayoutDashboard, Copy, Check, Terminal } from 'lucide-react';
+import { ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, LayoutDashboard, Copy, Check } from 'lucide-react';
 import { ParticleCanvas } from '../components/ParticleCanvas';
 import { codeToHtml } from 'shiki';
 import { motion } from 'framer-motion';
