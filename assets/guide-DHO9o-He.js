@@ -2,7 +2,19 @@ var e=`# 使用指南（快速上手）
 
 本指南帮助你在本地用最少步骤跑通声明式的 \`Admin -> Leader -> Worker\` agent 管理结构。
 
-## 1. 配置 skills（可选）
+## 1. 安装
+
+\`\`\`bash
+npm i open-agent-team -g
+\`\`\`
+
+安装完成后，你可以通过以下命令验证：
+
+\`\`\`bash
+oat --help
+\`\`\`
+
+## 2. 配置 skills（可选）
 
 Skills 通过 [\`npx skills\`](https://github.com/vercel-labs/skills) 进行管理。你在 \`team.json\` 中以 \`SkillEntry\` 格式声明 skill 来源，OAT 会在启动时自动将其安装到各 agent 的 workspace 中。
 
@@ -22,7 +34,7 @@ Skills 通过 [\`npx skills\`](https://github.com/vercel-labs/skills) 进行管�
 
 > 提示：你可以不配置任何 skills——只需在配置中保留 \`"skills": []\` 即可。
 
-## 2. 准备 Git 仓库与分支（建议）
+## 3. 准备 Git 仓库与分支（建议）
 
 该项目会基于 \`project.base_branch\` 执行合并（默认 \`main\`；仅允许 \`main\` 或 \`master\`），并为每个 agent 创建 git worktree workspace。
 
@@ -33,7 +45,7 @@ Skills 通过 [\`npx skills\`](https://github.com/vercel-labs/skills) 进行管�
 - 仓库中存在 \`project.base_branch\` 所配置的分支（\`main\` 或 \`master\`，与配置一致）
 - 你的仓库支持 \`git worktree\`（大多数情况下开箱即用）
 
-## 3. 编写 \`team.json\`（核心）
+## 4. 编写 \`team.json\`（核心）
 
 \`team.json\` 位于仓库任意位置均可，但推荐放到仓库根目录或你容易管理的路径。
 
@@ -82,26 +94,26 @@ Skills 通过 [\`npx skills\`](https://github.com/vercel-labs/skills) 进行管�
 - \`teams[]\` 至少配置一个 team
 - \`leader.repos\` 给出你希望 worker 重点关注的路径（对应 sparse-checkout set）
 
-## 4. 启动 Orchestrator
+## 5. 启动 Orchestrator
 
 在你的终端执行：
 
 \`\`\`bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 \`\`\`
 
-- \`<goal>\`：最终要达成的项目目标（会注入到 Leader prompt 中）
+- \`[goal]\`：最终要达成的项目目标（会注入到 Leader prompt 中）
 - \`--port\`（可选）：指定 Orchestrator HTTP 服务端口。**如果不指定，OAT 将自动从 8787 端口开始扫描可用端口**
 
 如果你要指定输出语言：
 
 \`\`\`bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 \`\`\`
 
 启动后，OAT 会在 \`~/.oat/projects/\` 下创建指向项目目录的符号链接，以支持多项目管理。
 
-## 5. 使用仪表盘
+## 6. 使用仪表盘
 
 OAT 内置了一个 Web 仪表盘，启动 Orchestrator 后自动可用。在浏览器中访问 \`http://localhost:<port>\` 即可打开。
 
@@ -125,7 +137,7 @@ oat dashboard --port 9090  # 自定义端口（默认 3737）
 
 仪表盘支持同时管理多个运行中的项目。在"项目状态"和"项目配置"页面中，可以通过项目选择器切换不同项目。项目显示格式为 \`配置名称 (项目ID)\`。
 
-## 6. 观察执行结果（你应该看到什么）
+## 7. 观察执行结果（你应该看到什么）
 
 常见观察点：
 
@@ -135,7 +147,7 @@ oat dashboard --port 9090  # 自定义端口（默认 3737）
 - worker 的分支会被合并进对应 leader 分支
 - leader 合并进入 \`project.base_branch\` 后，Orchestrator 会清理对应 leader 与 worker（进程 + workspace）
 
-## 7. 查看状态 / 停止
+## 8. 查看状态 / 停止
 
 查看 orchestrator 状态（读取 \`state_dir\` 下的 \`orchestrator.json\`）：
 
@@ -151,7 +163,7 @@ oat status
 oat stop
 \`\`\`
 
-## 8. REST API 参考
+## 9. REST API 参考
 
 Orchestrator 启动后提供以下管理 API：
 
@@ -167,7 +179,7 @@ Orchestrator 启动后提供以下管理 API：
 | GET | \`/api/global-config\` | 读取全局配置 (oat.yaml) |
 | PUT | \`/api/global-config\` | 更新全局配置 |
 
-## 9. 查看文档（多语言）
+## 10. 查看文档（多语言）
 
 你可以用 CLI 直接输出 docs 文件内容，例如：
 

@@ -2,7 +2,19 @@ var e=`# クイックスタートガイド
 
 このガイドではローカル環境で、宣言的な \`Admin -> Leader -> Worker\` の agent 管理構造を最小ステップで動かす方法を説明します。
 
-## 1. skills を設定（任意）
+## 1. インストール
+
+\`\`\`bash
+npm i open-agent-team -g
+\`\`\`
+
+これにより \`oat\` CLI がグローバルにインストールされます。以下のコマンドでインストールを確認できます：
+
+\`\`\`bash
+oat --help
+\`\`\`
+
+## 2. skills を設定（任意）
 
 Skills は [\`npx skills\`](https://github.com/vercel-labs/skills) で管理されます。\`team.json\` で \`SkillEntry\` 形式で skill ソースを宣言すると、OAT が起動時に各 agent の workspace に自動インストールします。
 
@@ -87,16 +99,16 @@ Skills は [\`npx skills\`](https://github.com/vercel-labs/skills) で管理さ�
 実行：
 
 \`\`\`bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 \`\`\`
 
-- \`<goal>\`：最終的に達成したいゴール（Leader の prompt に注入されます）
+- \`[goal]\`：最終的に達成したいゴール（Leader の prompt に注入されます）
 - \`--port\`（任意）：Orchestrator の HTTP ポート。**省略した場合、OAT はポート 8787 から自動的に空きポートを検索します**
 
 出力/ログの言語を指定する場合：
 
 \`\`\`bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 \`\`\`
 
 起動時、OAT は \`~/.oat/projects/\` にプロジェクトディレクトリへのシンボリックリンクを作成し、マルチプロジェクト管理を可能にします。

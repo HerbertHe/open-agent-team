@@ -2,7 +2,19 @@ var e=`# Quick Start Guide
 
 This guide helps you run the declarative \`Admin -> Leader -> Worker\` agent management structure locally with the minimal set of steps.
 
-## 1. Configure skills (optional)
+## 1. Install
+
+\`\`\`bash
+npm i open-agent-team -g
+\`\`\`
+
+This installs the \`oat\` CLI globally. You can verify the installation with:
+
+\`\`\`bash
+oat --help
+\`\`\`
+
+## 2. Configure skills (optional)
 
 Skills are managed via [\`npx skills\`](https://github.com/vercel-labs/skills). You declare skill sources in \`team.json\` using the \`SkillEntry\` format, and OAT automatically installs them into each agent's workspace on startup.
 
@@ -22,7 +34,7 @@ At startup, OAT runs \`npx skills add\` for each entry, installs skills into \`<
 
 > Tip: You can start without any skills — just leave \`"skills": []\` in your config.
 
-## 2. Prepare your Git repository and branches (recommended)
+## 3. Prepare your Git repository and branches (recommended)
 
 This project merges into \`project.base_branch\` (default \`main\`; only \`main\` or \`master\` are valid) and creates a git worktree workspace for each agent.
 
@@ -33,7 +45,7 @@ Before you start, confirm:
 - the branch named by \`project.base_branch\` exists in the repo (\`main\` or \`master\`, matching your config)
 - your repo supports \`git worktree\` (works out-of-the-box in most environments)
 
-## 3. Write \`team.json\` (core)
+## 4. Write \`team.json\` (core)
 
 \`team.json\` can be placed anywhere, but it is recommended to keep it in your repository root (or another easy-to-manage location).
 
@@ -58,7 +70,7 @@ Here is a "minimal skeleton" example (replace model and prompts with your own co
       "branch_prefix": "team/frontend",
       "leader": {
         "name": "frontend-lead",
-        "description": "Frontend lead; break down tasks and request workers to execute",
+        "description": "Frontend lead; break down tasks and dispatch to workers",
         "model": "default",
         "prompt": "You are the Leader agent for the frontend team.",
         "skills": [],
@@ -82,26 +94,26 @@ At minimum, make sure:
 - \`teams[]\` contains at least one team
 - \`leader.repos\` lists the paths you want workers to focus on (maps to sparse-checkout allowlist)
 
-## 4. Start Orchestrator
+## 5. Start Orchestrator
 
 Run:
 
 \`\`\`bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 \`\`\`
 
-- \`<goal>\`: the final project goal injected into the Leader prompt
+- \`[goal]\`: the final project goal injected into the Leader prompt
 - \`--port\` (optional): Orchestrator HTTP port. **If omitted, OAT auto-scans for an available port starting from 8787**
 
 If you want to set output/log language:
 
 \`\`\`bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 \`\`\`
 
 On startup, OAT creates a symlink under \`~/.oat/projects/\` pointing to the project directory, enabling multi-project management.
 
-## 5. Using the Dashboard
+## 6. Using the Dashboard
 
 OAT ships with a built-in web dashboard, automatically available after starting the Orchestrator. Open \`http://localhost:<port>\` in your browser.
 
@@ -125,7 +137,7 @@ The dashboard includes:
 
 The dashboard supports managing multiple running projects simultaneously. In "Project Status" and "Project Config" pages, use the project selector to switch between projects. Projects are displayed as \`Config Name (Project ID)\`.
 
-## 6. Observe what you should see
+## 7. Observe what you should see
 
 Common observation points:
 
@@ -135,7 +147,7 @@ Common observation points:
 - worker branches are merged into the corresponding leader branches
 - after a leader merges into \`project.base_branch\`, Orchestrator cleans up that leader and its workers (process + workspace)
 
-## 7. Status / stop
+## 8. Status / stop
 
 Check orchestrator state (read \`orchestrator.json\` under \`state_dir\`):
 
@@ -151,7 +163,7 @@ Stop (send SIGTERM to the orchestrator pid):
 oat stop
 \`\`\`
 
-## 8. REST API Reference
+## 9. REST API Reference
 
 The Orchestrator exposes the following management API:
 
@@ -167,7 +179,7 @@ The Orchestrator exposes the following management API:
 | GET | \`/api/global-config\` | Read global config (oat.yaml) |
 | PUT | \`/api/global-config\` | Update global config |
 
-## 9. View docs (multi-language)
+## 10. View docs (multi-language)
 
 You can print doc contents via CLI, for example:
 
