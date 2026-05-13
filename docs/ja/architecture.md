@@ -4,8 +4,8 @@
 
 このプロジェクトは「宣言的な agent チーム」ワークフローを提供します。`team.json` 内で `Admin / Leader / Worker` のロール、モデル、skills、そしてチームごとのブランチ/ワークスペース戦略を宣言します。実行時には Orchestrator が設定を読み取り、以下を行います：
 
-- 静的に `Admin` と各チームの `Leader` を起動（leader が完了しクリーンアップをトリガーするまで動作）
-- `Leader` が「エンジニア級の実行者（Worker）」を追加で必要とする場合、ツール経由で Orchestrator に `Worker` を動的生成させる
+- `Admin`、各チームの `Leader`、および `Worker` プールを事前生成して起動（leader が完了しクリーンアップをトリガーするまで動作）
+- `Leader` が `dispatch-worker-tasks` ツール経由で事前生成された `Worker` にタスクを分配する
 - `Worker` は git の worktree による独立した workspace 内で作業し、具体的な変更を行い `CHANGELOG.md` を生成する
 - Orchestrator は `Worker` のブランチを対応する `Leader` ブランチへマージし、`Leader` に各 worker の CHANGELOG を集約させる
 - `Leader` の最終集約が終わったら Orchestrator は `project.base_branch` へマージし、`Admin` に最終的な納品サマリーとレポートを生成させる
@@ -36,8 +36,8 @@ Orchestrator は `src/orchestrator/orchestrator.ts` にあり、主に以下を�
 
 動的な部分は `src/orchestrator/task-manager.ts` が担当します。主な責務：
 
-- `Leader` の要求を受ける：`POST /tool/request_workers`
-- 各タスクに対してローカルで `Worker` を動的生成する（worktree workspace + `npx skills` での skill インストール + runtime 起動）
+- `Leader` の要求を受ける：`dispatch-worker-tasks`
+- 起動時に各タスクに対して `Worker` を作成する（worktree workspace + `npx skills` での skill インストール + runtime 起動）
 - 完了通知を受ける：`POST /tool/notify_complete`
 - git のマージを実行する：
   - `Worker` ブランチ -> `Leader` ブランチ
@@ -97,12 +97,12 @@ workspace 戦略は `src/workspace/workspace-provider.ts` の factory によっ�
 
 ```mermaid
 flowchart TD
-  U["ユーザー"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  U["ユーザー"] --> CLI["oat start team.json '[goal]' --port PORT"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Admin agent を起動"]
   O --> L["Leader agent を起動"]
-  L -->|"tool register-workers + dispatch-worker-tasks"| O
-  O --> W["Worker agent を動的に作成"]
+  L -->|"ツール dispatch-worker-tasks"| O
+  O --> W["事前生成された Worker agent"]
   W -->|"tool notify-complete"| O
   O -->|"worker->leader をマージ + leader に要約を要求"| L
   L -->|"tool notify-complete"| O
@@ -124,15 +124,15 @@ Orchestrator は各静的 agent を次のようにセットアップします：
 - `writeAgentWorkspaceConfig()`：`.oat/scope.json`、`.oat/orchestrator.json`、`.oat/agent.json` を書き込む
 - `buildAgentSystemPrompt()`：AgentSession に注入するシステムプロンプトを構築する
 
-### 3.2 Worker の動的生成：Leader が tasks を要求
+### 3.2 Worker へのタスク分配：Leader が tasks をディスパッチ
 
-`Leader` は `request-workers` ツールを呼び、次のようなペイロードを送ります：
+`Leader` は `dispatch-worker-tasks` ツールを呼び、次のようなペイロードを送ります：
 
 ```json
 { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
 ```
 
-Orchestrator は `TaskManager.requestWorkers()` 内で `POST /tool/request_workers` を処理します：
+Orchestrator は `TaskManager.dispatchWorkerTasks()` 内で処理します：
 
 - `tasks.length` を worker 数とする
 - 各 task について割り当て：
@@ -215,15 +215,8 @@ Orchestrator は `TaskManager.requestWorkers()` 内で `POST /tool/request_worke
 
 Orchestrator 起動後、`--port <PORT>`（CLI で指定）を listen し、次のツールルートを登録します：
 
-- `POST /tool/request_workers`
-  - 用途：1 回の呼び出しで worker を作成してタスクをディスパッチするショートカット
-  - 入力：`{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
-  - 出力：`{ "workerIds": ["<team>-worker-0", ...] }`
-- `POST /tool/register_workers`
-  - 用途：タスクをディスパッチせずに N 個の worker をスポーン
-  - 入力：`{ "leaderId": "<leaderId>", "count": 2 }`
 - `POST /tool/dispatch_worker_tasks`
-  - 用途：登録済み worker にタスクプロンプトを送信
+  - 用途：事前生成された worker にタスクプロンプトを送信
   - 入力：`{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
 - `POST /tool/notify_complete`
   - 用途：agent が作業完了を通知（Orchestrator が merge と要約を行う）

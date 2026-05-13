@@ -42,7 +42,7 @@ export enum RuntimeModeEnum {
  * - Manual：由外部手动配置/注入（非默认）
  */
 export enum WorkerSkillSyncEnum {
-  /** Worker skills 继承 Leader，并在动态 spawn 时注入新 Worker workspace */
+  /** Worker skills 继承 Leader，并在 spawn 时注入 Worker workspace */
   InheritAndInjectOnSpawn = "inherit_and_inject_on_spawn",
   /** 手动同步：不自动注入，由外部逻辑决定 */
   Manual = "manual",

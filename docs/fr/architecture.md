@@ -4,8 +4,8 @@
 
 Ce projet fournit un flux de travail « équipe d'agents déclarative » : vous déclarez les rôles `Admin / Leader / Worker`, les modèles, les skills, ainsi que les stratégies de branche/du workspace pour chaque équipe dans `team.json`. À l'exécution, l'Orchestrateur lit la configuration et réalise :
 
-- Démarrer `Admin` statique et le `Leader` de chaque équipe (ils restent en cours d'exécution jusqu'à ce qu'un leader termine et déclenche le nettoyage)
-- Quand un `Leader` a besoin de « plus d'exécutants de type ingénieur », il demande à l'Orchestrateur de créer dynamiquement des agents `Worker` via des outils
+- Démarrer `Admin`, le `Leader` de chaque équipe, et pré-créer le pool de `Worker` (ils restent en cours d'exécution jusqu'à ce qu'un leader termine et déclenche le nettoyage)
+- Le `Leader` distribue les tâches aux agents `Worker` pré-créés via l'outil `dispatch-worker-tasks`
 - `Worker` travaille dans son propre workspace git isolé (worktree), fait les changements concrets et produit `CHANGELOG.md`
 - L'Orchestrateur fusionne la branche du `Worker` dans la branche correspondante du `Leader`, puis demande à `Leader` de résumer les `CHANGELOG.md` des workers
 - Après l'agrégation finale du `Leader`, l'Orchestrateur fusionne la branche du leader vers `project.base_branch` et demande à `Admin` le résumé final de livraison et le rapport
@@ -36,8 +36,8 @@ Au démarrage, l'Orchestrateur fait surtout :
 
 La partie dynamique est gérée par `src/orchestrator/task-manager.ts`. Ses responsabilités clés :
 
-- Accepter les requêtes `Leader` : `POST /tool/request_workers`
-- Créer dynamiquement localement un `Worker` pour chaque tâche (worktree workspace + installation des skills via `npx skills` + démarrage runtime)
+- Accepter les requêtes `Leader` : `dispatch-worker-tasks`
+- Créer les `Worker` au démarrage pour chaque tâche (worktree workspace + installation des skills via `npx skills` + démarrage runtime)
 - Accepter les notifications de complétion : `POST /tool/notify_complete`
 - Exécuter les fusions git :
   - Branche `Worker` -> Branche `Leader`
@@ -97,12 +97,12 @@ Ci-dessous le « flux principal » :
 
 ```mermaid
 flowchart TD
-  U["Utilisateur"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  U["Utilisateur"] --> CLI["oat start team.json '[goal]' --port PORT"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Démarrer l'agent Admin"]
   O --> L["Démarrer l'agent Leader"]
-  L -->|"outil register-workers + dispatch-worker-tasks"| O
-  O --> W["Créer dynamiquement les agents Worker"]
+  L -->|"outil dispatch-worker-tasks"| O
+  O --> W["Agents Worker pré-créés"]
   W -->|"outil notify-complete"| O
   O -->|"fusionner worker->leader + demander au leader de résumer"| L
   L -->|"outil notify-complete"| O
@@ -124,15 +124,15 @@ L'injection clé est implémentée dans `src/pi/workspace-inject.ts` :
 - `writeAgentWorkspaceConfig()` : écrit `.oat/scope.json`, `.oat/orchestrator.json`, `.oat/agent.json`
 - `buildAgentSystemPrompt()` : construit le prompt système injecté dans AgentSession
 
-### 3.2 Création dynamique des Workers : le Leader demande des tasks
+### 3.2 Distribution des tâches aux Workers : le Leader dispatche les tasks
 
-`Leader` appelle l'outil `request-workers` avec une charge de type :
+`Leader` appelle l'outil `dispatch-worker-tasks` avec une charge de type :
 
 ```json
 { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
 ```
 
-L'Orchestrateur gère `POST /tool/request_workers` dans `TaskManager.requestWorkers()` :
+L'Orchestrateur gère dans `TaskManager.dispatchWorkerTasks()` :
 
 - Utilise `tasks.length` comme nombre de workers
 - Pour chaque task :
@@ -215,15 +215,8 @@ En cas d'échec : un warning est enregistré, puis Orchestrator continue.
 
 Après démarrage, Orchestrator écoute `--port <PORT>` et enregistre les routes d'outils :
 
-- `POST /tool/request_workers`
-  - Utilisation : raccourci — créer des workers et dispatcher les tâches en un seul appel
-  - Entrée : `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
-  - Sortie : `{ "workerIds": ["<team>-worker-0", ...] }`
-- `POST /tool/register_workers`
-  - Utilisation : créer (pré-spawner) N workers sans dispatcher de tâches
-  - Entrée : `{ "leaderId": "<leaderId>", "count": 2 }`
 - `POST /tool/dispatch_worker_tasks`
-  - Utilisation : dispatcher des prompts de tâches aux workers déjà enregistrés
+  - Utilisation : dispatcher des prompts de tâches aux workers pré-créés
   - Entrée : `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
 - `POST /tool/notify_complete`
   - Utilisation : worker/leader notifie la complétion ; Orchestrator déclenche merge et synthèse

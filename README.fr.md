@@ -14,9 +14,37 @@ Ce projet vous permet de construire une équipe d'agents **déclarative** avec u
 
 `Admin -> Leader -> Worker`
 
-Vous déclarez les rôles, modèles, skills partagées et les stratégies workspace/git dans `team.json`. À l'exécution, l'Orchestrateur démarre les agents statiques (`Admin` et tous les `Leader`) puis crée dynamiquement des `Worker` lorsque un `Leader` les demande. Chaque `Worker` doit mettre à jour un `CHANGELOG.md`, qui est fusionné vers le haut :
+Vous déclarez les rôles, modèles, skills partagées et les stratégies workspace/git dans `team.json`. À l'exécution, l'Orchestrateur démarre tous les agents (`Admin`, `Leader`s et un pool de `Worker` pré-créé) et les `Leader`s distribuent les tâches aux `Worker`s. Chaque `Worker` doit mettre à jour un `CHANGELOG.md`, qui est fusionné vers le haut :
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> résumé final de `Admin`. Tous les rôles (Admin, Leader, Worker) sont strictement tenus d'**AJOUTER (APPEND)** leurs notes à leur fichier `CHANGELOG.md` respectif.
+
+## Démarrage rapide
+
+### 1. Installation
+
+```bash
+npm i open-agent-team -g
+```
+
+### 2. Créer `team.json`
+
+Créez un `team.json` à la racine de votre projet (voir [team.example.json](./team.example.json) pour un exemple complet) :
+
+```bash
+oat init
+```
+
+### 3. Lancer votre équipe
+
+```bash
+oat start team.json
+```
+
+### 4. Ouvrir le tableau de bord
+
+```bash
+oat dashboard
+```
 
 ## Concepts clés
 
@@ -78,7 +106,7 @@ Référez-vous à :
 ### 3) Démarrer l'Orchestrateur
 
 ```bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 ```
 
 Le flag `--port` est optionnel — OAT scanne automatiquement un port disponible à partir de 8787.
@@ -86,7 +114,7 @@ Le flag `--port` est optionnel — OAT scanne automatiquement un port disponible
 Choisir la langue de sortie/docs :
 
 ```bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 ```
 
 Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki), la gestion des paramètres globaux et la gestion multi-projets. Il propose également une page **Réalisations du projet (Project Achievements)** pour parcourir les enregistrements de travail quotidiens et l'historique `CHANGELOG.md` de chaque agent. Le tableau de bord utilise le chargement différé et la séparation du code (code splitting) pour des performances optimales.
@@ -103,9 +131,9 @@ oat docs guide --lang fr
 
 ## Fonctionnement de la collaboration (vue d'ensemble)
 
-1. L'Orchestrateur installe les skills via `npx skills add` et démarre `Admin` ainsi que chaque `Leader`.
-2. Un `Leader` appelle l'outil `request-workers` avec une liste de `tasks`.
-3. L'Orchestrateur envoie les tâches à un pool de `Worker` déjà pré-créé (taille = `teams[].worker.total`) :
+1. L'Orchestrateur installe les skills via `npx skills add`, démarre `Admin`, chaque `Leader`, et pré-crée un pool de `Worker` (taille = `teams[].worker.total`).
+2. Un `Leader` appelle l'outil `dispatch-worker-tasks` avec une liste de `tasks`.
+3. L'Orchestrateur envoie les tâches au pool de `Worker` pré-créé :
    - se connecte au worker ciblé
    - envoie le prompt de la tâche
 4. Un `Worker` doit :

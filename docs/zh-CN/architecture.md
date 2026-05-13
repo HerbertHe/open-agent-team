@@ -4,8 +4,8 @@
 
 本项目提供一个“声明式的 agent team 构建”流程：你在 `team.json` 中声明 `Admin / Leader / Worker` 的角色、模型、skills、以及团队分支/工作空间策略；运行时由 Orchestrator 读取配置并完成以下工作：
 
-- 启动静态的 `Admin` 与每个 `Team` 的 `Leader`（这些会长期常驻，直到 leader 合并完成后触发清理）
-- 当 `Leader` 需要更多“工程师级执行者”时，通过工具调用向 Orchestrator 请求动态生成 `Worker`
+- 启动 `Admin`、每个 `Team` 的 `Leader`，并预先创建 `Worker` 进程池（这些会长期常驻，直到 leader 合并完成后触发清理）
+- `Leader` 通过 `dispatch-worker-tasks` 工具向预先创建的 `Worker` 分发任务
 - `Worker` 在独立 git worktree workspace 中完成具体变更，并产出 `CHANGELOG.md`
 - Orchestrator 将 `Worker` 的分支合并回 `Leader`，并让 `Leader` 汇总 worker 的 CHANGELOG
 - `Leader` 汇总完成后再合并进入主分支（`project.base_branch`），并让 `Admin` 做最终交付总结与回报
@@ -37,8 +37,8 @@ Orchestrator 在启动时主要做三件事：
 
 动态部分由 `src/orchestrator/task-manager.ts` 承担，核心职责：
 
-- 接收 `Leader` 请求：`POST /tool/request_workers`
-- 为每个任务在本地动态创建一个 `Worker`（worktree workspace + 通过 `npx skills` 安装 skills + runtime 启动）
+- 接收 `Leader` 请求：`dispatch-worker-tasks`
+- 在启动时为每个任务创建 `Worker`（worktree workspace + 通过 `npx skills` 安装 skills + runtime 启动）
 - 接收 `Worker/Leader` 完成通知：`POST /tool/notify_complete`
 - 执行 git merge：
   - `Worker` 分支 -> `Leader` 分支
@@ -98,12 +98,12 @@ Orchestrator 在启动时主要做三件事：
 
 ```mermaid
 flowchart TD
-  U["用户"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  U["用户"] --> CLI["oat start team.json '[goal]' --port PORT"]
   CLI --> O["Orchestrator.start()"]
   O --> A["启动 Admin agent"]
   O --> L["为每个 Team 启动 Leader agent"]
-  L -->|"tool register-workers + dispatch-worker-tasks"| O
-  O --> W["动态创建 Worker agent"]
+  L -->|"工具 dispatch-worker-tasks"| O
+  O --> W["预先创建的 Worker agent"]
   W -->|"tool notify-complete"| O
   O -->|"merge worker->leader + 触发 leader 总结"| L
   L -->|"tool notify-complete"| O
@@ -127,15 +127,15 @@ Orchestrator 会为每个静态 agent：
 - `writeOatOrchestratorMeta()`：写入 `.oat/orchestrator.json`（供工具读取 orchestrator baseUrl）
 - `writeOatAgentMeta()`：写入 `.oat/agent.json`（包含角色信息、worker 的 push allowlist 等）
 
-### 3.2 Worker 动态创建：Leader 发起 tasks 请求
+### 3.2 Worker 任务分发：Leader 发起 tasks 请求
 
-`Leader` 通过工具调用 `request-workers`，提交一个形如：
+`Leader` 通过工具调用 `dispatch-worker-tasks`，提交一个形如：
 
 ```json
 { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
 ```
 
-Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()` 中处理：
+Orchestrator 在 `TaskManager.dispatchWorkerTasks()` 中处理：
 
 - 为每个 task 分配：
   - `workerId = <team.name>-worker-<index>`
@@ -215,10 +215,9 @@ Orchestrator 的 `POST /tool/request_workers` 在 `TaskManager.requestWorkers()`
 
 Orchestrator 在启动后会监听 HTTP 端口（由 `--port` 参数指定，或自动从 8787 开始扫描可用端口），并注册以下工具路由：
 
-- `POST /tool/request_workers`
-  - 用途：由 Leader 请求创建 worker，并下发 tasks
+- `POST /tool/dispatch_worker_tasks`
+  - 用途：由 Leader 向预先创建的 Worker 分发任务
   - 入参：`{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
-  - 出参：`{ "workerIds": ["<team>-worker-0", ...] }`
 - `POST /tool/notify_complete`
   - 用途：Worker/Leader 完成后回报 CHANGELOG（Orchestrator 再触发 merge 与总结）
   - 入参：`{ "agentRole": "worker|leader|admin", "agentId": "<id>", "changelog"?: "<string>" }`

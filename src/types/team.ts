@@ -13,7 +13,7 @@ export interface SkillEntry {
 }
 /**
  * Team 配置（Leader 部分）。
- * Leader 负责分解任务、按需要动态创建 Worker，并共享 skills / repos 范围。
+ * Leader 负责分解任务、向预先创建的 Worker 分发任务，并共享 skills / repos 范围。
  */
 export interface TeamConfigLeader {
   /** Leader 在 team 内的唯一名称 */
@@ -43,7 +43,7 @@ export interface TeamConfigWorker {
   prompt: string;
   /** 额外附加到 Worker 的 skills（在继承 Leader skills 基础上追加） */
   extra_skills?: SkillEntry[];
-  /** Worker 技能同步策略：是否在动态 spawn 时自动注入 */
+  /** Worker 技能同步策略：是否在 spawn 时自动注入 */
   skill_sync?: WorkerSkillSyncEnum;
 }
 

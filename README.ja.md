@@ -14,9 +14,37 @@
 
 `Admin -> Leader -> Worker`
 
-`team.json` でロール、モデル、共有スキル、workspace/git の方針を宣言します。実行時、Orchestrator は静的エージェント（`Admin` と全ての `Leader`）を起動し、`Leader` の要求に応じて `Worker` を動的に生成します。各 `Worker` は `CHANGELOG.md` を更新し、その内容は上位へ次のように集約されます：
+`team.json` でロール、モデル、共有スキル、workspace/git の方針を宣言します。実行時、Orchestrator は全てのエージェント（`Admin`、`Leader`、および事前生成された `Worker` プール）を起動し、`Leader` が `Worker` にタスクを分配します。各 `Worker` は `CHANGELOG.md` を更新し、その内容は上位へ次のように集約されます：
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> 最終的な `Admin` のサマリー。全てのロール（Admin、Leader、Worker）は、それぞれの `CHANGELOG.md` を**追記（APPEND）**方式で更新するよう厳格に指示されます。
+
+## クイックスタート
+
+### 1. インストール
+
+```bash
+npm i open-agent-team -g
+```
+
+### 2. `team.json` を作成
+
+プロジェクトルートに `team.json` を作成します（完全な例は [team.example.json](./team.example.json) を参照）：
+
+```bash
+oat init
+```
+
+### 3. チームを起動
+
+```bash
+oat start team.json
+```
+
+### 4. ダッシュボードを開く
+
+```bash
+oat dashboard
+```
 
 ## 重要な概念
 
@@ -78,7 +106,7 @@
 ### 3) Orchestrator を起動
 
 ```bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 ```
 
 `--port` フラグは任意です — OAT はポート 8787 から空きポートを自動的に検索します。
@@ -86,7 +114,7 @@ oat start team.json "<goal>"
 言語指定：
 
 ```bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 ```
 
 起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、グローバル設定管理、マルチプロジェクト管理が利用できます。さらに、各エージェントの日常の作業記録と `CHANGELOG.md` 履歴を閲覧するための **プロジェクト成果（Project Achievements）** ページも備えています。ダッシュボードは遅延読み込みとコード分割を採用しており、最適なパフォーマンスを提供します。
@@ -103,9 +131,9 @@ oat docs guide --lang ja
 
 ## 協業の流れ（概要）
 
-1. Orchestrator は `npx skills add` でスキルをインストールし、`Admin` と各 `Leader` を起動します。
-2. `Leader` は `tasks` のリストを含めて `request-workers` ツールを呼び出します。
-3. Orchestrator は、あらかじめ作成された `Worker` プール（size = `teams[].worker.total`）にタスクを送信します：
+1. Orchestrator は `npx skills add` でスキルをインストールし、`Admin`、各 `Leader`、および `Worker` プール（size = `teams[].worker.total`）を事前生成します。
+2. `Leader` は `tasks` のリストを含めて `dispatch-worker-tasks` ツールを呼び出します。
+3. Orchestrator は、事前生成された `Worker` プールにタスクを送信します：
    - 対象 worker に接続
    - タスク prompt を送信
 4. `Worker` は：

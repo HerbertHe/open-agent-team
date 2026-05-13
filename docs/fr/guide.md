@@ -2,7 +2,19 @@
 
 Ce guide vous aide à lancer localement la structure déclarative `Admin -> Leader -> Worker` avec le minimum d'étapes.
 
-## 1. Configurer les skills (optionnel)
+## 1. Installation
+
+```bash
+npm i open-agent-team -g
+```
+
+Cela installe le CLI `oat` globalement. Vous pouvez vérifier l'installation avec :
+
+```bash
+oat --help
+```
+
+## 2. Configurer les skills (optionnel)
 
 Les skills sont gérées via [`npx skills`](https://github.com/vercel-labs/skills). Vous déclarez les sources de skills dans `team.json` au format `SkillEntry`, et OAT les installe automatiquement dans le workspace de chaque agent au démarrage.
 
@@ -87,16 +99,16 @@ Au minimum, vérifiez :
 Lancez :
 
 ```bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 ```
 
-- `<goal>` : objectif final injecté dans le prompt du Leader
+- `[goal]` : objectif final injecté dans le prompt du Leader
 - `--port` (optionnel) : port HTTP de l'Orchestrateur. **Si omis, OAT scanne automatiquement un port disponible à partir de 8787**
 
 Pour définir la langue de sortie/log :
 
 ```bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 ```
 
 Au démarrage, OAT crée un lien symbolique sous `~/.oat/projects/` pointant vers le répertoire du projet, permettant la gestion multi-projets.

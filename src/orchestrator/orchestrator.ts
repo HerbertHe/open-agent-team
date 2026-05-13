@@ -211,31 +211,6 @@ export class Orchestrator {
       });
     });
 
-    this.app.post("/tool/request_workers", async (req, res) => {
-      try {
-        const body = req.body as any;
-        const result = await this.taskManager.requestWorkers(
-          body.leaderId,
-          body,
-        );
-        res.json(result);
-      } catch (e: any) {
-        res.status(500).json({ error: String(e?.message ?? e) });
-      }
-    });
-
-    this.app.post("/tool/register_workers", async (req, res) => {
-      try {
-        const body = req.body as any;
-        const result = await this.taskManager.registerWorkers(
-          body.leaderId,
-          body,
-        );
-        res.json(result);
-      } catch (e: any) {
-        res.status(500).json({ error: String(e?.message ?? e) });
-      }
-    });
 
     this.app.post("/tool/dispatch_worker_tasks", async (req, res) => {
       try {
@@ -788,25 +763,10 @@ export class Orchestrator {
   private buildOrchestratorTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
     const tm = this.taskManager;
 
-    const registerWorkersTool = defineTool({
-      name: "register-workers",
-      label: "Register Workers",
-      description: "Register N worker agents (spawn sessions) without assigning tasks yet. Call dispatch-worker-tasks next.",
-      parameters: Type.Object({
-        leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
-        count: Type.Number({ description: "How many workers to register (indices 0 .. count-1)" }),
-      }),
-      execute: async (_toolCallId, params) => {
-        const leaderId = params.leaderId ?? spec.id;
-        const result = await tm.registerWorkers(leaderId, { leaderId, count: params.count });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
-      },
-    });
-
     const dispatchWorkerTasksTool = defineTool({
       name: "dispatch-worker-tasks",
       label: "Dispatch Worker Tasks",
-      description: "Dispatch task prompts to already-registered workers (after register-workers).",
+      description: "Dispatch task prompts to pre-spawned workers in the worker pool.",
       parameters: Type.Object({
         leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
         tasks: Type.Array(
@@ -824,26 +784,6 @@ export class Orchestrator {
       },
     });
 
-    const requestWorkersTool = defineTool({
-      name: "request-workers",
-      label: "Request Workers",
-      description: "Shortcut: register workers and dispatch tasks in one call. Prefer register-workers then dispatch-worker-tasks for two-phase flow.",
-      parameters: Type.Object({
-        leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
-        tasks: Type.Array(
-          Type.Object({
-            index: Type.Optional(Type.Number({ description: "Worker index (0-based)" })),
-            prompt: Type.String({ description: "Worker prompt for this task" }),
-          }),
-          { description: "Worker tasks to run" }
-        ),
-      }),
-      execute: async (_toolCallId, params) => {
-        const leaderId = params.leaderId ?? spec.id;
-        const result = await tm.requestWorkers(leaderId, { leaderId, tasks: params.tasks ?? [] });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
-      },
-    });
 
     const assignLeaderTaskTool = defineTool({
       name: "assign-leader-task",
@@ -911,9 +851,7 @@ export class Orchestrator {
     });
 
     return [
-      registerWorkersTool,
       dispatchWorkerTasksTool,
-      requestWorkersTool,
       assignLeaderTaskTool,
       notifyCompleteTool,
       reportProgressTool,
@@ -1127,8 +1065,8 @@ export class Orchestrator {
         ``,
         `Rules (MUST follow):`,
         `1) Wait until you receive an ADMIN_TASK message from admin (the message always starts with "ADMIN_TASK:").`,
-        `2) Before receiving ADMIN_TASK, do NOT call request-workers/register-workers/dispatch-worker-tasks.`,
-        `3) After receiving ADMIN_TASK, parse the goal and split into subtasks (at most ${taskWorkerCount}). Dispatch these subtasks via dispatch-worker-tasks.`,
+        `2) Before receiving ADMIN_TASK, do NOT call dispatch-worker-tasks.`,
+        `3) After receiving ADMIN_TASK, parse the goal and split into subtasks (at most ${taskWorkerCount}). Dispatch these subtasks via dispatch-worker-tasks. Workers are already pre-spawned.`,
         `   - Prefer to OMIT tasks[].index so the orchestrator auto-assigns tasks to IDLE workers.`,
         `   - Only set tasks[].index when you must target a specific worker.`,
         `4) After dispatch-worker-tasks, do NOT directly fetch the sources in the leader. Let workers do it; then summarize workers' CHANGELOG outputs.`,

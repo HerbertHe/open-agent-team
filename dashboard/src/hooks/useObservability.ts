@@ -49,8 +49,7 @@ function updateStatusFromEvent(
     }
     if (
       ev.type === 'worker.spawned' ||
-      ev.type === 'worker.bootstrap.start' ||
-      ev.type === 'request_workers.start'
+      ev.type === 'worker.bootstrap.start'
     ) {
       next[id] = 'busy';
       return next;
@@ -85,10 +84,7 @@ function updateStatusFromEvent(
       else next[id] = 'busy';
       return next;
     }
-    if (ev.type === 'request_workers.error') {
-      next[id] = 'error';
-      return next;
-    }
+
   }
   return next;
 }
@@ -97,8 +93,6 @@ const GRAPH_REFRESH_TYPES = new Set([
   'worker.spawned',
   'worker.bootstrap.start',
   'worker.spawn_aborted',
-  'request_workers.done',
-  'request_workers.start',
   'register_workers.done',
   'dispatch_worker_tasks.done',
   'worker.task.dispatched',

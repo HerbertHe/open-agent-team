@@ -92,9 +92,16 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
     const lfsMode = this.config.workspace.git.lfs;
     
     if (lfsMode === "pull" || lfsMode === "allow_pull_deny_change") {
-      await simpleGit(workspacePath).raw(["lfs", "pull"]).catch(() => {
-        logger.warn(t("git_lfs_pull_failed"), { agentId: spec.id });
-      });
+      // Only attempt lfs pull if the repo actually tracks LFS files
+      const hasLfs = await simpleGit(workspacePath).raw(["lfs", "ls-files", "--all"])
+        .then((out) => out.trim().length > 0)
+        .catch(() => false);
+
+      if (hasLfs) {
+        await simpleGit(workspacePath).raw(["lfs", "pull"]).catch(() => {
+          logger.warn(t("git_lfs_pull_failed"), { agentId: spec.id });
+        });
+      }
       
       if (lfsMode === "allow_pull_deny_change") {
         // Setup local hooks path for this worktree to prevent LFS modifications

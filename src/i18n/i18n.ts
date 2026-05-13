@@ -54,7 +54,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
   en: {
     orchestrator_started: "Orchestrator started.",
     start_observability_hint:
-      "Observability dashboard: open http://127.0.0.1:{port}/ in your browser. API: GET /observability/graph, GET /observability/events (SSE).",
+      "Orchestrator is running on port {port}. Use `oat dashboard` to open the management console.",
     dashboard_dist_missing:
       "Web UI static files not found ({path}). Run `npm run build` in the package to build dashboard/dist (included when installing from npm).",
     orchestrator_listening_on: "Orchestrator listening on {port}",
@@ -98,12 +98,12 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_registered: "Worker registered and runtime ready.",
     worker_task_dispatched: "Dispatched task to worker.",
     worker_already_registered: "Worker already exists: {workerId}",
-    worker_not_registered: "No registered worker for id: {workerId}. Call register-workers first.",
+    worker_not_registered: "No registered worker for id: {workerId}. Workers are pre-spawned at startup.",
   },
   "zh-CN": {
     orchestrator_started: "编排器已启动。",
     start_observability_hint:
-      "可观测面板：在浏览器打开 http://127.0.0.1:{port}/ 。接口：GET /observability/graph、GET /observability/events（SSE）。",
+      "编排器已在端口 {port} 上运行。使用 `oat dashboard` 打开管理台。",
     dashboard_dist_missing:
       "未找到观测面板静态资源（{path}）。请在该包目录执行 npm run build 生成 dashboard/dist（npm 安装包时通常已包含）。",
     orchestrator_listening_on: "编排器正在监听端口 {port}",
@@ -146,12 +146,12 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_registered: "Worker 已注册，运行时就绪。",
     worker_task_dispatched: "已向 Worker 下发任务。",
     worker_already_registered: "Worker 已存在：{workerId}",
-    worker_not_registered: "未找到已注册的 Worker：{workerId}。请先调用 register-workers。",
+    worker_not_registered: "未找到已注册的 Worker：{workerId}。Worker 在启动时已预先创建。",
   },
   fr: {
     orchestrator_started: "Orchestrateur démarré.",
     start_observability_hint:
-      "Observabilité : ouvrez http://127.0.0.1:{port}/ dans le navigateur. API : GET /observability/graph, GET /observability/events (SSE).",
+      "L'orchestrateur est en cours d'exécution sur le port {port}. Utilisez `oat dashboard` pour ouvrir la console de gestion.",
     dashboard_dist_missing:
       "Fichiers statiques du tableau de bord introuvables ({path}). Exécutez `npm run build` pour produire dashboard/dist.",
     orchestrator_listening_on: "Orchestrateur à l'écoute sur le port {port}",
@@ -195,12 +195,12 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_registered: "Worker enregistré, runtime prêt.",
     worker_task_dispatched: "Tâche envoyée au worker.",
     worker_already_registered: "Worker déjà présent : {workerId}",
-    worker_not_registered: "Aucun worker enregistré pour {workerId}. Appelez d'abord register-workers.",
+    worker_not_registered: "Aucun worker enregistré pour {workerId}. Les workers sont pré-créés au démarrage.",
   },
   ja: {
     orchestrator_started: "オーケストレーターを開始しました。",
     start_observability_hint:
-      "可観測ダッシュボード: ブラウザで http://127.0.0.1:{port}/ を開いてください。API: GET /observability/graph、GET /observability/events（SSE）。",
+      "オーケストレーターはポート {port} で実行中です。`oat dashboard` で管理コンソールを開いてください。",
     dashboard_dist_missing:
       "ダッシュボードの静的ファイルが見つかりません（{path}）。dashboard/dist を生成するには `npm run build` を実行してください。",
     orchestrator_listening_on: "オーケストレーターはポート {port} で待機中です。",
@@ -244,7 +244,7 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     worker_registered: "Worker を登録し、ランタイム準備完了。",
     worker_task_dispatched: "Worker にタスクを送信しました。",
     worker_already_registered: "Worker は既に存在します: {workerId}",
-    worker_not_registered: "登録済み Worker がありません: {workerId}。先に register-workers を呼び出してください。",
+    worker_not_registered: "登録済み Worker がありません: {workerId}。Worker は起動時に事前生成されます。",
   },
 };
 

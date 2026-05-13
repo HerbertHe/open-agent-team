@@ -27,7 +27,6 @@ import type {
   SpawnWorkersResult,
   ToolDispatchWorkerTasksBody,
   ToolRegisterWorkersBody,
-  ToolRequestWorkersBody,
 } from "../types";
 import type { ObservabilityGraph } from "../types";
 import type { ObservabilityHub } from "./observability-hub";
@@ -606,54 +605,7 @@ export class TaskManager {
     return this.leaderDispatchStartedAt.has(leaderId);
   }
 
-  async requestWorkers(leaderId: string, body: ToolRequestWorkersBody): Promise<SpawnWorkersResult> {
-    const leader = this.getAgent(leaderId);
-    const team = leader.leaderTeam;
-    if (!team) throw new Error(t("leader_has_no_team", { leaderId }));
 
-    const tasks = body.tasks ?? [];
-    const workerCount = tasks.length;
-    const plannedWorkerIds = Array.from({ length: workerCount }, (_, i) => `${team.name}-worker-${i}`);
-    this.observabilityHub.emit({
-      source: "orchestrator",
-      type: "request_workers.start",
-      agentId: leaderId,
-      role: AgentRoleEnum.Leader,
-      sessionId: leader.sessionId,
-      payload: { teamName: team.name, taskCount: workerCount, plannedWorkerIds },
-    });
-
-    try {
-      let r: SpawnWorkersResult = { workerIds: [] };
-      if (workerCount > 0) {
-        r = await this.registerWorkers(leaderId, { leaderId, count: workerCount });
-      }
-      if (tasks.length > 0) {
-        await this.dispatchWorkerTasks(leaderId, { leaderId, tasks });
-      }
-
-      this.observabilityHub.emit({
-        source: "orchestrator",
-        type: "request_workers.done",
-        agentId: leaderId,
-        role: AgentRoleEnum.Leader,
-        sessionId: leader.sessionId,
-        payload: { workerIds: r.workerIds },
-      });
-      return r;
-    } catch (e) {
-      const err = e instanceof Error ? e.message : String(e);
-      this.observabilityHub.emit({
-        source: "orchestrator",
-        type: "request_workers.error",
-        agentId: leaderId,
-        role: AgentRoleEnum.Leader,
-        sessionId: leader.sessionId,
-        payload: { error: err },
-      });
-      throw e;
-    }
-  }
 
   async notifyComplete(body: NotifyCompleteBody): Promise<any> {
     const { agentRole, agentId } = body;

@@ -46,7 +46,7 @@
       "leader": {
         "name": "platform-lead",
         "description": "Platform lead responsible for task decomposition and worker coordination.",
-        "prompt": "You are the Leader agent for the platform team.\nBreak work into parallel tasks and call request-workers with tasks.\nAggregate worker CHANGELOGs into your own CHANGELOG.",
+        "prompt": "You are the Leader agent for the platform team.\nBreak work into parallel tasks and call dispatch-worker-tasks with tasks.\nAggregate worker CHANGELOGs into your own CHANGELOG.",
         "skills": [],
         "repos": [
           "src/",

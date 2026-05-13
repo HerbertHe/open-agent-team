@@ -4,8 +4,8 @@
 
 This project provides a "declarative agent team" workflow: you declare `Admin / Leader / Worker` roles, models, skills, and team branch/workspace strategies in `team.json`; at runtime the Orchestrator reads the config and does the following:
 
-- Start static `Admin` and each Team's `Leader` (these remain running until a leader finishes and triggers cleanup)
-- When a `Leader` needs more "engineer-level executors", it requests Orchestrator to dynamically create `Worker` agents via tools
+- Start `Admin`, each Team's `Leader`, and pre-spawn the `Worker` pool (these remain running until a leader finishes and triggers cleanup)
+- `Leader` dispatches tasks to pre-spawned `Worker` agents via the `dispatch-worker-tasks` tool
 - `Worker` works inside its own isolated git worktree workspace, making concrete changes and producing `CHANGELOG.md`
 - Orchestrator merges each `Worker` branch back into the corresponding `Leader` branch, and asks `Leader` to summarize the workers' CHANGELOGs
 - After each `Leader` completes aggregation, Orchestrator merges the leader branch into `project.base_branch`, and asks `Admin` for the final delivery summary and report
@@ -38,8 +38,8 @@ At startup, Orchestrator primarily:
 
 The dynamic part is handled by `src/orchestrator/task-manager.ts`. Its core responsibilities are:
 
-- Accept `Leader` requests via tools: `register-workers`, `dispatch-worker-tasks`, `request-workers`
-- Dynamically create a `Worker` pi AgentSession for each task (worktree workspace + skill installation via `npx skills` + in-process session start)
+- Accept `Leader` requests via tools: `dispatch-worker-tasks`
+- Create a `Worker` pi AgentSession for each task at startup (worktree workspace + skill installation via `npx skills` + in-process session start)
 - Accept completion notifications from `Worker`/`Leader` via `notify-complete` tool
 - Perform git merges:
   - `Worker` branch -> `Leader` branch
@@ -101,12 +101,12 @@ Below is the end-to-end "main flow":
 
 ```mermaid
 flowchart TD
-  U["User"] --> CLI["oat start team.json '<goal>' --port PORT"]
+  U["User"] --> CLI["oat start team.json '[goal]' --port PORT"]
   CLI --> O["Orchestrator.start()"]
   O --> A["Start Admin pi AgentSession"]
   O --> L["Start Leader pi AgentSession(s)"]
-  L -->|"tool register-workers + dispatch-worker-tasks"| O
-  O --> W["Create Worker pi AgentSessions dynamically"]
+  L -->|"tool dispatch-worker-tasks"| O
+  O --> W["Pre-spawned Worker pi AgentSessions"]
   W -->|"tool notify-complete"| O
   O -->|"merge worker->leader + prompt leader to summarize"| L
   L -->|"tool notify-complete"| O
@@ -128,17 +128,15 @@ Key injection is implemented in `src/pi/workspace-inject.ts`:
 - `buildAgentSystemPrompt()`: builds the system prompt (agent persona + role instructions + records path rules)
 - Custom orchestration tools are defined in `orchestrator.ts` using `defineTool()` from `@mariozechner/pi-coding-agent`
 
-### 3.2 Worker dynamic creation: Leader requests tasks
+### 3.2 Worker task dispatch: Leader dispatches tasks
 
-`Leader` calls the `register-workers` tool, then `dispatch-worker-tasks`:
+`Leader` calls the `dispatch-worker-tasks` tool:
 
 ```json
-{ "count": 2 }
-// then:
 { "tasks": [ { "index": 0, "prompt": "..." }, { "index": 1, "prompt": "..." } ] }
 ```
 
-Orchestrator handles these in `TaskManager.registerWorkers()` and `TaskManager.dispatchWorkerTasks()`:
+Orchestrator handles this in `TaskManager.dispatchWorkerTasks()`:
 
 - For each task allocates:
   - `workerId = <team.name>-worker-<index>`
@@ -215,15 +213,8 @@ Worker path restrictions are enforced via `.oat/scope.json`:
 
 After Orchestrator starts, it listens on `--port <PORT>` (provided by the CLI) and registers these tool routes:
 
-- `POST /tool/request_workers`
-  - Purpose: leader requests worker creation and dispatches tasks (one-shot alternative to register+dispatch)
-  - Input: `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
-  - Output: `{ "workerIds": ["<team>-worker-0", ...] }`
-- `POST /tool/register_workers`
-  - Purpose: register (spawn) N workers without dispatching tasks
-  - Input: `{ "leaderId": "<leaderId>", "count": 2 }`
 - `POST /tool/dispatch_worker_tasks`
-  - Purpose: dispatch task prompts to already-registered workers
+  - Purpose: dispatch task prompts to pre-spawned workers
   - Input: `{ "leaderId": "<leaderId>", "tasks": [{ "index": 0, "prompt": "..." }] }`
 - `POST /tool/notify_complete`
   - Purpose: notify orchestrator that an agent completed work (Orchestrator then performs merge + summarization)

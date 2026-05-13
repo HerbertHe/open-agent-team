@@ -1,6 +1,6 @@
 # team.json 配置说明（完整参数字典）
 
-`team.json` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader`（静态），并在 `Leader` 请求时动态创建 `Worker`（临时）。
+`team.json` 是这个项目的声明式配置入口。Orchestrator 会读取并解析它，然后根据配置启动 `Admin / Leader` 并在启动时预先创建 `Worker` 池。
 你可以使用项目根目录的 `schema/v1.json` 对该文件做校验。
 
 同时，loader 会做两类“运行时补齐/解析”：
@@ -109,7 +109,7 @@ home 展开：
 - `team.name`：team 标识
 - `team.branch_prefix`：该 team 的分支前缀（leader/worker branch 会基于它构造）
 - `team.leader`：Leader agent 定义（会被静态启动）
-- `team.worker`：Worker agent 定义（会在 Leader 运行中动态创建）
+- `team.worker`：Worker agent 定义（在启动时预先创建）
 
 ### 7.1 team 基本字段
 
@@ -126,7 +126,7 @@ home 展开：
 | `leader.description` | 是 | string | - | Leader 职责描述（你可放到 prompt 中或由模型自行解读） |
 | `leader.model` | 否 | string | 继承 `admin.model`（或顶层 `model`） | Leader 使用的模型（可为别名） |
 | `leader.prompt` | 是 | string | - | Leader prompt（支持 `*.md` 文件路径形式） |
-| `leader.skills` | 否 | SkillEntry[] | `[]` | Leader skills（会继承到 worker，且在动态创建时安装） |
+| `leader.skills` | 否 | SkillEntry[] | `[]` | Leader skills（会继承到 worker，且在创建时安装） |
 | `leader.repos` | 否 | string[] | `[]` | sparse-checkout 白名单路径（用于 worker workspace 可见范围） |
 
 ### 7.3 `teams[].worker`
@@ -136,5 +136,5 @@ home 展开：
 | `worker.total` | 是 | number(int, >0) | - | 配置意图：启动 team 时预先创建并常驻的 worker 数量（仅在 orchestrator 退出时统一 stopAll 销毁） |
 | `worker.model` | 否 | string | 继承 `leader.model` | Worker 使用的模型（可为别名） |
 | `worker.prompt` | 是 | string | - | Worker prompt（支持 `*.md` 文件路径形式） |
-| `worker.extra_skills` | 否 | SkillEntry[] | `[]` | 追加到 worker 的技能集合（在动态创建时追加到 leader.skills 后安装） |
-| `worker.skill_sync` | 否 | enum | `inherit_and_inject_on_spawn` | 配置意图：动态 spawn 时 skill 注入策略（当前版本实际行为是“继承并注入”，未实现手动模式分支） |
+| `worker.extra_skills` | 否 | SkillEntry[] | `[]` | 追加到 worker 的技能集合（在创建时追加到 leader.skills 后安装） |
+| `worker.skill_sync` | 否 | enum | `inherit_and_inject_on_spawn` | 配置意图：spawn 时 skill 注入策略（当前版本实际行为是“继承并注入”，未实现手动模式分支） |

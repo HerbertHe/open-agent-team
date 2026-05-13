@@ -14,9 +14,37 @@ This project lets you build a declarative **agent team** with a 3-layer hierarch
 
 `Admin -> Leader -> Worker`
 
-You declare roles, models, shared skills, and workspace/git strategies in `team.json`. At runtime, the Orchestrator starts static agents (`Admin`, all `Leader`s) and dynamically spawns `Worker`s when a `Leader` requests them. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
+You declare roles, models, shared skills, and workspace/git strategies in `team.json`. At runtime, the Orchestrator starts all agents (`Admin`, `Leader`s, and a pre-spawned `Worker` pool) and `Leader`s dispatch tasks to `Worker`s. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> final `Admin` summary. All roles are strictly instructed to **APPEND** to their respective `CHANGELOG.md` files.
+
+## Quick Start
+
+### 1. Install
+
+```bash
+npm i open-agent-team -g
+```
+
+### 2. Create `team.json`
+
+Create a `team.json` in your project root (see [team.example.json](./team.example.json) for a full example):
+
+```bash
+oat init
+```
+
+### 3. Start your team
+
+```bash
+oat start team.json
+```
+
+### 4. Open the dashboard
+
+```bash
+oat dashboard
+```
 
 ## Key concepts
 
@@ -78,7 +106,7 @@ Refer to:
 ### 3) Start Orchestrator
 
 ```bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 ```
 
 The `--port` flag is optional — OAT auto-scans for an available port starting from 8787.
@@ -86,7 +114,7 @@ The `--port` flag is optional — OAT auto-scans for an available port starting 
 Choose output/docs language:
 
 ```bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 ```
 
 The built-in **Web Dashboard** is available at `http://localhost:<port>`, offering real-time observability, online project configuration editing (with Shiki JSON preview), global settings management, and multi-team project management. It also features a **Project Achievements** page to browse the daily work records and `CHANGELOG.md` history of each agent. The dashboard uses lazy-loading and code splitting for optimal performance.
@@ -103,9 +131,9 @@ oat docs guide --lang en
 
 ## How collaboration works (high level)
 
-1. Orchestrator installs skills via `npx skills add` and starts `Admin` and each `Leader`.
-2. A `Leader` calls the tool `request-workers` with a list of `tasks`.
-3. Orchestrator dispatches tasks to an already pre-created `Worker` pool (size = `teams[].worker.total`):
+1. Orchestrator installs skills via `npx skills add`, starts `Admin`, each `Leader`, and pre-spawns a `Worker` pool (size = `teams[].worker.total`).
+2. A `Leader` calls the tool `dispatch-worker-tasks` with a list of `tasks`.
+3. Orchestrator dispatches tasks to the pre-spawned `Worker` pool:
    - connects to the target worker
    - sends the task prompt
 4. `Worker` must:

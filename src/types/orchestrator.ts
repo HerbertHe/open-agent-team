@@ -11,10 +11,6 @@ export interface OrchestratorCtorArgs {
   dashboardDist?: string;
 }
 
-export interface ToolRequestWorkersBody {
-  leaderId: string;
-  tasks?: Array<{ index?: number; prompt: string }>;
-}
 
 /** 仅拉起并注册 Worker（不下发任务） */
 export interface ToolRegisterWorkersBody {

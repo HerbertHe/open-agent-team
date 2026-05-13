@@ -109,7 +109,7 @@ export function Home() {
   return (
     <div className="min-h-screen flex flex-col">
       <Helmet>
-        <title>{`${t('hero.title', 'Open Agent Team')} - Programmable Framework`}</title>
+        <title>{t('hero.title', 'Open Agent Team')}</title>
       </Helmet>
       <main className="flex-1">
         <Hero />

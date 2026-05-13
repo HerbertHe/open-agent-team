@@ -14,9 +14,37 @@
 
 `Admin -> Leader -> Worker`
 
-你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动静态 agent（`Admin` 与所有 `Leader`），并在 `Leader` 请求时动态生成 `Worker`。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
+你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动所有 agent（`Admin`、`Leader` 以及预先创建的 `Worker` 池），`Leader` 向 `Worker` 分发任务。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
 
 `Worker CHANGELOG` -> `Leader CHANGELOG` -> 最终 `Admin` 总结。所有角色在系统约束中都被严格要求必须以**追加（APPEND）**的方式更新各自的 `CHANGELOG.md`。
+
+## 快速上手
+
+### 1. 安装
+
+```bash
+npm i open-agent-team -g
+```
+
+### 2. 创建 `team.json`
+
+在项目根目录创建 `team.json`（完整示例参考 [team.example.json](./team.example.json)）：
+
+```bash
+oat init
+```
+
+### 3. 启动团队
+
+```bash
+oat start team.json
+```
+
+### 4. 打开管理台
+
+```bash
+oat dashboard
+```
 
 ## 关键概念
 
@@ -79,7 +107,7 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在
 ### 3) 启动 Orchestrator
 
 ```bash
-oat start team.json "<goal>"
+oat start team.json [goal]
 ```
 
 `--port` 参数可选 — OAT 会从 8787 端口开始自动扫描可用端口。
@@ -87,7 +115,7 @@ oat start team.json "<goal>"
 选择输出/文档语言：
 
 ```bash
-oat start team.json "<goal>" --lang zh-CN
+oat start team.json [goal] --lang zh-CN
 ```
 
 启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）、全局设置管理和多项目管理功能。它还包含一个**项目成果（Project Achievements）**页面，用于浏览各个 Agent 的每日工作记录与 `CHANGELOG.md` 历史。仪表盘采用了按需加载和分包优化以提供极致性能。
@@ -104,9 +132,9 @@ oat docs guide --lang zh-CN
 
 ## 协作工作原理（高层）
 
-1. Orchestrator 通过 `npx skills add` 安装 skills，并启动 `Admin` 与每个 `Leader`。
-2. `Leader` 调用工具 `request-workers`，提交 `tasks` 列表。
-3. Orchestrator 将任务发送到已预先创建好的 `Worker` 池（size = `teams[].worker.total`）：
+1. Orchestrator 通过 `npx skills add` 安装 skills，启动 `Admin`、每个 `Leader`，并预先创建 `Worker` 池（size = `teams[].worker.total`）。
+2. `Leader` 调用工具 `dispatch-worker-tasks`，提交 `tasks` 列表。
+3. Orchestrator 将任务发送到预先创建好的 `Worker` 池：
    - 连接到目标 worker
    - 发送任务 prompt
 4. `Worker` 必须：
