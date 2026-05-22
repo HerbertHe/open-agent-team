@@ -123,3 +123,63 @@ oat docs [options] <name>
 ```bash
 oat docs config --lang ja
 ```
+
+---
+
+## `oat channels`
+
+ロードされたプッシュチャネルプラグイン、設定されたすべてのアカウント、アクティブなセッション（WeChat QRログインなど）、および全体のステータスを表示します。
+
+**使用法：**
+```bash
+oat channels
+```
+
+---
+
+## `oat channel login`
+
+状態を持つチャネル（WeChatなど）にインタラクティブにスキャンログインして設定します。
+
+**使用法：**
+```bash
+oat channel login <channelId> <accountId>
+```
+
+**引数：**
+- `channelId`：ターゲットチャネルのタイプ（例：`weixin`）。
+- `accountId`：このログインセッションの識別子。
+
+**例：**
+```bash
+oat channel login weixin my-wechat
+```
+
+---
+
+## `oat plugins install`
+
+NPM から OpenClaw 互換のプッシュチャネルプラグインを動的にダウンロードし、ホットインストールします。
+
+**使用法：**
+```bash
+oat plugins install <packageName>
+```
+
+**引数：**
+- `packageName`：プラグインの NPM パッケージ名（例：`@tencent-weixin/openclaw-weixin`）。
+
+---
+
+## `oat plugins uninstall`
+
+インストールされたプラグインをシステムから動的にアンインストールし、関連するすべてのセッションファイルと設定情報を安全に削除します。
+
+**使用法：**
+```bash
+oat plugins uninstall <pluginId>
+```
+
+**引数：**
+- `pluginId` : アンインストールするプラグインの ID（例：`openclaw-weixin`）。
+

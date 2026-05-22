@@ -188,7 +188,7 @@ Orchestrator 启动后提供以下管理 API：
 | POST | `/api/projects/:name/restart` | 重启指定项目 |
 | GET | `/api/team-config` | 读取当前项目的 team.json |
 | PUT | `/api/team-config` | 更新当前项目的 team.json |
-| GET | `/api/global-config` | 读取全局配置 (oat.yaml) |
+| GET | `/api/global-config` | 读取全局配置 (oat.json) |
 | PUT | `/api/global-config` | 更新全局配置 |
 
 ## 10. 查看文档（多语言）

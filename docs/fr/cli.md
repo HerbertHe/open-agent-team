@@ -123,3 +123,63 @@ oat docs [options] <name>
 ```bash
 oat docs config --lang fr
 ```
+
+---
+
+## `oat channels`
+
+Inspecte les plugins de canaux de push chargés, tous les comptes configurés, les sessions actives (telles que les connexions WeChat via code QR) et l'état général.
+
+**Utilisation :**
+```bash
+oat channels
+```
+
+---
+
+## `oat channel login`
+
+Permet de se connecter de manière interactive à un canal de push avec état (ex. guide de numérisation WeChat).
+
+**Utilisation :**
+```bash
+oat channel login <channelId> <accountId>
+```
+
+**Arguments :**
+- `channelId` : Le type de canal cible (ex. `weixin`).
+- `accountId` : L'identifiant de cette nouvelle session de connexion.
+
+**Exemple :**
+```bash
+oat channel login weixin my-wechat
+```
+
+---
+
+## `oat plugins install`
+
+Télécharge et installe à chaud un plugin de canal de push compatible OpenClaw depuis NPM de manière dynamique.
+
+**Utilisation :**
+```bash
+oat plugins install <packageName>
+```
+
+**Arguments :**
+- `packageName` : Le nom du paquet NPM du plugin (ex. `@tencent-weixin/openclaw-weixin`).
+
+---
+
+## `oat plugins uninstall`
+
+Désinstalle dynamiquement un plugin installé du système, en supprimant en toute sécurité tous les fichiers de session et les informations d'identification associés.
+
+**Utilisation :**
+```bash
+oat plugins uninstall <pluginId>
+```
+
+**Arguments :**
+- `pluginId` : L'identifiant du plugin à désinstaller (ex. `openclaw-weixin`).
+

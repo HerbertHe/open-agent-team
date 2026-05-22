@@ -123,3 +123,63 @@ oat docs [options] <name>
 ```bash
 oat docs config --lang zh-CN
 ```
+
+---
+
+## `oat channels`
+
+检查已加载的推送通道插件、所有配置的账号、活跃会话（例如微信扫码登录）以及全局状态。
+
+**用法：**
+```bash
+oat channels
+```
+
+---
+
+## `oat channel login`
+
+以交互式扫码登录的方式设置有状态通道的会话（例如微信终端扫码登录）。
+
+**用法：**
+```bash
+oat channel login <channelId> <accountId>
+```
+
+**参数：**
+- `channelId`：目标通道类型（例如 `weixin`）。
+- `accountId`：此通道登录会话的标识符。
+
+**示例：**
+```bash
+oat channel login weixin my-wechat
+```
+
+---
+
+## `oat plugins install`
+
+从 NPM 动态下载并热安装兼容 OpenClaw 的推送通道插件。
+
+**用法：**
+```bash
+oat plugins install <packageName>
+```
+
+**参数：**
+- `packageName`：插件的 NPM 包名（例如 `@tencent-weixin/openclaw-weixin`）。
+
+---
+
+## `oat plugins uninstall`
+
+从系统中动态卸载已安装的插件，安全地删除所有关联的会话文件和配置信息。
+
+**用法：**
+```bash
+oat plugins uninstall <pluginId>
+```
+
+**参数：**
+- `pluginId`：要卸载的插件 ID（例如 `openclaw-weixin`）。
+

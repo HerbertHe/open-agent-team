@@ -1,11 +1,35 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const target = env.VITE_ORCHESTRATOR_TARGET ?? 'http://127.0.0.1:8787'
+  
+  let target = env.VITE_ORCHESTRATOR_TARGET
+  if (!target) {
+    try {
+      const statePath = path.resolve(__dirname, '../__test__/niu-ma/.oat/state/orchestrator.json')
+      if (fs.existsSync(statePath)) {
+        const state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+        if (state.orchestratorPort) {
+          target = `http://127.0.0.1:${state.orchestratorPort}`
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!target) {
+    target = 'http://127.0.0.1:8787'
+  }
+
   return {
     plugins: [react(), tailwindcss()],
     server: {

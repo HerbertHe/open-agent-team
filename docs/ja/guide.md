@@ -188,7 +188,7 @@ Orchestrator は以下の管理 API を提供します：
 | POST | `/api/projects/:name/restart` | プロジェクトを再起動 |
 | GET | `/api/team-config` | 現在のプロジェクトの team.json を読み取り |
 | PUT | `/api/team-config` | 現在のプロジェクトの team.json を更新 |
-| GET | `/api/global-config` | グローバル設定 (oat.yaml) を読み取り |
+| GET | `/api/global-config` | グローバル設定 (oat.json) を読み取り |
 | PUT | `/api/global-config` | グローバル設定を更新 |
 
 ## 9. ドキュメント表示（多言語）

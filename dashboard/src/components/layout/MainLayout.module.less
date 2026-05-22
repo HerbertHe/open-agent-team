@@ -562,6 +562,26 @@
   white-space: nowrap;
 }
 
+.sidebar-version {
+  margin-top: auto;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  opacity: 0.55;
+  padding: 8px 0 0;
+  border-top: 1px dashed color-mix(in srgb, var(--border-color) 35%, transparent);
+  transition: opacity @transition-fast, color @transition-fast;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+
+  &:hover {
+    opacity: 0.95;
+    color: var(--text-primary);
+  }
+}
+
 /* ━━━━━━━━ Content area ━━━━━━━━ */
 .content {
   flex: 1;

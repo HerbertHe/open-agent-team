@@ -162,6 +162,59 @@ oat docs guide --lang fr
 - Workspaces : le provider `worktree` est implémenté ; les autres providers sont des placeholders.
 - La taille du pool de workers (`teams[].worker.total`) est appliquée via un pré-démarrage au lancement de l'équipe ; les workers ne sont pas nettoyés après la fin d'un leader (uniquement à la sortie de l'orchestrateur).
 
+## Notifications de Canal de Push & Plugins OpenClaw
+
+OAT prend en charge l'envoi de la progression des tâches, des plantages d'agents et des réalisations finales vers des canaux de discussion externes (par exemple Slack, Discord, WeChat), entièrement compatible avec l'écosystème de plugins OpenClaw.
+
+### 1) Fichier de Configuration (`~/.oat/oat.json`)
+Tous les paramètres globaux sont stockés nativement au format JSON standard dans `~/.oat/oat.json`. Une structure typique pour les canaux est :
+
+```json
+{
+  "channels": {
+    "openclaw-slack": {
+      "accounts": {
+        "team-slack": {
+          "webhookUrl": "https://hooks.slack.com/services/..."
+        }
+      }
+    }
+  }
+}
+```
+
+Pour acheminer les notifications de push du gestionnaire de tâches vers un canal, déclarez la cible dans `team.json` sous `admin.push_channel` :
+```json
+"admin": {
+  "name": "AdminAgent",
+  "push_channel": {
+    "channel": "openclaw-slack",
+    "account": "team-slack"
+  }
+}
+```
+
+### 2) Commandes CLI
+Gériez les plugins de compatibilité et les comptes directement depuis le terminal :
+
+- `oat channels` - Affiche tous les plugins chargés, les comptes configurés et les sessions WeChat actives.
+- `oat channel login <channelId> <accountId>` - Guide et configuration du scanner interactif QR ASCII de terminal pour les canaux avec état (ex. WeChat) :
+  ```bash
+  oat channel login weixin my-wechat
+  ```
+- `oat plugins install <packageName>` - Télécharge et installe à chaud un plugin compatible OpenClaw depuis NPM :
+  ```bash
+  oat plugins install @tencent-weixin/openclaw-weixin
+  ```
+- `oat plugins uninstall <pluginId>` - Supprime physiquement un plugin du disque, en effaçant ses sessions en cache et ses informations d'identification.
+
+### 3) Centre de Plugins Visuel (Tableau de Bord Web)
+Le tableau de bord Web d'OAT comprend une page premium **Plugin Center** (`/plugins`) avec un effet de glassmorphism pour visuellement :
+- Afficher les cartes d'état des plugins installés et des comptes actifs.
+- Saisir les noms de paquets NPM pour télécharger et installer dynamiquement des plugins à chaud en un clic.
+- Configurer de nouveaux comptes dynamiquement via des champs de formulaire visuels compilés directement à partir du schéma de configuration du plugin (`configSchema`).
+- Guider les utilisateurs sur la numérisation des codes QR interactifs WeChat dans leurs terminaux CLI.
+
 ## Remerciements
 
 - [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Le système de design du Dashboard (thème, mise en page et effets glass) est porté depuis l'UI de CPAMC.

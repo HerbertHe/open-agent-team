@@ -53,6 +53,7 @@ Loader behavior:
 | `admin.model` | No | string | inherit from top-level `model` | Model used by Admin (can be an alias) |
 | `admin.prompt` | Yes | string | - | Admin prompt (supports `*.md` file path) |
 | `admin.skills` | No | SkillEntry[] | `[]` | Skills to install into Admin workspace (each entry has `source` and optional `names`) |
+| `admin.push_channel` | No | object | - | Push channel routing target (contains `channel` and `account` strings, e.g. `{"channel": "openclaw-slack", "account": "team-slack"}`) |
 
 ## 5. `runtime`
 

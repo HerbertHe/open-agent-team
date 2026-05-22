@@ -52,6 +52,7 @@ loader 行为：
 | `admin.model` | 否 | string | 继承顶层 `model` | Admin 使用的模型（可为别名） |
 | `admin.prompt` | 是 | string | - | Admin 的系统/角色 prompt（支持 `*.md` 文件路径形式） |
 | `admin.skills` | 否 | SkillEntry[] | `[]` | Admin 安装的 skills 列表（每个 entry 包含 `source` 和可选 `names`，通过 `npx skills add` 安装） |
+| `admin.push_channel` | 否 | object | - | 推送通道目标配置（包含 `channel` 与 `account` 字符串字段，例如 `{"channel": "openclaw-slack", "account": "team-slack"}`） |
 
 ## 5. `runtime`
 

@@ -1,0 +1,18 @@
+{
+  "id": "openclaw-slack",
+  "name": "Slack Push Channel",
+  "version": "1.0.0",
+  "description": "Stateless Slack incoming webhook push notification adapter",
+  "entryPoint": "index.js",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "webhookUrl": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "webhookUrl"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "openclaw-discord",
+  "name": "Discord Push Channel",
+  "version": "1.0.0",
+  "description": "Stateless Discord incoming webhook push notification adapter",
+  "entryPoint": "index.js",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "webhookUrl": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "webhookUrl"
+    ]
+  }
+}

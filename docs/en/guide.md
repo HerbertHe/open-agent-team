@@ -188,7 +188,7 @@ The Orchestrator exposes the following management API:
 | POST | `/api/projects/:name/restart` | Restart a project |
 | GET | `/api/team-config` | Read current project's team.json |
 | PUT | `/api/team-config` | Update current project's team.json |
-| GET | `/api/global-config` | Read global config (oat.yaml) |
+| GET | `/api/global-config` | Read global config (oat.json) |
 | PUT | `/api/global-config` | Update global config |
 
 ## 10. View docs (multi-language)

@@ -26,6 +26,8 @@ const icons = {
   settings: <svg {...smallIconProps}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>,
   usage: <svg {...iconProps}><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>,
   achievements: <svg {...iconProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>,
+  plugins: <svg {...iconProps}><path d="M12 2v6" /><path d="M19 8H5v4a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4V8z" /><path d="M9 16v4a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-4" /></svg>,
+  channels: <svg {...iconProps}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
 };
 
 const THEME_CARDS: Array<{
@@ -52,6 +54,8 @@ const sidebarNavIcons: Record<string, ReactNode> = {
   '/observability': icons.observability,
   '/team-config': icons.teamConfig,
   '/usage': icons.usage,
+  '/plugins': icons.plugins,
+  '/channels': icons.channels,
   '/settings': icons.settings,
 };
 
@@ -111,6 +115,8 @@ export function MainLayout() {
     { path: '/observability', label: t('nav.observability') },
     { path: '/team-config', label: t('nav.team_config') },
     { path: '/usage', label: t('nav.usage') },
+    { path: '/plugins', label: t('nav.plugins') },
+    { path: '/channels', label: t('nav.channels') },
     { path: '/settings', label: t('nav.settings') },
   ];
 
@@ -223,6 +229,10 @@ export function MainLayout() {
                 {showLabels && <span className={styles['nav-label']}>{item.label}</span>}
               </NavLink>
             ))}
+          </div>
+
+          <div className={styles['sidebar-version']} title="Open Agent Team v1.1.1">
+            v1.1.1
           </div>
         </aside>
 

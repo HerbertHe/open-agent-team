@@ -1,6 +1,8 @@
 import express from "express";
 import type { Server } from "node:http";
 import net from "node:net";
+import https from "node:https";
+import http from "node:http";
 import { spawn } from "node:child_process";
 import { AgentRoleEnum } from "../types";
 import type {
@@ -34,11 +36,59 @@ import {
 import { defineTool } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 
+function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    function performRequest(currentUrl: string, redirectsLeft: number) {
+      if (redirectsLeft <= 0) {
+        reject(new Error("Too many redirects"));
+        return;
+      }
+
+      const client = currentUrl.startsWith("https://") ? https : http;
+      const req = client.get(currentUrl, (res) => {
+        const { statusCode } = res;
+
+        // Handle redirects (301, 302, 303, 307, 308)
+        if (
+          statusCode &&
+          [301, 302, 303, 307, 308].includes(statusCode) &&
+          res.headers.location
+        ) {
+          const redirectUrl = new URL(res.headers.location, currentUrl).toString();
+          performRequest(redirectUrl, redirectsLeft - 1);
+          return;
+        }
+
+        if (statusCode !== 200) {
+          reject(new Error(`Failed to download image. Status code: ${statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve(Buffer.concat(chunks));
+        });
+      });
+
+      req.on("error", (err) => {
+        reject(err);
+      });
+
+      req.end();
+    }
+
+    performRequest(urlStr, maxRedirects);
+  });
+}
+
 function parseBaseDir(input: string): string {
   if (input.startsWith("~/") || input.startsWith("~\\"))
     return path.join(os.homedir(), input.slice(2));
   return input;
 }
+
+let installLock = false;
 
 export class Orchestrator {
   private readonly app = express();
@@ -601,7 +651,7 @@ export class Orchestrator {
       }
     });
 
-    // --- global config (oat.yaml) ---
+    // --- global config (oat.json) ---
     this.app.get("/api/global-config", async (_req, res) => {
       try {
         const config = await loadOatConfig();
@@ -615,6 +665,217 @@ export class Orchestrator {
       try {
         const updates = req.body as Record<string, unknown>;
         await saveOatConfig(updates);
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- plugins management APIs ---
+    this.app.get("/api/plugins", async (_req, res) => {
+      try {
+        const { PluginRegistry } = await import("../plugins/registry");
+        const manifests = PluginRegistry.getAllManifests();
+        const config = await loadOatConfig();
+        const configuredChannels = config.channels || {};
+        const results = manifests.map(m => {
+          const channelConfig = configuredChannels[m.id] || configuredChannels[m.id.replace(/^openclaw-/, "")] || {};
+          const accounts = channelConfig.accounts ? Object.keys(channelConfig.accounts) : [];
+          return {
+            ...m,
+            accounts
+          };
+        });
+        res.json(results);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.post("/api/plugins/install", async (req, res) => {
+      if (installLock) {
+        res.status(409).json({ error: "Another plugin installation is in progress." });
+        return;
+      }
+      const { packageName } = req.body;
+      if (!packageName || typeof packageName !== "string") {
+        res.status(400).json({ error: "packageName is required" });
+        return;
+      }
+      installLock = true;
+      try {
+        const targetDir = path.join(os.homedir(), ".oat", "plugins");
+        await fs.mkdir(targetDir, { recursive: true });
+        try {
+          await fs.writeFile(
+            path.join(targetDir, "package.json"),
+            JSON.stringify({ name: "oat-global-plugins", version: "1.0.0", private: true }, null, 2),
+            { flag: "wx" }
+          );
+        } catch {}
+        const cmd = `npm install --prefix "${targetDir}" "${packageName}"`;
+        const { exec } = await import("node:child_process");
+        await new Promise<void>((resolve, reject) => {
+          exec(cmd, (err, stdout, stderr) => {
+            if (err) {
+              reject(new Error(stderr || err.message));
+            } else {
+              resolve();
+            }
+          });
+        });
+        const { loadPlugins } = await import("../plugins/loader");
+        await loadPlugins();
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      } finally {
+        installLock = false;
+      }
+    });
+
+    this.app.post("/api/plugins/uninstall", async (req, res) => {
+      const { pluginId } = req.body;
+      if (!pluginId || typeof pluginId !== "string") {
+        res.status(400).json({ error: "pluginId is required" });
+        return;
+      }
+      try {
+        const targetDir = path.join(os.homedir(), ".oat", "plugins", "node_modules", pluginId);
+        const exists = await fs.access(targetDir).then(() => true).catch(() => false);
+        if (exists) {
+          await fs.rm(targetDir, { recursive: true, force: true });
+        }
+        const sessionsDir = path.join(os.homedir(), ".oat", "sessions");
+        const sessionsExists = await fs.access(sessionsDir).then(() => true).catch(() => false);
+        if (sessionsExists) {
+          const files = await fs.readdir(sessionsDir);
+          const prefix = `${pluginId.replace(/^openclaw-/, "")}_`;
+          for (const file of files) {
+            if (file.startsWith(prefix)) {
+              await fs.unlink(path.join(sessionsDir, file)).catch(() => {});
+            }
+          }
+        }
+        const globalConfig = await loadOatConfig();
+        if (globalConfig.channels && globalConfig.channels[pluginId]) {
+          delete globalConfig.channels[pluginId];
+          await saveOatConfig({ channels: globalConfig.channels });
+        }
+        const { PluginRegistry } = await import("../plugins/registry");
+        PluginRegistry.unregisterPlugin(pluginId);
+        res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.post("/api/global-config/remove-account", async (req, res) => {
+      const { channelId, accountId } = req.body;
+      if (!channelId || !accountId) {
+        res.status(400).json({ error: "channelId and accountId are required" });
+        return;
+      }
+      try {
+        const globalConfig = await loadOatConfig();
+        if (globalConfig.channels?.[channelId]?.accounts?.[accountId]) {
+          delete globalConfig.channels[channelId].accounts[accountId];
+          if (Object.keys(globalConfig.channels[channelId].accounts).length === 0) {
+            delete globalConfig.channels[channelId];
+          }
+          await saveOatConfig({ channels: globalConfig.channels });
+          const cleanChannelId = channelId.replace(/^openclaw-/, "");
+          const sessionCachePath = path.join(os.homedir(), ".oat", "sessions", `${cleanChannelId}_${accountId}.json`);
+          await fs.rm(sessionCachePath, { force: true }).catch(() => {});
+          res.json({ ok: true });
+        } else {
+          res.status(404).json({ error: "Account config not found" });
+        }
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // --- WeChat QR scanning login routes ---
+    this.app.post("/api/channels/weixin/login-start", async (req, res) => {
+      try {
+        const { PluginRegistry } = await import("../plugins/registry");
+        const channelPlugin = (PluginRegistry.getChannel("openclaw-weixin") || PluginRegistry.getChannel("weixin")) as any;
+        if (!channelPlugin || !channelPlugin.gateway || typeof channelPlugin.gateway.loginWithQrStart !== "function") {
+          res.status(404).json({ error: "WeChat channel plugin gateway interface not found." });
+          return;
+        }
+
+        const { accountId } = req.body;
+        // Start WeChat login flow
+        const result = await channelPlugin.gateway.loginWithQrStart({
+          accountId: accountId || undefined,
+          force: true,
+        });
+
+        // Proxy the QR URL to convert to Base64 in-memory and write a temporary file
+        if (result && result.qrDataUrl && (result.qrDataUrl.startsWith("http://") || result.qrDataUrl.startsWith("https://"))) {
+          try {
+            const buffer = await fetchImageHttps(result.qrDataUrl);
+            
+            // 暂存文件到工程的 .tmp 目录下
+            const tempDir = path.join(process.cwd(), ".tmp");
+            await fs.mkdir(tempDir, { recursive: true });
+            const tempPath = path.join(tempDir, "wechat_qr.png");
+            await fs.writeFile(tempPath, buffer);
+            
+            // 转换为 Base64 格式并覆盖返回
+            const base64Str = buffer.toString("base64");
+            result.qrDataUrl = `data:image/png;base64,${base64Str}`;
+          } catch (fetchErr: any) {
+            logger.error(`Failed to proxy WeChat QR image: ${fetchErr.message}`);
+          }
+        }
+
+        res.json(result);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.post("/api/channels/weixin/login-wait", async (req, res) => {
+      try {
+        const { PluginRegistry } = await import("../plugins/registry");
+        const channelPlugin = (PluginRegistry.getChannel("openclaw-weixin") || PluginRegistry.getChannel("weixin")) as any;
+        if (!channelPlugin || !channelPlugin.gateway || typeof channelPlugin.gateway.loginWithQrWait !== "function") {
+          res.status(404).json({ error: "WeChat channel plugin gateway interface not found." });
+          return;
+        }
+
+        const { sessionKey, accountId } = req.body;
+        if (!sessionKey) {
+          res.status(400).json({ error: "sessionKey is required" });
+          return;
+        }
+
+        // Long-poll waiting for WeChat scanning result, timeout capped at 110s for stability
+        const result = await channelPlugin.gateway.loginWithQrWait({
+          sessionKey,
+          accountId: accountId || undefined,
+          timeoutMs: 110000,
+        });
+
+        // 登录成功时，自动清理暂存的二维码图片
+        if (result && (result.connected || result.status === "confirmed" || result.status === "confirmed_redirect" || result.status === "binded_redirect")) {
+          const tempPath = path.join(process.cwd(), ".tmp", "wechat_qr.png");
+          await fs.rm(tempPath, { force: true }).catch(() => {});
+        }
+
+        res.json(result);
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    this.app.post("/api/channels/weixin/login-cancel", async (req, res) => {
+      try {
+        const tempPath = path.join(process.cwd(), ".tmp", "wechat_qr.png");
+        await fs.rm(tempPath, { force: true }).catch(() => {});
         res.json({ ok: true });
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
@@ -860,6 +1121,14 @@ export class Orchestrator {
   }
 
   async start(): Promise<void> {
+    // ── 动态热加载兼容的 OpenClaw 插件 ──
+    try {
+      const { loadPlugins } = await import("../plugins/loader");
+      await loadPlugins();
+    } catch (pluginErr: any) {
+      logger.warn(`Failed to dynamically load plugins: ${pluginErr.message}`);
+    }
+
     // ── 端口占用检测 ──
     // 如果端口已被占用，优雅退出而不是 EADDRINUSE 崩溃
     const portInUse = await new Promise<boolean>((resolve) => {
@@ -1143,6 +1412,23 @@ export class Orchestrator {
             : undefined,
         },
       });
+
+      // 自动触发 OAT 初始启动推送通知 (Best-effort 尽力而为)
+      const push = this.config.admin.push_channel;
+      if (push) {
+        (async () => {
+          try {
+            const { Notifier } = await import("../plugins/notifier");
+            await Notifier.sendNotification({
+              channel: push.channel,
+              account: push.account,
+              text: `[Startup 🚀] Orchestrator has successfully started! Overall team goal is: "${this.goal}"`
+            });
+          } catch (err: any) {
+            logger.warn(`Startup notification bypass: ${err.message}`);
+          }
+        })();
+      }
     });
   }
 
@@ -1160,6 +1446,14 @@ export class Orchestrator {
       shuttingDown = true;
       logger.info(t("orchestrator_shutting_down", { signal }));
       void (async () => {
+        // 执行 OpenClaw 插件优雅退出清理（Wechaty/Puppeteer 退出与句柄清理）
+        try {
+          const { PluginRegistry } = await import("../plugins/registry");
+          await PluginRegistry.triggerHook("gateway_stop");
+        } catch (err: any) {
+          logger.warn(`Error during gateway_stop trigger: ${err.message}`);
+        }
+
         try {
           await this.runtimeProvider.stopAll();
         } catch (e) {

@@ -52,6 +52,7 @@ Comportement du loader :
 | `admin.model` | Non | string | hérite du `model` de niveau supérieur | Modèle utilisé par Admin (peut être un alias) |
 | `admin.prompt` | Oui | string | - | Prompt Admin (accepte un chemin de fichier `*.md`) |
 | `admin.skills` | Non | SkillEntry[] | `[]` | Skills à installer dans le workspace Admin (chaque entry a `source` et optionnel `names`, installés via `npx skills add`) |
+| `admin.push_channel` | Non | object | - | Cible de routage du canal de push (contient les chaînes `channel` et `account`, ex : `{"channel": "openclaw-slack", "account": "team-slack"}`) |
 
 ## 5. `runtime`
 

@@ -28,6 +28,11 @@ export interface TeamFileAdminConfig {
   prompt: string;
   /** Admin 共享给任务的 skills 列表 */
   skills: SkillEntry[];
+  /** Admin 推送渠道账号配置 */
+  push_channel?: {
+    channel: string;
+    account: string;
+  };
 }
 
 /** 主分支名：仅允许 `main` 或 `master`（与常见 Git 默认分支一致）。 */

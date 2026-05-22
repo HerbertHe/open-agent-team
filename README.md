@@ -162,6 +162,59 @@ oat docs guide --lang en
 - Workspaces: `worktree` provider is implemented; other providers are placeholders.
 - Worker pool size intent (`teams[].worker.total`) is enforced by pre-spawning workers at team startup; workers are not cleaned up after a leader completes (only on orchestrator shutdown).
 
+## Push Channel Notification & OpenClaw Plugins
+
+OAT supports sending task progress, agent crashes, and final achievements to external chat channels (e.g. Slack, Discord, WeChat), fully compatible with the OpenClaw plugin ecosystem.
+
+### 1) Configuration File (`~/.oat/oat.json`)
+All global settings are natively stored in standard JSON at `~/.oat/oat.json`. A typical structure for channels is:
+
+```json
+{
+  "channels": {
+    "openclaw-slack": {
+      "accounts": {
+        "team-slack": {
+          "webhookUrl": "https://hooks.slack.com/services/..."
+        }
+      }
+    }
+  }
+}
+```
+
+To route task manager push notifications to a channel, declare the target in `team.json` under `admin.push_channel`:
+```json
+"admin": {
+  "name": "AdminAgent",
+  "push_channel": {
+    "channel": "openclaw-slack",
+    "account": "team-slack"
+  }
+}
+```
+
+### 2) CLI Commands
+Manage compatibility plugins and accounts directly from the terminal:
+
+- `oat channels` - View all loaded plugins, configured accounts, and active WeChat sessions.
+- `oat channel login <channelId> <accountId>` - Guideline/interactive ASCII QR scanner setup for stateful channels (e.g., WeChat):
+  ```bash
+  oat channel login weixin my-wechat
+  ```
+- `oat plugins install <packageName>` - Download and hot-install an OpenClaw-compatible plugin from NPM:
+  ```bash
+  oat plugins install @tencent-weixin/openclaw-weixin
+  ```
+- `oat plugins uninstall <pluginId>` - Remove a plugin physically from disk, wiping its cached sessions and credentials.
+
+### 3) Visual Plugin Center (Web Dashboard)
+OAT's Web Dashboard includes a premium, glassmorphism **Plugin Center** (`/plugins`) page to visually:
+- View status cards of installed plugins and active accounts.
+- Enter NPM package names to download and hot-install plugins dynamically in one click.
+- Configure new accounts dynamically via visual form fields compiled directly from the plugin's configuration schema (`configSchema`).
+- Guide users on scanning WeChat interactive QR codes in their CLI terminals.
+
 ## Other languages
 
 - `README.en.md`

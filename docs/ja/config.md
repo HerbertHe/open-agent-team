@@ -52,6 +52,7 @@ loader の挙動：
 | `admin.model` | いいえ | string | トップレベル `model` を継承 | Admin が使う model（alias でも可） |
 | `admin.prompt` | はい | string | - | Admin の prompt（`*.md` ファイルパスを受け付けます） |
 | `admin.skills` | いいえ | SkillEntry[] | `[]` | Admin workspace にインストールする skills（各 entry に `source` と任意の `names`、`npx skills add` でインストール） |
+| `admin.push_channel` | いいえ | object | - | プッシュ通知の送信先（`channel` と `account` 文字列フィールドを含むオブジェクト。例：`{"channel": "openclaw-slack", "account": "team-slack"}`） |
 
 ## 5. `runtime`
 

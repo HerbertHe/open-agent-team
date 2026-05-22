@@ -704,6 +704,11 @@ export class TaskManager {
             payload: { remote, branch: this.config.project.base_branch },
           });
           logger.success(t("admin_git_push_success", { remote, branch: this.config.project.base_branch }));
+
+          // 推送最终交付成功至关联通知渠道
+          void this.pushNotification(
+            `[Delivery Success 🏆] Admin task complete and successfully pushed to remote '${remote}' (${this.config.project.base_branch})!`
+          );
         } catch (e) {
           this.observabilityHub.emit({
             source: "orchestrator",
@@ -721,6 +726,22 @@ export class TaskManager {
     return { ok: true };
   }
 
+  private async pushNotification(text: string, media?: any): Promise<void> {
+    const push = this.config.admin.push_channel;
+    if (!push) return;
+    try {
+      const { Notifier } = await import("../plugins/notifier");
+      await Notifier.sendNotification({
+        channel: push.channel,
+        account: push.account,
+        text,
+        media
+      });
+    } catch (err: any) {
+      logger.warn(`Failed to push notification: ${err.message}`);
+    }
+  }
+
   async reportProgress(body: any): Promise<any> {
     const agentId = body?.agentId as string | undefined;
     const stage = typeof body?.stage === "string" ? body.stage : undefined;
@@ -736,6 +757,11 @@ export class TaskManager {
           sessionId: agent.sessionId,
           payload: { stage, message },
         });
+
+        // 异步向绑定渠道通知进度，防止阻碍编排逻辑
+        void this.pushNotification(
+          `[Progress ⚙️] Agent '${agentId}' reported progress:\nStage: ${stage || "N/A"}\nMessage: ${message}`
+        );
       } catch {
         this.observabilityHub.emit({
           source: "orchestrator",
@@ -777,6 +803,11 @@ export class TaskManager {
       payload: { error: error.message },
     });
     logger.warn("agent crashed", { agentId, role, error: error.message });
+
+    // 推送崩溃通知至关联通知渠道
+    void this.pushNotification(
+      `[Crash ⚠️] Agent '${agentId}' (${role}) crashed!\nError: ${error.message}`
+    );
 
     if (role === AgentRoleEnum.Worker) {
       const teamName = agent.spec.teamName ?? "";
@@ -901,6 +932,11 @@ export class TaskManager {
     const mgr = new ChangelogManager();
     const cl = changelog ?? (await mgr.readChangelog(worker.spec.workspacePath));
 
+    // 推送 Worker 代码合并与完成的通知
+    void this.pushNotification(
+      `[Worker Merged 🚀] Worker '${workerId}' finished its task and successfully merged into leader branch!\nChangelog:\n${cl}`
+    );
+
     this.observabilityHub.emit({
       source: "orchestrator",
       type: "prompt.leader.after_worker",
@@ -955,6 +991,11 @@ export class TaskManager {
 
     const mgr = new ChangelogManager();
     const cl = changelog ?? (await mgr.readChangelog(leader.spec.workspacePath));
+
+    // 推送 Leader 团队目标达成通知
+    void this.pushNotification(
+      `[Leader Merged 🎉] Leader '${leaderId}' completed the team goal and successfully merged into main branch!\nChangelog:\n${cl}`
+    );
 
     const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
     if (!admin) throw new Error(t("admin_not_found"));

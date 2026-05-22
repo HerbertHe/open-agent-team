@@ -123,3 +123,63 @@ oat docs [options] <name>
 ```bash
 oat docs config --lang en
 ```
+
+---
+
+## `oat channels`
+
+Inspect loaded push channel plugins, all configured accounts, active sessions (such as WeChat QR logins), and overall status.
+
+**Usage:**
+```bash
+oat channels
+```
+
+---
+
+## `oat channel login`
+
+Interactively log into a stateful push channel (e.g. WeChat scanning guide).
+
+**Usage:**
+```bash
+oat channel login <channelId> <accountId>
+```
+
+**Arguments:**
+- `channelId`: The target channel type (e.g., `weixin`).
+- `accountId`: The identifier for this new channel login session.
+
+**Example:**
+```bash
+oat channel login weixin my-wechat
+```
+
+---
+
+## `oat plugins install`
+
+Download and hot-install an OpenClaw-compatible push channel plugin from NPM dynamically.
+
+**Usage:**
+```bash
+oat plugins install <packageName>
+```
+
+**Arguments:**
+- `packageName`: The NPM package name of the plugin (e.g., `@tencent-weixin/openclaw-weixin`).
+
+---
+
+## `oat plugins uninstall`
+
+Uninstall an installed plugin dynamically from the system, wiping all associated session files and credentials safely.
+
+**Usage:**
+```bash
+oat plugins uninstall <pluginId>
+```
+
+**Arguments:**
+- `pluginId`: The ID of the plugin to uninstall (e.g., `openclaw-weixin`).
+

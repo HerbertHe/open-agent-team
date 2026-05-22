@@ -239,7 +239,7 @@ Orchestrator 在启动后会监听 HTTP 端口（自动从 8787 开始扫描可�
 | POST | `/api/projects/:name/restart` | 重启指定项目（杀死旧进程并使用原始 argv 重新 spawn） |
 | GET | `/api/team-config` | 读取当前 Orchestrator 实例的 team.json |
 | PUT | `/api/team-config` | 更新当前实例的 team.json |
-| GET | `/api/global-config` | 读取全局配置 (`~/.oat/oat.yaml`) |
+| GET | `/api/global-config` | 读取全局配置 (`~/.oat/oat.json`) |
 | PUT | `/api/global-config` | 更新全局配置 |
 | POST | `/tool/admin_instruction` | 向 Admin agent 下发指令（由 Dashboard 调用） |
 

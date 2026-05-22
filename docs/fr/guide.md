@@ -188,7 +188,7 @@ L'Orchestrateur expose les API de gestion suivantes :
 | POST | `/api/projects/:name/restart` | Redémarrer un projet |
 | GET | `/api/team-config` | Lire le team.json du projet courant |
 | PUT | `/api/team-config` | Mettre à jour le team.json du projet courant |
-| GET | `/api/global-config` | Lire la config globale (oat.yaml) |
+| GET | `/api/global-config` | Lire la config globale (oat.json) |
 | PUT | `/api/global-config` | Mettre à jour la config globale |
 
 ## 9. Afficher la documentation (multi-langue)

@@ -163,6 +163,59 @@ oat docs guide --lang zh-CN
 - Workspaces：实现了 `worktree` provider；其它 providers 为占位。
 - `teams[].worker.total` 的 worker 池规模会在启动 team 时被预先创建并生效；leader 完成后不会清理 worker 池（仅在 orchestrator 退出时销毁）。
 
+## 推送通道通知与 OpenClaw 插件
+
+OAT 支持将任务进度、Agent 崩溃和最终的成果通知发送到外部聊天渠道（如 Slack、Discord、微信），并且完全兼容 OpenClaw 插件生态系统。
+
+### 1) 配置文件 (`~/.oat/oat.json`)
+所有全局设置均以标准 JSON 格式原生存储在 `~/.oat/oat.json` 中。以下是典型的通道配置结构：
+
+```json
+{
+  "channels": {
+    "openclaw-slack": {
+      "accounts": {
+        "team-slack": {
+          "webhookUrl": "https://hooks.slack.com/services/..."
+        }
+      }
+    }
+  }
+}
+```
+
+要在任务管理器中将推送通知路由到特定通道，请在 `team.json` 的 `admin.push_channel` 中声明目标：
+```json
+"admin": {
+  "name": "AdminAgent",
+  "push_channel": {
+    "channel": "openclaw-slack",
+    "account": "team-slack"
+  }
+}
+```
+
+### 2) CLI 命令
+直接从终端管理兼容的插件和账号：
+
+- `oat channels` - 查看所有已加载的插件、配置的账号以及活跃的微信会话（Session）。
+- `oat channel login <channelId> <accountId>` - 引导有状态通道（例如微信）在终端中进行交互式 ASCII 二维码扫码登录与凭证存储：
+  ```bash
+  oat channel login weixin my-wechat
+  ```
+- `oat plugins install <packageName>` - 从 NPM 下载并热安装兼容 OpenClaw 的插件包：
+  ```bash
+  oat plugins install @tencent-weixin/openclaw-weixin
+  ```
+- `oat plugins uninstall <pluginId>` - 从磁盘物理删除插件，擦除其缓存的会话与相关凭证。
+
+### 3) 可视化插件中心 (Web 仪表盘)
+OAT 的 Web 仪表盘包含一个精致的毛玻璃效果 **插件中心** (`/plugins`) 页面，提供以下可视化功能：
+- 查看已安装插件和活跃账号的状态卡片。
+- 输入 NPM 包名，一键后台下载并动态热安装插件。
+- 根据插件的配置模式（`configSchema`）动态生成可视化表单字段，实时配置新账号。
+- 引导用户在 CLI 终端中扫描微信互动二维码。
+
 ## 致谢
 
 - [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard 的设计系统（主题、布局和毛玻璃效果）移植自 CPAMC 的 UI。

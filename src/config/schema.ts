@@ -82,6 +82,12 @@ export const TeamFileSchema = z.object({
     model: z.string().min(1).optional(),
     prompt: z.string().min(1),
     skills: z.array(SkillEntrySchema).default([]),
+    push_channel: z
+      .object({
+        channel: z.string().min(1),
+        account: z.string().min(1),
+      })
+      .optional(),
   }),
   teams: z.array(TeamSchema).min(1),
 });

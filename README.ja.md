@@ -162,6 +162,59 @@ oat docs guide --lang ja
 - workspaces：`worktree` provider が実装済み。他 provider は placeholder です。
 - `teams[].worker.total` の worker プールサイズは起動時の事前作成で反映されます。leader 完了後も worker はクリーンアップされず、オーケストレーター終了時にのみ破棄されます。
 
+## プッシュチャネル通知と OpenClaw プラグイン
+
+OAT は、タスクの進捗、エージェントのクラッシュ、および最終成果を外部のチャットチャネル（例：Slack、Discord、WeChat）に送信することをサポートしており、OpenClaw プラグインエコシステムと完全に互換性があります。
+
+### 1) 設定ファイル (`~/.oat/oat.json`)
+すべてのグローバル設定は、`~/.oat/oat.json` に標準 JSON 形式でネイティブに保存されます。チャネルの一般的な設定構造は以下の通りです：
+
+```json
+{
+  "channels": {
+    "openclaw-slack": {
+      "accounts": {
+        "team-slack": {
+          "webhookUrl": "https://hooks.slack.com/services/..."
+        }
+      }
+    }
+  }
+}
+```
+
+タスクマネージャのプッシュ通知をチャネルにルーティングするには、`team.json` 内の `admin.push_channel` でターゲットを宣言します：
+```json
+"admin": {
+  "name": "AdminAgent",
+  "push_channel": {
+    "channel": "openclaw-slack",
+    "account": "team-slack"
+  }
+}
+```
+
+### 2) CLI コマンド
+互換プラグインとアカウントをターミナルから直接管理します：
+
+- `oat channels` - ロードされたすべてのプラグイン、設定されたアカウント、およびアクティブな WeChat セッションを表示します。
+- `oat channel login <channelId> <accountId>` - 状態を持つチャネル（例：WeChat）用の、ターミナル内インタラクティブ ASCII QR コードスキャナー設定と認証情報の保存：
+  ```bash
+  oat channel login weixin my-wechat
+  ```
+- `oat plugins install <packageName>` - NPM から OpenClaw 互換のプラグインをダウンロードし、動的にホットインストールします：
+  ```bash
+  oat plugins install @tencent-weixin/openclaw-weixin
+  ```
+- `oat plugins uninstall <pluginId>` - プラグインをディスクから物理的に削除し、キャッシュされたセッションと認証情報を消去します。
+
+### 3) ビジュアルプラグインセンター (Web ダッシュボード)
+OAT の Web ダッシュボードには、美しいグラスモフィズム風の **プラグインセンター** (`/plugins`) ページが含まれており、視覚的に以下の操作が行えます：
+- インストールされているプラグインとアクティブなアカウントのステータスカードを表示。
+- NPM パッケージ名を入力して、ワンクリックでプラグインを動的にホットインストール。
+- プラグインの構成スキーマ (`configSchema`) から直接コンパイルされたフォームフィールドを介して、アカウント設定を動的に追加・編集。
+- CLI ターミナルで WeChat インタラクティブ QR コードをスキャンするユーザーガイドの表示。
+
 ## 謝辞
 
 - [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard のデザインシステム（テーマ、レイアウト、グラスエフェクト）は CPAMC の UI から移植されました。
