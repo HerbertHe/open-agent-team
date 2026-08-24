@@ -60,7 +60,10 @@ loader 行为：
 
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | 否 | enum (`local_process`) | `local_process` | 运行时模式（当前仅实现 `local_process`） |
+| `runtime.mode` | 否 | enum (`local_process` \| `docker`) | `local_process` | 运行时模式；`docker` 为每个 Agent session 创建独立容器 |
+| `runtime.docker.image` | docker 模式必填 | string | - | Docker 镜像；需包含 Node.js 和项目任务工具 |
+| `runtime.docker.network` | 否 | `none` \| `bridge` \| `host` | `bridge` | 容器网络模式 |
+| `runtime.docker.extra_args` | 否 | string[] | `[]` | 追加至 `docker run` 的资源/安全参数 |
 | `runtime.persistence.state_dir` | 否 | string | `"<team.json目录>/.oat/state"` | orchestrator 状态持久化目录（`status/stop` 会读取 `orchestrator.json`） |
 
 home 展开：
@@ -92,8 +95,12 @@ home 展开：
 | 字段 | 必填 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | 否 | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | workspace 策略（当前仅实现 `worktree`） |
-| `workspace.root_dir` | 否 | string | `"<team.json目录>/workspaces"` | workspace 根目录（每个 agent workspace 会落在该目录下） |
-| `workspace.git.remote` | 否 | string | `"origin"` | 预留：当前代码仅创建 worktree、未直接使用 remote 名称 |
+| `workspace.root_dir` | 否 | string | `"<team.json目录>/workspaces"` | 静态 Agent workspace 根目录；任务级 worktree 与工件位于 `runtime.persistence.state_dir/git-collaboration/` |
+| `workspace.git.remote` | 否 | string | — | 远程名称；不配置即为纯本地 Git |
+| `workspace.git.remote_url` | 否 | string | — | 所选 remote 的拉取/推送地址 |
+| `workspace.git.user_name` | 否 | string | — | Admin 最终 release 合并提交使用的本地身份 |
+| `workspace.git.user_email` | 否 | string | — | Admin 最终 release 合并提交使用的本地邮箱 |
+| `workspace.git.push_enabled` | 否 | boolean | `false` | 允许 Admin 显式推送已合并 release；Leader/Worker worktree 始终禁用推送 |
 | `workspace.git.lfs` | 否 | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | 当前 `worktree` provider 仅在值为 `pull` 时执行 `git lfs pull` |
 | `workspace.sparse_checkout.enabled` | 否 | boolean | `true` | 是否启用 sparse-checkout（需要 leader 提供 `teams[].leader.repos` 才会设置 paths） |
 

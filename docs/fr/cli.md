@@ -21,7 +21,7 @@ oat init
 
 ## `oat start`
 
-Démarre l'Orchestrateur en tant que démon en arrière-plan pour gérer et planifier l'équipe d'Agents en fonction du fichier de configuration. Utilisez `oat dashboard` pour le voir en temps réel.
+Démarre l'Orchestrateur en arrière-plan pour gérer et planifier l'équipe d'Agents. Utilisez OAT Desktop pour la gestion en temps réel.
 
 **Utilisation :**
 ```bash
@@ -93,17 +93,6 @@ oat inspect [options] [stateDir] [workspaceRoot]
 
 **Options :**
 - `--limit <number>` : Nombre maximal d'entrées de workspace à afficher (défaut : 50).
-
----
-
-## `oat dashboard`
-
-Ouvre le tableau de bord web OAT global dans votre navigateur par défaut. Le tableau de bord se connecte automatiquement aux instances de l'Orchestrateur en cours d'exécution pour fournir une observabilité en temps réel, une gestion de projet et un suivi des réalisations.
-
-**Utilisation :**
-```bash
-oat dashboard
-```
 
 ---
 
@@ -182,4 +171,3 @@ oat plugins uninstall <pluginId>
 
 **Arguments :**
 - `pluginId` : L'identifiant du plugin à désinstaller (ex. `openclaw-weixin`).
-

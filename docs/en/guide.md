@@ -126,38 +126,28 @@ oat start team.json [goal] --lang zh-CN
 
 On startup, OAT creates a symlink under `~/.oat/projects/` pointing to the project directory, enabling multi-project management.
 
-## 6. Using the Dashboard
+## 6. Using OAT Desktop
 
-OAT ships with a built-in web dashboard, automatically available after starting the Orchestrator. Open `http://localhost:<port>` in your browser.
+Open OAT Desktop to manage registered projects. It includes:
 
-You can also launch the dashboard independently (without starting the Orchestrator) using:
-
-```bash
-oat dashboard
-```
-
-This starts a local static server and automatically opens the dashboard in your default browser.
-
-The dashboard includes:
-
-- **Dashboard**: project information overview, running project list (with delete action)
+- **Project overview**: project information and running/stopped project management
 - **Project Status**: real-time SSE event stream, Agent topology graph, progress reports. Supports switching between different project instances
 - **Project Config**: edit the project's `team.json` online with Shiki-highlighted JSON preview. Saving automatically restarts the project
 - **Settings**: global settings such as log retention days
 
 ### Multi-project support
 
-The dashboard supports managing multiple running projects simultaneously. In "Project Status" and "Project Config" pages, use the project selector to switch between projects. Projects are displayed as `Config Name (Project ID)`.
+Desktop supports managing multiple projects simultaneously. Use the project tree to switch projects; projects are displayed by their configured name.
 
 ## 7. Observe what you should see
 
 Common observation points:
 
 - Orchestrator starts and listens on the auto-assigned or specified port
-- worker workspaces appear under `workspace.root_dir` (default `<team.json dir>/workspaces/<agentId>`)
-- each worker updates its workspace root `CHANGELOG.md` when finished
-- worker branches are merged into the corresponding leader branches
-- after a leader merges into `project.base_branch`, Orchestrator cleans up that leader and its workers (process + workspace)
+- task worktrees and persisted manifests appear under `state_dir/git-collaboration/`
+- each Worker submits a self-tested `submit-review` request with a branch, SHA, changed files, tests, and artifact path
+- Leader explicitly reviews before merging a Worker branch into its integration branch
+- Admin approves a release proposal before MergeController serially updates `project.base_branch`
 
 ## 8. Status / stop
 
@@ -200,4 +190,3 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
-

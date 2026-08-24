@@ -63,6 +63,11 @@ export function DocViewer() {
           <Link to="/docs/architecture" className={`text-sm ${docPath === 'architecture' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.architecture', 'Architecture')}</Link>
           <Link to="/docs/config" className={`text-sm ${docPath === 'config' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.config', 'Configuration')}</Link>
           <Link to="/docs/cli" className={`text-sm ${docPath === 'cli' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.cli', 'CLI Reference')}</Link>
+          <div className="border-t border-border my-1" />
+          <Link to="/docs/git-collaboration" className={`text-sm ${docPath === 'git-collaboration' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.gitCollaboration', 'Git collaboration')}</Link>
+          <Link to="/docs/docker-sandbox" className={`text-sm ${docPath === 'docker-sandbox' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.dockerSandbox', 'Docker sandbox')}</Link>
+          <Link to="/docs/agent-resources" className={`text-sm ${docPath === 'agent-resources' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.agentResources', 'Agent Resources')}</Link>
+          <Link to="/docs/memory-architecture" className={`text-sm ${docPath === 'memory-architecture' ? 'text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'}`}>{t('docs.memoryArchitecture', 'Memory architecture')}</Link>
         </nav>
       </aside>
       <main className="flex-1 min-w-0 prose prose-neutral dark:prose-invert max-w-none">

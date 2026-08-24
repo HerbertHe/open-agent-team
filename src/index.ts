@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { cleanupAgentLogs } from "./utils/log-cleanup";
 import { getLogRetentionDays } from "./utils/oat-config";
 import net from "node:net";
+import { runResourcesInterview } from "./resources/agent";
 
 async function ensureDir(p: string): Promise<void> {
   await fs.mkdir(p, { recursive: true });
@@ -162,7 +163,7 @@ async function main() {
           child.unref();
 
           logger.success(t("started_in_background", { logPath }));
-          logger.info(t("dashboard_hint"));
+          logger.info(t("desktop_hint"));
           process.exit(0);
         }
 
@@ -206,18 +207,10 @@ async function main() {
 
         const stateFile = path.join(stateDir, "orchestrator.json");
         const port = await resolvePort(Number(options.port), stateFile);
-        const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-        const dashboardDist = path.join(packageRoot, "dashboard", "dist");
-        const dashboardIndex = path.join(dashboardDist, "index.html");
-        const hasDashboard = await fileExists(dashboardIndex);
-        if (!hasDashboard) {
-          logger.warn(t("dashboard_dist_missing", { path: dashboardDist }));
-        }
         const orch = new Orchestrator(cfg, {
           goal,
           port,
           configPath: abs,
-          dashboardDist: hasDashboard ? dashboardDist : undefined,
         });
         await orch.start();
         logger.success(t("orchestrator_started"));
@@ -525,116 +518,6 @@ async function main() {
     });
 
   program
-    .command("dashboard")
-    .description(t("dashboard_desc"))
-    .action(async () => {
-      const os = await import("node:os");
-      const projectsDir = path.join(os.homedir(), ".oat", "projects");
-      let hasProjects = false;
-      try {
-        const entries = await fs.readdir(projectsDir);
-        if (entries.length > 0) {
-          hasProjects = true;
-        }
-      } catch {}
-
-      if (!hasProjects) {
-        logger.warn(t("dashboard_no_projects"));
-        process.exit(0);
-      }
-
-      const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-      const dashboardDist = path.join(packageRoot, "dashboard", "dist");
-      const dashboardIndex = path.join(dashboardDist, "index.html");
-
-      if (!(await fileExists(dashboardIndex))) {
-        logger.error(t("dashboard_build_not_found"), { path: dashboardDist });
-        process.exit(1);
-      }
-
-      const dashStatePath = path.join(os.homedir(), ".oat", "dashboard.json");
-      try {
-        if (await fileExists(dashStatePath)) {
-          const dashState = JSON.parse(await fs.readFile(dashStatePath, "utf8"));
-          if (dashState.pid && dashState.port) {
-            try {
-              process.kill(dashState.pid, 0);
-              const url = `http://localhost:${dashState.port}`;
-              logger.info(t("dashboard_already_running", { url }));
-              const { exec } = await import("node:child_process");
-              const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-              exec(`${cmd} ${url}`);
-              return;
-            } catch {}
-          }
-        }
-      } catch {}
-
-      const net = await import("node:net");
-      const findAvailablePort = async (startPort: number): Promise<number> => {
-        return new Promise((resolve) => {
-          const srv = net.createServer();
-          srv.on("error", () => resolve(findAvailablePort(startPort + 1)));
-          srv.listen(startPort, () => srv.close(() => resolve(startPort)));
-        });
-      };
-
-      const port = await findAvailablePort(3737);
-      const { createServer } = await import("node:http");
-      const mimeTypes: Record<string, string> = {
-        ".html": "text/html",
-        ".js": "application/javascript",
-        ".css": "text/css",
-        ".json": "application/json",
-        ".png": "image/png",
-        ".svg": "image/svg+xml",
-        ".ico": "image/x-icon",
-        ".woff": "font/woff",
-        ".woff2": "font/woff2",
-      };
-
-      const server = createServer(async (req, res) => {
-        let urlPath = req.url?.split("?")[0] ?? "/";
-        if (urlPath === "/") urlPath = "/index.html";
-
-        const filePath = path.join(dashboardDist, urlPath);
-        if (!filePath.startsWith(dashboardDist)) {
-          res.writeHead(403);
-          res.end("Forbidden");
-          return;
-        }
-
-        try {
-          const data = await fs.readFile(filePath);
-          const ext = path.extname(filePath);
-          res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
-          res.end(data);
-        } catch {
-          try {
-            const html = await fs.readFile(dashboardIndex);
-            res.writeHead(200, { "Content-Type": "text/html" });
-            res.end(html);
-          } catch {
-            res.writeHead(404);
-            res.end("Not Found");
-          }
-        }
-      });
-
-      server.listen(port, async () => {
-        await ensureDir(path.dirname(dashStatePath));
-        await fs.writeFile(dashStatePath, JSON.stringify({ pid: process.pid, port }), "utf8");
-
-        const url = `http://localhost:${port}`;
-        logger.success(t("dashboard_serving_at", { url }));
-
-        const { exec } = await import("node:child_process");
-        const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-        exec(`${cmd} ${url}`);
-      });
-    });
-
-  program
     .command("init")
     .description(t("init_desc"))
     .action(async () => {
@@ -653,6 +536,20 @@ async function main() {
       } catch (e) {
         logger.error(t("init_failed", { error: e instanceof Error ? e.message : String(e) }));
         process.exit(1);
+      }
+    });
+
+  program
+    .command("resources")
+    .argument("[config]", "team.json path to create or replace", "team.json")
+    .option("--force", "replace an existing team.json after the interview")
+    .description("Run the Agent Resources interview to create a project and its teams")
+    .action(async (config: string, options: { force?: boolean }) => {
+      try {
+        const result = await runResourcesInterview(config, Boolean(options.force));
+        logger.success(`Agent Resources created ${result.path} with ${result.teamCount} team(s).`);
+      } catch (error) {
+        logger.error(`Agent Resources failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     });
 

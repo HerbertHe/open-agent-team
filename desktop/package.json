@@ -1,0 +1,74 @@
+{
+  "name": "@open-agent-team/desktop",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Open Agent Team desktop control center",
+  "author": "Herbert He <Herbert.He0229@gmail.com>",
+  "packageManager": "pnpm@9.15.9",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/ensure-electron.mjs",
+    "dev": "node scripts/dev-with-test-team.mjs",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-vite build && electron-builder",
+    "lint": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.124",
+    "@svgr/core": "^8.1.0",
+    "@svgr/plugin-jsx": "^8.1.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "less": "^4.9.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~7.0.2",
+    "unplugin-icons": "^23.0.1",
+    "vite": "^8.2.2"
+  },
+  "build": {
+    "appId": "me.ibert.open-agent-team",
+    "productName": "Open Agent Team",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "arch": [
+        "arm64"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "arch": [
+        "ia32"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^4.0.76",
+    "ai": "^7.0.73",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

@@ -20,9 +20,9 @@ import {
   SettingsManager,
   DefaultResourceLoader,
   defineTool,
-  AuthStorage,
   ModelRegistry,
-} from "@mariozechner/pi-coding-agent";
+  ModelRuntime,
+} from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import type {
   MainToChild,
@@ -30,6 +30,9 @@ import type {
   SerializableToolDef,
   ToolResultPayload,
 } from "./agent-runner-ipc";
+import readline from "node:readline";
+import path from "node:path";
+import { ProviderCompatibleTypeEnum } from "../types";
 
 // ─── 状态 ───────────────────────────────────────────────────────────────────
 
@@ -56,7 +59,8 @@ const pendingToolResults = new Map<
 // ─── IPC 辅助 ───────────────────────────────────────────────────────────────
 
 function send(msg: ChildToMain): void {
-  process.send?.(msg);
+  if (process.send) process.send(msg);
+  else process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
 
 function handleToolResult(callId: string, result?: ToolResultPayload, error?: string): void {
@@ -106,8 +110,15 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     const provider = slashIdx < 0 ? "anthropic" : spec.model.slice(0, slashIdx);
     const modelId = slashIdx < 0 ? spec.model : spec.model.slice(slashIdx + 1);
 
-    const authStorage = AuthStorage.create();
-    const modelRegistry = ModelRegistry.create(authStorage);
+    // pi-coding-agent 0.84 exposes the asynchronous ModelRuntime factory;
+    // AuthStorage is intentionally internal to the SDK and is no longer a
+    // public export. Keep credentials and model declarations scoped per Agent.
+    const modelRuntime = await ModelRuntime.create({
+      authPath: path.join(agentDir, "auth.json"),
+      modelsPath: path.join(agentDir, "models.json"),
+      refreshOnCreate: false,
+    });
+    const modelRegistry = new ModelRegistry(modelRuntime);
 
     if (process.env.OPENAI_BASE_URL) {
       modelRegistry.registerProvider("openai", {
@@ -130,13 +141,13 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     // 先从 SDK 内置 registry 查找模型；若不存在且用户配置了 OPENAI_BASE_URL（兼容网关），则允许任意新模型 ID。
     // 这等价于“动态注册”一个 openai-completions 模型，避免 registry 白名单导致新模型无法使用。
     let model: any = modelRegistry.find(provider, modelId) ?? undefined;
-    if (!model && provider === "openai" && process.env.OPENAI_BASE_URL) {
+    if (!model && provider === ProviderCompatibleTypeEnum.OpenAI && process.env.OPENAI_BASE_URL) {
       const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
       model = {
         id: modelId,
         name: modelId,
         api: "openai-completions",
-        provider: "openai",
+        provider: ProviderCompatibleTypeEnum.OpenAI,
         baseUrl: process.env.OPENAI_BASE_URL,
         reasoning: false,
         input: ["text"],
@@ -154,7 +165,7 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     //   1. 降级 API 类型为 openai-completions
     //   2. 覆盖 compat 为通用代理兼容配置，避免发送 store / developer role /
     //      max_completion_tokens / reasoning_effort 等不被支持的参数
-    if (model && process.env.OPENAI_BASE_URL && provider === "openai") {
+    if (model && process.env.OPENAI_BASE_URL && provider === ProviderCompatibleTypeEnum.OpenAI) {
       model = {
         ...model,
         api: "openai-completions" as typeof model.api,
@@ -223,6 +234,10 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
 // ─── IPC 消息处理 ────────────────────────────────────────────────────────────
 
 process.on("message", (rawMsg: unknown) => {
+  handleMessage(rawMsg);
+});
+
+function handleMessage(rawMsg: unknown): void {
   const msg = rawMsg as MainToChild;
 
   if (msg.type === "start") {
@@ -267,7 +282,17 @@ process.on("message", (rawMsg: unknown) => {
     handleToolResult(msg.callId, msg.result, msg.error);
     return;
   }
-});
+}
+
+// Docker runs this entrypoint without Node IPC. The identical protocol travels
+// over newline-delimited JSON on stdio, while stdout is reserved for protocol.
+if (!process.send) {
+  const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  input.on("line", (line) => {
+    try { handleMessage(JSON.parse(line)); }
+    catch { send({ type: "agent_error", error: "Invalid JSONL control message" }); }
+  });
+}
 
 // ─── 全局错误保障 ─────────────────────────────────────────────────────────────
 

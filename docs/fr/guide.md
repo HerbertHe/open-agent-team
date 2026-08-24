@@ -126,28 +126,18 @@ oat start team.json [goal] --lang zh-CN
 
 Au démarrage, OAT crée un lien symbolique sous `~/.oat/projects/` pointant vers le répertoire du projet, permettant la gestion multi-projets.
 
-## 5. Utiliser le tableau de bord
+## 5. Utiliser OAT Desktop
 
-OAT embarque un tableau de bord web, automatiquement disponible après le démarrage de l'Orchestrateur. Ouvrez `http://localhost:<port>` dans votre navigateur.
+Ouvrez OAT Desktop pour gérer les projets enregistrés. Il comprend :
 
-Vous pouvez également lancer le tableau de bord indépendamment (sans démarrer l'Orchestrateur) :
-
-```bash
-oat dashboard
-```
-
-Cette commande démarre un serveur statique local et ouvre automatiquement le tableau de bord dans votre navigateur par défaut.
-
-Le tableau de bord comprend :
-
-- **Tableau de bord** : vue d'ensemble du projet, liste des projets en cours (avec suppression)
+- **Vue des projets** : informations et gestion des projets actifs ou arrêtés
 - **État du projet** : flux SSE en temps réel, topologie des agents, rapports de progression. Supporte le basculement entre différentes instances
 - **Configuration projet** : édition en ligne du `team.json` avec aperçu JSON coloré via Shiki. La sauvegarde redémarre automatiquement le projet
 - **Paramètres** : paramètres globaux (rétention des logs, etc.)
 
 ### Support multi-projets
 
-Le tableau de bord gère plusieurs projets simultanément. Dans les pages « État du projet » et « Configuration projet », utilisez le sélecteur pour basculer. L'affichage suit le format `Nom de config (ID projet)`.
+Desktop gère plusieurs projets simultanément via l'arborescence des projets.
 
 ## 6. Observer le résultat
 
@@ -155,9 +145,11 @@ Points de contrôle courants :
 
 - L'Orchestrateur démarre et écoute sur le port attribué automatiquement ou spécifié
 - Les workspaces worker apparaissent sous `workspace.root_dir` (par défaut `<répertoire de team.json>/workspaces/<agentId>`)
-- Chaque worker met à jour le `CHANGELOG.md` à la racine lorsqu'il termine
-- Les branches des workers sont fusionnées dans les branches correspondantes des leaders
-- Après fusion du leader vers `project.base_branch`, l'Orchestrateur nettoie le leader et ses workers (processus + workspace)
+- Chaque Worker soumet une demande `submit-review` contenant son commit, ses tests et les chemins de livrables
+- Le Leader examine la demande puis l'intègre dans une branche d'intégration dédiée, ou demande une correction
+- L'Admin approuve la proposition de livraison avant que MergeController ne mette à jour `main`/`master`
+
+Pour les files par agent, les branches, la revue et les données d'exécution hors du dépôt, consultez [Collaboration Git](./git-collaboration.md). `CHANGELOG.md` reste une preuve lisible, mais n'est plus le bus de coordination.
 
 ## 7. Statut / arrêt
 
@@ -199,5 +191,8 @@ Vous pouvez afficher le contenu via CLI, par exemple :
 oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
+oat docs git-collaboration --lang fr
+oat docs docker-sandbox --lang fr
+oat docs agent-resources --lang fr
+oat docs memory-architecture --lang fr
 ```
-

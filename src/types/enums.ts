@@ -14,6 +14,56 @@ export enum AgentRoleEnum {
   Worker = "worker",
 }
 
+/** Scheduler task lifecycle. */
+export enum QueuedTaskStatusEnum {
+  Queued = "queued",
+  Running = "running",
+  Waiting = "waiting",
+  ReviewPending = "review_pending",
+  Completed = "completed",
+  Cancelled = "cancelled",
+  Failed = "failed",
+}
+
+/** Persisted Worker review lifecycle. */
+export enum ReviewStatusEnum {
+  Pending = "pending",
+  Approved = "approved",
+  ChangesRequested = "changes_requested",
+  Merged = "merged",
+  Rejected = "rejected",
+}
+
+/** Admin release-decision lifecycle. */
+export enum ReleaseStatusEnum {
+  Pending = "pending",
+  Approved = "approved",
+  Merged = "merged",
+  Rejected = "rejected",
+}
+
+/** Durable Leader inbox event kind. */
+export enum LeaderInboxEventTypeEnum {
+  WorkerReviewReady = "worker_review_ready",
+}
+
+/** Durable Leader inbox delivery lifecycle. */
+export enum LeaderInboxEventStatusEnum {
+  Pending = "pending",
+  Leased = "leased",
+  Acknowledged = "acknowledged",
+  Failed = "failed",
+  /** Read-only compatibility with scheduler snapshots written before leases. */
+  LegacyDelivered = "delivered",
+}
+
+/** Test evidence recorded with a Worker review. */
+export enum ReviewTestStatusEnum {
+  Passed = "passed",
+  Failed = "failed",
+  Unknown = "unknown",
+}
+
 /**
  * workspace 提供方策略（文件系统/目录隔离实现）。
  */
@@ -32,6 +82,25 @@ export enum WorkspaceProviderTypeEnum {
 export enum RuntimeModeEnum {
   /** local_process：在本机以进程内 pi AgentSession SDK 运行（单机方案） */
   LocalProcess = "local_process",
+  /** docker：每个 Agent 会话运行于独立 Docker 容器，宿主仅保留编排和工具执行。 */
+  Docker = "docker",
+}
+
+/** Upstream API protocol implemented by a model provider. */
+export enum ProviderCompatibleTypeEnum {
+  OpenAI = "openai",
+  Anthropic = "anthropic",
+}
+
+export enum BaseBranchEnum {
+  Main = "main",
+  Master = "master",
+}
+
+export enum DockerNetworkModeEnum {
+  None = "none",
+  Bridge = "bridge",
+  Host = "host",
 }
 
 
@@ -47,4 +116,3 @@ export enum WorkerSkillSyncEnum {
   /** 手动同步：不自动注入，由外部逻辑决定 */
   Manual = "manual",
 }
-

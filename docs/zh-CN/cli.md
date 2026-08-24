@@ -21,7 +21,7 @@ oat init
 
 ## `oat start`
 
-根据配置文件启动编排器（Orchestrator），并在后台运行以管理和调度 Agent 团队。可以通过 `oat dashboard` 实时查看。
+根据配置文件启动编排器（Orchestrator），并在后台运行以管理和调度 Agent 团队。请使用 OAT Desktop 实时管理。
 
 **用法：**
 ```bash
@@ -93,17 +93,6 @@ oat inspect [options] [stateDir] [workspaceRoot]
 
 **选项：**
 - `--limit <number>`：最多显示的工作区条目数（默认：50）。
-
----
-
-## `oat dashboard`
-
-在默认浏览器中打开全局 OAT Web 仪表盘。仪表盘会自动连接正在运行的 Orchestrator 实例，提供实时可观测性、项目管理和工作成果历史追踪。
-
-**用法：**
-```bash
-oat dashboard
-```
 
 ---
 
@@ -182,4 +171,3 @@ oat plugins uninstall <pluginId>
 
 **参数：**
 - `pluginId`：要卸载的插件 ID（例如 `openclaw-weixin`）。
-

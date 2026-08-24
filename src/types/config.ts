@@ -1,10 +1,10 @@
-import type { RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
+import type { BaseBranchEnum, DockerNetworkModeEnum, ProviderCompatibleTypeEnum, RuntimeModeEnum, WorkspaceProviderTypeEnum } from "./enums";
 import type { TeamConfig, SkillEntry } from "./team";
 
 /** 单个服务商的配置。 */
 export interface ProviderConfig {
   /** 兼容类型：openai 或 anthropic */
-  compatible_type: "openai" | "anthropic";
+  compatible_type: ProviderCompatibleTypeEnum;
   /** API 基础地址 */
   base_url?: string;
   /** API 密钥 */
@@ -36,7 +36,7 @@ export interface TeamFileAdminConfig {
 }
 
 /** 主分支名：仅允许 `main` 或 `master`（与常见 Git 默认分支一致）。 */
-export type ProjectBaseBranch = "main" | "master";
+export type ProjectBaseBranch = BaseBranchEnum;
 
 /**
  * team.json 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
@@ -57,6 +57,11 @@ export interface TeamFileConfig {
   runtime?: {
     /** 运行时模式：本机进程或 Flue */
     mode?: RuntimeModeEnum;
+    docker?: {
+      image: string;
+      network?: DockerNetworkModeEnum;
+      extra_args?: string[];
+    };
     persistence?: {
       /** orchestrator 状态与映射的持久化目录 */
       state_dir?: string;
@@ -68,8 +73,15 @@ export interface TeamFileConfig {
     /** workspace 根目录 */
     root_dir?: string;
     git?: {
-      /** git remote 名称 */
+      /** Git remote 名称；不配置时仅使用本地 Git。 */
       remote?: string;
+      /** Remote URL。凭据由 Git credential helper 或 SSH agent 管理。 */
+      remote_url?: string;
+      /** 最终合并提交使用的本地 Git 身份。 */
+      user_name?: string;
+      user_email?: string;
+      /** 是否允许 Admin 显式推送已合并的 release。 */
+      push_enabled?: boolean;
       /** LFS 策略 */
       lfs?: "pull" | "skip" | "allow_pull_deny_change";
     };
@@ -99,6 +111,11 @@ export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "worksp
       /** pi agentDir */
       agentDir: string;
     };
+    docker?: {
+      image: string;
+      network: DockerNetworkModeEnum;
+      extra_args: string[];
+    };
     persistence: {
       /** 状态持久化目录 */
       state_dir: string;
@@ -110,8 +127,12 @@ export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "worksp
     /** workspaces 根目录 */
     root_dir: string;
     git: {
-      /** remote 名称 */
-      remote: string;
+      /** remote 名称；undefined 表示 local-only。 */
+      remote?: string;
+      remote_url?: string;
+      user_name?: string;
+      user_email?: string;
+      push_enabled: boolean;
       lfs: "pull" | "skip" | "allow_pull_deny_change";
     };
     sparse_checkout: {

@@ -7,6 +7,8 @@ import { RECORDS_DIR, todayRecordsSubPath } from "../utils/records";
 export type OatWorkspaceScopeContext = {
   workspaceRoot: string;
   workspacePath: string;
+  /** Runtime-only metadata root; when set, no `.oat` files are written into the Git worktree. */
+  runtimeMetaPath?: string;
   role: AgentRoleEnum;
   teamName?: string;
   teams: Array<{ name: string; worker: { total: number } }>;
@@ -91,10 +93,12 @@ export async function writeAgentWorkspaceConfig(args: {
   role: AgentRoleEnum;
   scopeCtx: OatWorkspaceScopeContext;
   orchestratorBaseUrl: string;
+  runtimeMetaPath?: string;
 }): Promise<void> {
-  await writeOatScopeMeta(args.workspacePath, args.scopeCtx);
-  await writeOatOrchestratorMeta(args.workspacePath, { baseUrl: args.orchestratorBaseUrl });
-  await writeOatAgentMeta(args.workspacePath, {
+  const metaPath = args.runtimeMetaPath ?? args.workspacePath;
+  await writeOatScopeMeta(metaPath, args.scopeCtx);
+  await writeOatOrchestratorMeta(metaPath, { baseUrl: args.orchestratorBaseUrl });
+  await writeOatAgentMeta(metaPath, {
     role: args.role,
     agentName: args.agentName,
     ...(args.role === AgentRoleEnum.Worker
@@ -116,9 +120,8 @@ export function buildAgentSystemPrompt(args: {
   const todayPath = todayRecordsSubPath();
   const recordsHint = [
     `\n\n## File placement rules (ALL roles must follow)`,
-    `- \`CHANGELOG.md\` MUST be placed at the workspace root directory.`,
-    `- All other work-process files (notes, drafts, analysis, logs, intermediate outputs, etc.) MUST be placed under \`${todayPath}/\` (i.e. \`${RECORDS_DIR}/yyyy-MM-dd/\`) inside the workspace root.`,
-    `- Today's date folder is \`${todayPath}/\`. Create it (mkdir -p) if it does not exist before writing files there.`,
+    `- Keep the Git worktree clean: only repository source, tests, and deliberate project documentation may be created there.`,
+    `- Do NOT create logs, drafts, records, skills, or runtime metadata inside the Git worktree; report evidence paths through the orchestration tools instead.`,
   ].join("\n");
 
   const changelogSystem = (() => {
@@ -126,11 +129,7 @@ export function buildAgentSystemPrompt(args: {
       "\n\n## System constraint: CHANGELOG.md (You must follow)",
       "- Append your new entries to the END of `CHANGELOG.md` at the workspace root. Do NOT overwrite existing content.",
       "- Clearly describe what you did, which key files/modules were involved, and a brief conclusion.",
-      `- All other work-process files (analysis notes, drafts, logs, etc.) must go into \`${todayPath}/\`.`,
-      ...(args.role !== AgentRoleEnum.Admin ? [
-        "- After finishing, MUST call tool `notify-complete` exactly once.",
-        `- You MUST provide required args: { "agentRole": "${args.role === AgentRoleEnum.Leader ? 'leader' : 'worker'}", "agentId": "${args.agentName}" } (you may omit \`changelog\`).`,
-      ] : []),
+      ...(args.role === AgentRoleEnum.Worker ? ["- After self-testing, MUST call `submit-review` exactly once; this never merges your branch."] : args.role === AgentRoleEnum.Leader ? ["- After review and an approved release proposal, MUST call `notify-complete` exactly once."] : []),
       "- You may omit the `changelog` argument: orchestrator will read `CHANGELOG.md` from the workspace automatically.",
       "- If there were no code changes, you must still record the reason/analysis in `CHANGELOG.md`.",
     ].join("\n");

@@ -7,7 +7,7 @@ const DEFAULT_GLOBAL_LOCAL_CAP = 2500;
 
 /**
  * 内存有界环形缓冲 + 多订阅者 + 磁盘日志持久化。
- * 用于 Dashboard SSE 与编排/pi Agent 事件汇聚。
+ * 用于 Desktop SSE 与编排/pi Agent 事件汇聚。
  */
 export class ObservabilityHub {
   private buffer: ObservabilityEvent[] = [];

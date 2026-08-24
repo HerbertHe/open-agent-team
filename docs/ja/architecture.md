@@ -1,5 +1,7 @@
 # エージェントチームのアーキテクチャ（Orchestrator + pi-coding-agent）
 
+> **協働フローの更新。** 以下の履歴セクションには、`CHANGELOG.md` を中心とした旧来の自動マージフローが残っています。現在の動作は、agent ごとの FIFO キュー、Worker のタスクブランチと自己テスト、`submit-review`、Leader による明示的なレビューと統合、Admin 承認後の MergeController による `main`/`master` 更新です。`local_process` に加えて Docker も使用できます。運用上の正しい仕様は [Git コラボレーション](./git-collaboration.md) と [Docker サンドボックス](./docker-sandbox.md) を参照してください。
+
 ## 1. 概要：宣言的チームがどう実現されるか
 
 このプロジェクトは「宣言的な agent チーム」ワークフローを提供します。`team.json` 内で `Admin / Leader / Worker` のロール、モデル、skills、そしてチームごとのブランチ/ワークスペース戦略を宣言します。実行時には Orchestrator が設定を読み取り、以下を行います：

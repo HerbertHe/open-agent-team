@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@theme {
+  --color-oat-ink: #2d2a26;
+  --color-oat-taupe: #8b8680;
+  --color-oat-canvas: #f7f6f4;
+  --color-oat-line: #e4e1dd;
+}

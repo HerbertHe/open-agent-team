@@ -61,7 +61,10 @@ Loader behavior:
 
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `runtime.mode` | No | enum (`local_process`) | `local_process` | Runtime mode (currently only implements `local_process`; each Agent runs in an isolated child process via `child_process.fork()`) |
+| `runtime.mode` | No | enum (`local_process` \| `docker`) | `local_process` | Runtime mode; `docker` creates an isolated container for every Agent session |
+| `runtime.docker.image` | Required for docker mode | string | - | Docker image containing Node.js and project task tools |
+| `runtime.docker.network` | No | `none` \| `bridge` \| `host` | `bridge` | Container network mode |
+| `runtime.docker.extra_args` | No | string[] | `[]` | Resource/security arguments appended to `docker run` |
 | `runtime.persistence.state_dir` | No | string | `"<team.json dir>/.oat/state"` | Orchestrator state directory (used by `status/stop` reading `orchestrator.json`) |
 
 Home expansion:
@@ -95,8 +98,12 @@ Notes:
 | Field | Required | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `workspace.provider` | No | enum (`worktree` \| `shared_clone` \| `full_clone`) | `worktree` | Workspace strategy (only `worktree` implemented today) |
-| `workspace.root_dir` | No | string | `"<team.json dir>/workspaces"` | Root directory where workspaces are created |
-| `workspace.git.remote` | No | string | `"origin"` | Placeholder: current code does not directly use remote name when creating worktrees |
+| `workspace.root_dir` | No | string | `"<team.json dir>/workspaces"` | Static-Agent workspace root; task worktrees and artifacts live in `runtime.persistence.state_dir/git-collaboration/` |
+| `workspace.git.remote` | No | string | — | Remote name; omit it for local-only Git |
+| `workspace.git.remote_url` | No | string | — | Fetch/push URL configured for the selected remote |
+| `workspace.git.user_name` | No | string | — | Local identity used for the Admin release merge commit |
+| `workspace.git.user_email` | No | string | — | Local email used for the Admin release merge commit |
+| `workspace.git.push_enabled` | No | boolean | `false` | Allow Admin to explicitly push a merged release; Leader/Worker worktrees remain push-disabled |
 | `workspace.git.lfs` | No | enum (`pull` \| `skip` \| `allow_pull_deny_change`) | `pull` | For the `worktree` provider, run `git lfs pull` only when set to `pull` |
 | `workspace.sparse_checkout.enabled` | No | boolean | `true` | Enable sparse-checkout (requires `teams[].leader.repos` to set paths) |
 

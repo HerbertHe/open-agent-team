@@ -126,28 +126,18 @@ oat start team.json [goal] --lang zh-CN
 
 起動時、OAT は `~/.oat/projects/` にプロジェクトディレクトリへのシンボリックリンクを作成し、マルチプロジェクト管理を可能にします。
 
-## 5. ダッシュボードの使用
+## 5. OAT Desktop の使用
 
-OAT には Web ダッシュボードが組み込まれており、Orchestrator 起動後に自動で利用可能になります。ブラウザで `http://localhost:<port>` を開いてください。
+OAT Desktop を開いて登録済みプロジェクトを管理します。以下の機能があります：
 
-Orchestratorを起動せずに、ダッシュボードのみを単独で起動することもできます：
-
-```bash
-oat dashboard
-```
-
-このコマンドはローカルの静的サーバーを起動し、デフォルトブラウザで自動的にダッシュボードを開きます。
-
-ダッシュボードには以下のページがあります：
-
-- **ダッシュボード**：プロジェクト情報の概要、実行中のプロジェクト一覧（削除操作付き）
+- **プロジェクト概要**：プロジェクト情報と実行中／停止済みプロジェクトの管理
 - **プロジェクト状態**：リアルタイム SSE イベントストリーム、Agent トポロジーグラフ、進捗レポート。異なるプロジェクトインスタンス間の切り替えに対応
 - **プロジェクト設定**：プロジェクトの `team.json` をオンラインで編集。Shiki によるシンタックスハイライト付き JSON プレビュー。保存すると自動的にプロジェクトが再起動されます
 - **設定**：ログ保持日数などのグローバル設定
 
 ### マルチプロジェクト対応
 
-ダッシュボードは複数の実行中プロジェクトを同時に管理できます。「プロジェクト状態」と「プロジェクト設定」ページでプロジェクトセレクターを使って切り替えます。表示形式は `設定名 (プロジェクトID)` です。
+Desktop は左側のプロジェクトツリーから複数プロジェクトを管理できます。
 
 ## 6. 実行結果で確認すること
 
@@ -155,9 +145,11 @@ oat dashboard
 
 - Orchestrator が起動し、自動割り当てまたは指定されたポートで listen していること
 - worker の workspace が `workspace.root_dir` 配下に出現すること（デフォルト `<team.json のディレクトリ>/workspaces/<agentId>`）
-- worker が完了すると workspace ルートの `CHANGELOG.md` を更新すること
-- worker のブランチが該当する leader ブランチにマージされること
-- leader が `project.base_branch` にマージされた後、Orchestrator がその leader と workers をクリーンアップ（プロセス + workspace）
+- 各 Worker が commit、テスト、成果物パスを含む `submit-review` を提出すること
+- Leader が依頼をレビューして専用の integration ブランチに統合するか、修正を依頼すること
+- Admin がリリース提案を承認してから、MergeController が `main`/`master` を更新すること
+
+agent ごとのキュー、ブランチ、レビュー、リポジトリ外の実行データについては [Git コラボレーション](./git-collaboration.md) を参照してください。`CHANGELOG.md` は人が読める証拠として残りますが、協働バスではありません。
 
 ## 7. 状態確認 / 停止
 
@@ -199,5 +191,8 @@ CLI で doc を出力できます。例えば：
 oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
+oat docs git-collaboration --lang ja
+oat docs docker-sandbox --lang ja
+oat docs agent-resources --lang ja
+oat docs memory-architecture --lang ja
 ```
-

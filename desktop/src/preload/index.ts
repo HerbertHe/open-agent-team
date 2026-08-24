@@ -1,0 +1,24 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('oatDesktop', {
+  getRuntimeStatus: () => ipcRenderer.invoke('runtime:status'),
+  prepareRuntime: () => ipcRenderer.invoke('runtime:prepare'),
+  ensureNodeRuntime: () => ipcRenderer.invoke('runtime:ensure-node'),
+  ensureOatTool: () => ipcRenderer.invoke('runtime:ensure-oat'),
+  installRuntime: () => ipcRenderer.invoke('runtime:install'),
+  updateOat: () => ipcRenderer.invoke('runtime:update-oat'),
+  checkUpdates: () => ipcRenderer.invoke('updates:check'),
+  installDocker: (locale: 'zh-CN' | 'en' | 'fr' | 'ja') => ipcRenderer.invoke('docker:install', locale),
+  getDockerStatus: () => ipcRenderer.invoke('docker:status'),
+  startDocker: () => ipcRenderer.invoke('docker:start'),
+  listProjects: () => ipcRenderer.invoke('projects:list'),
+  restartProject: (name: string) => ipcRenderer.invoke('projects:restart', name),
+  deleteProject: (name: string) => ipcRenderer.invoke('projects:delete', name),
+  listProviderModels: (input: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('providers:list-models', input),
+  requestOrchestrator: (input: { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }) => ipcRenderer.invoke('orchestrator:request', input),
+  requestControlPlane: (input: { path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }) => ipcRenderer.invoke('control-plane:request', input),
+  subscribeObservability: (projectName: string) => ipcRenderer.invoke('observability:subscribe', projectName),
+  unsubscribeObservability: () => ipcRenderer.invoke('observability:unsubscribe'),
+  onObservabilityEvent: (listener: (payload: { projectName: string; event: unknown }) => void) => { const handler = (_event: Electron.IpcRendererEvent, payload: { projectName: string; event: unknown }) => listener(payload); ipcRenderer.on('observability:event', handler); return () => ipcRenderer.removeListener('observability:event', handler); },
+  onObservabilityStatus: (listener: (payload: { projectName: string; connected: boolean }) => void) => { const handler = (_event: Electron.IpcRendererEvent, payload: { projectName: string; connected: boolean }) => listener(payload); ipcRenderer.on('observability:status', handler); return () => ipcRenderer.removeListener('observability:status', handler); },
+});

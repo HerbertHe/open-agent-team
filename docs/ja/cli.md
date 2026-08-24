@@ -21,7 +21,7 @@ oat init
 
 ## `oat start`
 
-設定ファイルに基づいてエージェントチームを管理・スケジュールするためのオーケストレーターをバックグラウンドデーモンとして起動します。リアルタイムで確認するには `oat dashboard` を使用してください。
+設定ファイルに基づいて Agent チームを管理・スケジュールするために Orchestrator をバックグラウンドで起動します。リアルタイム管理には OAT Desktop を使用してください。
 
 **使用法：**
 ```bash
@@ -93,17 +93,6 @@ oat inspect [options] [stateDir] [workspaceRoot]
 
 **オプション：**
 - `--limit <number>`：表示するワークスペースエントリの最大数（デフォルト：50）。
-
----
-
-## `oat dashboard`
-
-デフォルトのブラウザでグローバル OAT Web ダッシュボードを開きます。ダッシュボードは実行中の Orchestrator インスタンスに自動的に接続し、リアルタイムの可観測性、プロジェクト管理、および成果の追跡を提供します。
-
-**使用法：**
-```bash
-oat dashboard
-```
 
 ---
 
@@ -182,4 +171,3 @@ oat plugins uninstall <pluginId>
 
 **引数：**
 - `pluginId` : アンインストールするプラグインの ID（例：`openclaw-weixin`）。
-

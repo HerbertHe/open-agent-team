@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, LayoutDashboard, Copy, Check } from 'lucide-react';
+import { Activity, ArrowRight, FileJson, ShieldCheck, Zap, GitMerge, Puzzle, Copy, Check, ClipboardCheck, GitPullRequest, Container, BrainCircuit } from 'lucide-react';
 import { ParticleCanvas } from '../components/ParticleCanvas';
 import { codeToHtml } from 'shiki';
 import { motion } from 'framer-motion';
@@ -51,7 +51,7 @@ const FEATURE_ICONS: Record<string, React.ReactNode> = {
   dynamic: <Zap size={28} className="text-primary" />,
   merge: <GitMerge size={28} className="text-primary" />,
   skills: <Puzzle size={28} className="text-primary" />,
-  observe: <LayoutDashboard size={28} className="text-primary" />,
+  observe: <Activity size={28} className="text-primary" />,
 };
 
 function QuickStart() {
@@ -236,6 +236,48 @@ function Features() {
   );
 }
 
+function CollaborationFlow() {
+  const { t } = useTranslation();
+  const steps = [
+    { icon: <FileJson size={22} />, title: t('flow.plan.title'), desc: t('flow.plan.desc') },
+    { icon: <Zap size={22} />, title: t('flow.queue.title'), desc: t('flow.queue.desc') },
+    { icon: <ClipboardCheck size={22} />, title: t('flow.verify.title'), desc: t('flow.verify.desc') },
+    { icon: <GitPullRequest size={22} />, title: t('flow.review.title'), desc: t('flow.review.desc') },
+    { icon: <GitMerge size={22} />, title: t('flow.release.title'), desc: t('flow.release.desc') },
+  ];
+
+  return (
+    <section className="py-24 px-4 bg-muted/30 border-y border-border">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-14">
+          <h2 className="text-3xl font-bold mb-4">{t('flow.title')}</h2>
+          <p className="text-muted-foreground max-w-3xl mx-auto">{t('flow.subtitle')}</p>
+        </div>
+        <ol className="grid grid-cols-1 md:grid-cols-5 gap-5">
+          {steps.map((step, index) => (
+            <li key={step.title} className="relative rounded-xl border border-border bg-card p-6">
+              <span className="absolute -top-3 left-6 h-6 min-w-6 px-1 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">{index + 1}</span>
+              <div className="text-primary mb-4 mt-2">{step.icon}</div>
+              <h3 className="font-bold mb-2">{step.title}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">{step.desc}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
+          <div className="rounded-xl border border-border bg-card p-6 flex gap-4">
+            <Container className="text-primary shrink-0" size={28} />
+            <div><h3 className="font-bold mb-1">{t('flow.docker.title')}</h3><p className="text-sm text-muted-foreground leading-relaxed">{t('flow.docker.desc')}</p></div>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-6 flex gap-4">
+            <BrainCircuit className="text-primary shrink-0" size={28} />
+            <div><h3 className="font-bold mb-1">{t('flow.memory.title')}</h3><p className="text-sm text-muted-foreground leading-relaxed">{t('flow.memory.desc')}</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Footer() {
   const { t } = useTranslation();
   const text = t('footer.copyright');
@@ -270,6 +312,7 @@ export function Home() {
         <Hero />
         <QuickStart />
         <Features />
+        <CollaborationFlow />
       </main>
       <Footer />
     </div>

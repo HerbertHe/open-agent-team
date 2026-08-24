@@ -1,3 +1,4 @@
+import { ProviderCompatibleTypeEnum } from "../types";
 import type { TeamFileProvidersConfig } from "../types";
 
 export function rewriteModelProviderByCompatibleType(
@@ -11,11 +12,11 @@ export function rewriteModelProviderByCompatibleType(
   if (!modelId) return fullModel;
   
   const providerCfg = providers?.[providerKey] as
-    | { compatible_type?: "openai" | "anthropic" }
+    | { compatible_type?: ProviderCompatibleTypeEnum }
     | undefined;
     
   const ct = providerCfg?.compatible_type;
-  if (ct === "openai" || ct === "anthropic") {
+  if (ct === ProviderCompatibleTypeEnum.OpenAI || ct === ProviderCompatibleTypeEnum.Anthropic) {
     return `${ct}/${modelId}`;
   }
   return fullModel;

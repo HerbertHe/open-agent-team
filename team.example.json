@@ -17,7 +17,12 @@
     "base_branch": "main"
   },
   "runtime": {
-    "mode": "local_process",
+    "mode": "docker",
+    "docker": {
+      "image": "node:22-bookworm",
+      "network": "bridge",
+      "extra_args": ["--cpus=2", "--memory=4g"]
+    },
     "persistence": {
       "state_dir": ".oat/state"
     }
@@ -27,6 +32,9 @@
     "root_dir": "workspaces",
     "git": {
       "remote": "origin",
+      "user_name": "Open Agent Team Admin",
+      "user_email": "admin@example.com",
+      "push_enabled": false,
       "lfs": "pull"
     },
     "sparse_checkout": {
@@ -46,7 +54,7 @@
       "leader": {
         "name": "platform-lead",
         "description": "Platform lead responsible for task decomposition and worker coordination.",
-        "prompt": "You are the Leader agent for the platform team.\nBreak work into parallel tasks and call dispatch-worker-tasks with tasks.\nAggregate worker CHANGELOGs into your own CHANGELOG.",
+        "prompt": "You are the Leader agent for the platform team.\nDispatch only genuinely independent implementation tasks.\nReview every Worker submit-review request before merging it into your integration branch, then submit a release proposal for Admin approval.",
         "skills": [],
         "repos": [
           "src/",
@@ -55,7 +63,7 @@
       },
       "worker": {
         "total": 3,
-        "prompt": "You are a Worker engineer.\nImplement assigned tasks, update CHANGELOG.md at workspace root,\nthen call notify-complete with changelog content.",
+        "prompt": "You are a Worker engineer.\nImplement and self-test your assigned task in its task branch, update CHANGELOG.md as delivery evidence,\nthen call submit-review with test evidence. Never merge your own branch.",
         "extra_skills": [],
         "skill_sync": "inherit_and_inject_on_spawn"
       }

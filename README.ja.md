@@ -54,11 +54,9 @@ oat init
 oat start team.json
 ```
 
-### 4. ダッシュボードを開く
+### 4. OAT Desktop を開く
 
-```bash
-oat dashboard
-```
+Desktop でプロジェクト、タスク、リアルタイム監視、設定、使用量、成果、プラグイン、チャネル、Git 配信、Docker ランタイムを管理します。
 
 ## 重要な概念
 
@@ -130,7 +128,7 @@ oat start team.json [goal]
 oat start team.json [goal] --lang zh-CN
 ```
 
-起動後、`http://localhost:<port>` で内蔵の **Web ダッシュボード** にアクセスでき、リアルタイム可観測性、プロジェクト設定のオンライン編集（Shiki ハイライト付き JSON プレビュー）、グローバル設定管理、マルチプロジェクト管理が利用できます。さらに、各エージェントの日常の作業記録と `CHANGELOG.md` 履歴を閲覧するための **プロジェクト成果（Project Achievements）** ページも備えています。ダッシュボードは遅延読み込みとコード分割を採用しており、最適なパフォーマンスを提供します。
+**OAT Desktop** はリアルタイム監視、プロジェクト設定編集、グローバル設定、複数プロジェクト管理、タスク操作、各 Agent の作業記録と `CHANGELOG.md` 成果閲覧を提供します。
 
 ### 4) よく使うコマンド
 
@@ -217,7 +215,6 @@ OAT の Web ダッシュボードには、美しいグラスモフィズム風�
 
 ## 謝辞
 
-- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard のデザインシステム（テーマ、レイアウト、グラスエフェクト）は CPAMC の UI から移植されました。
 
 ## Star History
 

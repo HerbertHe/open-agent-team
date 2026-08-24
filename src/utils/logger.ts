@@ -8,6 +8,12 @@ function formatExtra(extra?: Record<string, unknown>): string {
 }
 
 export class Logger {
+  debug(msg: string, extra?: Record<string, unknown>): void {
+    if (process.env.OAT_DEBUG === "1") {
+      console.debug(`${chalk.gray("[DEBUG]")} ${msg}` + formatExtra(extra));
+    }
+  }
+
   info(msg: string, extra?: Record<string, unknown>): void {
     console.log(`${chalk.blue("[INFO]")} ${msg}` + formatExtra(extra));
   }

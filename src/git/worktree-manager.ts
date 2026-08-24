@@ -1,10 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { simpleGit } from "simple-git";
+import { BaseBranchEnum } from "../types";
 import type { AgentInstanceSpec, ResolvedConfig } from "../types";
 import { logger } from "../utils/logger";
 import type { WorkspaceProvider, WorkspaceResult } from "../sandbox/interface";
 import { t } from "../i18n/i18n";
+import { setWorktreePushPermission } from "./git-identity";
 
 export class WorktreeWorkspaceProvider implements WorkspaceProvider {
   constructor(private readonly config: ResolvedConfig) {}
@@ -32,7 +34,7 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
     if (!hasGit) {
       logger.info(t("git_repo_auto_initialized"), { repo: repoRoot, branch: baseBranch });
       const git = simpleGit(repoRoot);
-      await git.raw(["init", "-b", "main"]);
+      await git.raw(["init", "-b", BaseBranchEnum.Main]);
       await git.raw([
         "-c",
         "user.name=open-agent-team",
@@ -43,8 +45,8 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
         "-m",
         "chore: initial commit",
       ]);
-      if (baseBranch !== "main") {
-        await git.raw(["branch", "-m", "main", baseBranch]);
+      if (baseBranch !== BaseBranchEnum.Main) {
+        await git.raw(["branch", "-m", BaseBranchEnum.Main, baseBranch]);
       }
       return;
     }
@@ -71,9 +73,11 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
   }
 
   async ensureWorkspace(spec: AgentInstanceSpec, sparsePaths: string[]): Promise<WorkspaceResult> {
-    const root = this.config.workspace.root_dir;
-    const workspacePath = path.join(root, spec.id);
-    await fs.mkdir(root, { recursive: true });
+    // Task worktrees live below the orchestrator state directory, not inside
+    // the repository or a long-lived worker pool. `workspacePath` is therefore
+    // supplied by the task lifecycle and may differ for every attempt.
+    const workspacePath = path.resolve(spec.workspacePath);
+    await fs.mkdir(path.dirname(workspacePath), { recursive: true });
 
     const repoRoot = path.resolve(this.config.project.repo);
     await this.ensureGitRepository(repoRoot);
@@ -96,7 +100,7 @@ export class WorktreeWorkspaceProvider implements WorkspaceProvider {
       if (branchExists) {
         await git.raw(["worktree", "add", "--force", workspacePath, spec.branch]);
       } else {
-        await git.raw(["worktree", "add", workspacePath, "-b", spec.branch]);
+        await git.raw(["worktree", "add", workspacePath, "-b", spec.branch, spec.baseRef ?? this.config.project.base_branch]);
       }
     };
 
@@ -158,6 +162,13 @@ done
     } else if (lfsMode === "skip") {
       // Explicitly skip lfs pull
     }
+
+    await setWorktreePushPermission(
+      workspacePath,
+      this.config.workspace.git.remote,
+      false,
+      this.config.workspace.git.remote_url,
+    );
 
     return { path: workspacePath, branch: spec.branch };
   }

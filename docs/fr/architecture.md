@@ -1,5 +1,7 @@
 # Architecture de l'équipe d'agents (Orchestrateur + pi-coding-agent)
 
+> **Mise à jour de collaboration.** Les sections historiques ci-dessous décrivent encore l'ancien flux de fusion automatique fondé sur `CHANGELOG.md`. Le comportement actuel est : file FIFO par agent, Worker sur branche de tâche + auto-test, demande `submit-review`, revue et intégration explicites du Leader, puis approbation Admin avant que MergeController mette à jour `main`/`master`. Docker est désormais disponible en plus de `local_process`. Consultez [Collaboration Git](./git-collaboration.md) et [Sandbox Docker](./docker-sandbox.md) pour la référence opérationnelle.
+
 ## 1. Vue d'ensemble : comment l'équipe déclarative est concrétisée
 
 Ce projet fournit un flux de travail « équipe d'agents déclarative » : vous déclarez les rôles `Admin / Leader / Worker`, les modèles, les skills, ainsi que les stratégies de branche/du workspace pour chaque équipe dans `team.json`. À l'exécution, l'Orchestrateur lit la configuration et réalise :

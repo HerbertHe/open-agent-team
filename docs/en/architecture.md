@@ -1,5 +1,15 @@
 # Agent Team Architecture (Orchestrator + pi-coding-agent)
 
+> **The collaboration flow has changed.** Any later section that describes a Worker auto-merging through `notify-complete`, or a Leader automatically merging the main branch, is historical context and must not be used operationally. The current source of truth is [Git collaboration](./git-collaboration.md): Worker `submit-review` → Leader review/integration → Admin `approve-release` → serialized MergeController update of `main`/`master`. Runtime artifacts live under `runtime.persistence.state_dir/git-collaboration/`, outside Git worktrees.
+
+## Current Git collaboration
+
+```text
+Admin (governance) → Leader (plan/review) → Worker task branch + self-test
+Worker submit-review → persisted review request → Leader integration branch
+Leader release proposal → Admin approval → serialized MergeController → main/master
+```
+
 ## 1. Overview: How the declarative team is realized
 
 This project provides a "declarative agent team" workflow: you declare `Admin / Leader / Worker` roles, models, skills, and team branch/workspace strategies in `team.json`; at runtime the Orchestrator reads the config and does the following:
@@ -24,7 +34,7 @@ Orchestrator lives in `src/orchestrator/orchestrator.ts` and is mainly responsib
 
 - Computing each agent's `workspacePath`, models, and skills based on `ResolvedConfig`
 - Injecting and starting `Admin` and all `Leader` agents (as in-process pi AgentSessions)
-- Registering Orchestrator HTTP tool routes (accessible via dashboard and external REST)
+- Registering Orchestrator HTTP tool routes (accessible via Desktop and external REST)
 - Writing workspace metadata (`.oat/*`) into each workspace via `src/pi/workspace-inject.ts`
 - Creating custom pi tools (`defineTool`) that directly call TaskManager, eliminating the need for HTTP tool callbacks
 
@@ -32,7 +42,7 @@ At startup, Orchestrator primarily:
 
 1. Generates and starts `Admin` and `Leader` (static agents) as pi AgentSessions
 2. Pre-spawns the worker pool for each team
-3. Starts an HTTP server for the dashboard and observability endpoints
+3. Starts an HTTP server for Desktop control-plane and observability endpoints
 
 ### TaskManager (dynamic scheduling and merge back-report)
 

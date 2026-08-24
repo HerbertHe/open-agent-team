@@ -14,8 +14,8 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentInstanceSpec, AgentRoleEnum } from "../types";
 import type { RuntimeHandle, RuntimeProvider } from "./interface";
-import { defineTool, getAgentDir } from "@mariozechner/pi-coding-agent";
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import { defineTool, getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type {
   MainToChild,
   ChildToMain,
@@ -141,10 +141,20 @@ export class PiSessionProvider implements RuntimeProvider {
       );
     }
 
+    // Agent subprocesses never receive Git publishing credentials. The sole
+    // remote-write path is the Admin-only push-release tool, executed by the
+    // orchestrator parent after role/release/identity validation.
+    const childEnv = { ...process.env };
+    for (const name of [
+      "SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_ASKPASS", "SSH_ASKPASS",
+      "GIT_SSH_COMMAND", "GH_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN",
+    ]) delete childEnv[name];
+    childEnv.GIT_TERMINAL_PROMPT = "0";
+
     const child = fork(runnerPath, [], {
       execPath,
       stdio: ["pipe", "pipe", "pipe", "ipc"],
-      env: process.env,
+      env: childEnv,
     });
 
     // 子进程 stdout/stderr 转接父进程（保留可见性）
@@ -409,6 +419,15 @@ export class PiSessionProvider implements RuntimeProvider {
     const entry = this.entries.get(agentId);
     if (!entry) return;
     const { spec, startOptions } = entry;
+    await this.stop(agentId);
+    await this.start(spec, startOptions);
+  }
+
+  /** Restart an existing logical Agent in a new task worktree/branch. */
+  async rebindSession(agentId: string, spec: AgentInstanceSpec): Promise<void> {
+    const entry = this.entries.get(agentId);
+    if (!entry) throw new Error(`No active session for agent ${agentId}`);
+    const startOptions = entry.startOptions;
     await this.stop(agentId);
     await this.start(spec, startOptions);
   }

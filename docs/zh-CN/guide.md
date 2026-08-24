@@ -126,38 +126,28 @@ oat start team.json [goal] --lang zh-CN
 
 启动后，OAT 会在 `~/.oat/projects/` 下创建指向项目目录的符号链接，以支持多项目管理。
 
-## 6. 使用仪表盘
+## 6. 使用 OAT Desktop
 
-OAT 内置了一个 Web 仪表盘，启动 Orchestrator 后自动可用。在浏览器中访问 `http://localhost:<port>` 即可打开。
+打开 OAT Desktop 管理已注册项目。它包含以下页面：
 
-你也可以单独启动仪表盘（无需启动 Orchestrator）：
-
-```bash
-oat dashboard
-```
-
-该命令会启动一个本地静态服务，并自动在默认浏览器中打开仪表盘。
-
-仪表盘包含以下页面：
-
-- **仪表盘**：项目信息总览、运行中项目列表（可删除项目）
+- **项目总览**：项目信息和运行中/已停止项目管理
 - **项目状态**：实时 SSE 事件流、Agent 拓扑图、进度汇报。支持切换不同项目实例进行观测
 - **项目配置**：在线编辑项目的 `team.json` 配置，带有 Shiki 语法高亮的 JSON 实时预览。保存后自动重启对应项目
 - **设置**：日志保留天数等全局配置
 
 ### 多项目支持
 
-仪表盘支持同时管理多个运行中的项目。在"项目状态"和"项目配置"页面中，可以通过项目选择器切换不同项目。项目显示格式为 `配置名称 (项目ID)`。
+Desktop 支持同时管理多个项目，可通过左侧项目树切换。
 
 ## 7. 观察执行结果（你应该看到什么）
 
 常见观察点：
 
 - Orchestrator 启动后会监听自动分配或指定的端口
-- worker workspace 会出现在 `workspace.root_dir`（默认 `<team.json目录>/workspaces/<agentId>`）
-- 每个 worker 在完成后会更新其 workspace 根目录 `CHANGELOG.md`
-- worker 的分支会被合并进对应 leader 分支
-- leader 合并进入 `project.base_branch` 后，Orchestrator 会清理对应 leader 与 worker（进程 + workspace）
+- 任务 worktree 和持久化 manifest 位于 `state_dir/git-collaboration/`
+- Worker 完成自测后会提交包含分支、SHA、变更文件、测试和产物路径的 `submit-review` 请求
+- Leader 在 merge 前显式 review，再将 Worker 分支合入 integration 分支
+- Admin 批准 release proposal 后，MergeController 才会串行更新 `project.base_branch`
 
 ## 8. 查看状态 / 停止
 
@@ -200,4 +190,3 @@ oat docs guide --lang fr
 oat docs architecture --lang zh-CN
 oat docs config --lang zh-CN
 ```
-

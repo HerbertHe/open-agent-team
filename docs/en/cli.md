@@ -21,7 +21,7 @@ oat init
 
 ## `oat start`
 
-Start the Orchestrator as a background daemon to manage your agent team based on the configuration file. Use `oat dashboard` to view it in real-time.
+Start the Orchestrator as a background daemon to manage your agent team based on the configuration file. Use OAT Desktop for real-time management.
 
 **Usage:**
 ```bash
@@ -93,17 +93,6 @@ oat inspect [options] [stateDir] [workspaceRoot]
 
 **Options:**
 - `--limit <number>`: Maximum number of workspace entries to display (default: 50).
-
----
-
-## `oat dashboard`
-
-Open the global OAT Web Dashboard in your default browser. The dashboard connects to running orchestrator instances automatically to provide real-time observability, project management, and achievement tracking.
-
-**Usage:**
-```bash
-oat dashboard
-```
 
 ---
 
@@ -182,4 +171,3 @@ oat plugins uninstall <pluginId>
 
 **Arguments:**
 - `pluginId`: The ID of the plugin to uninstall (e.g., `openclaw-weixin`).
-

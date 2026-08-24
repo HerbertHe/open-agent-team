@@ -14,9 +14,9 @@ This project lets you build a declarative **agent team** with a 3-layer hierarch
 
 `Admin -> Leader -> Worker`
 
-You declare roles, models, shared skills, and workspace/git strategies in `team.json`. At runtime, the Orchestrator starts all agents (`Admin`, `Leader`s, and a pre-spawned `Worker` pool) and `Leader`s dispatch tasks to `Worker`s. Each `Worker` must update a `CHANGELOG.md`, which is merged upward:
+You declare roles, models, shared skills, and workspace/git strategies in `team.json`. Admin governs project work, Leaders review and integrate Worker branches, and Workers deliver self-tested short-lived Git branches. A Worker never merges directly: it submits a persisted review request; only an Admin-approved, serialized MergeController updates `main`/`master`.
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> final `Admin` summary. All roles are strictly instructed to **APPEND** to their respective `CHANGELOG.md` files.
+See the [Git collaboration workflow](docs/zh-CN/git-collaboration.md) for branch naming, review, release approval, artifact manifests, and runtime-file isolation.
 
 ## Quick Start
 
@@ -54,11 +54,9 @@ oat init
 oat start team.json
 ```
 
-### 4. Open the dashboard
+### 4. Open OAT Desktop
 
-```bash
-oat dashboard
-```
+Use the Desktop application for project management, task operations, observability, configuration, usage, achievements, plugins, channels, Git delivery, and Docker runtime management.
 
 ## Key concepts
 
@@ -92,13 +90,15 @@ Skills are managed via [`npx skills`](https://github.com/vercel-labs/skills) and
 - On startup, OAT runs `npx skills add` for each entry and installs skills into `<workspace>/skills/`
 - A `.pi/skills` symlink is created for pi-coding-agent compatibility
 
-### CHANGELOG-driven collaboration
+### Git-reviewed collaboration
 
 When initializing agents, the Orchestrator injects system constraints:
 
-- All roles (Admin, Leader, Worker) MUST append to `CHANGELOG.md` at their workspace root (even if there are no code changes, record the reasoning).
-- All daily intermediate outputs (notes, drafts, logs) must be saved under `.oat/workspaces/<agentId>/records/<date>/`.
-- Worker and Leader call `notify-complete` and pass the prepared `CHANGELOG.md` content to propagate it upwards.
+- `CHANGELOG.md` is human-readable delivery evidence, not the collaboration bus.
+- A Worker calls `submit-review` after implementation and self-tests; the request records branch, commit, changed files, tests, and an artifact path.
+- A Leader explicitly reviews with `review-worker-branch`, merges approved branches into an integration branch, and creates a release proposal.
+- Admin approves or rejects the proposal with `approve-release`; only the serialized MergeController can update `main`/`master`.
+- Logs, drafts, Agent metadata, and other runtime files are stored in `<runtime.persistence.state_dir>/git-collaboration/`, not in Git worktrees.
 
 ## Quick start
 
@@ -130,7 +130,7 @@ Choose output/docs language:
 oat start team.json [goal] --lang zh-CN
 ```
 
-The built-in **Web Dashboard** is available at `http://localhost:<port>`, offering real-time observability, online project configuration editing (with Shiki JSON preview), global settings management, and multi-team project management. It also features a **Project Achievements** page to browse the daily work records and `CHANGELOG.md` history of each agent. The dashboard uses lazy-loading and code splitting for optimal performance.
+**OAT Desktop** provides real-time observability, project configuration editing, global settings, multi-project management, task operations, and Project Achievements for browsing daily work records and `CHANGELOG.md` history.
 
 ### 4) Useful commands
 
@@ -149,12 +149,10 @@ oat docs guide --lang en
 3. Orchestrator dispatches tasks to the pre-spawned `Worker` pool:
    - connects to the target worker
    - sends the task prompt
-4. `Worker` must:
-   - append to `CHANGELOG.md` at the workspace root
-   - call `notify-complete` with the prepared `CHANGELOG.md` content
-5. Orchestrator auto-commits all changes (`git add -A && git commit`), then merges `Worker -> Leader`, asks `Leader` to summarize, then merges `Leader -> project.base_branch`.
-6. Each agent's git commits are attributed with a unique local identity (e.g., `worker-0-teamName@project-projectName.oat`).
-7. Orchestrator keeps the worker pool until shutdown; only `stopAll` on orchestrator exit stops/destroys processes.
+4. Each Worker creates a task-specific branch from a pinned `main`/`master` SHA, self-tests, commits only Git-reported changes, and calls `submit-review`.
+5. Leader reviews each request before merging it into a task integration branch. Rejected reviews create a new task attempt; no code is merged before review.
+6. Leader submits a release proposal with artifact paths. Admin approves/rejects it; MergeController serializes the atomic main/master ref update.
+7. Task worktrees and manifests are retained under `state_dir/git-collaboration/`, keeping repository worktrees free of runtime garbage.
 
 ## Current implementation notes (aligned with code)
 
@@ -208,8 +206,8 @@ Manage compatibility plugins and accounts directly from the terminal:
   ```
 - `oat plugins uninstall <pluginId>` - Remove a plugin physically from disk, wiping its cached sessions and credentials.
 
-### 3) Visual Plugin Center (Web Dashboard)
-OAT's Web Dashboard includes a premium, glassmorphism **Plugin Center** (`/plugins`) page to visually:
+### 3) Visual Plugin Center (Desktop)
+OAT Desktop includes a native **Plugin Center** to:
 - View status cards of installed plugins and active accounts.
 - Enter NPM package names to download and hot-install plugins dynamically in one click.
 - Configure new accounts dynamically via visual form fields compiled directly from the plugin's configuration schema (`configSchema`).
@@ -224,7 +222,6 @@ OAT's Web Dashboard includes a premium, glassmorphism **Plugin Center** (`/plugi
 
 ## Acknowledgments
 
-- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard design system (theme, layout, and glass effects) is ported from CPAMC's UI.
 
 ## Star History
 

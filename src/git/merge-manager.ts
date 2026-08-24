@@ -21,7 +21,14 @@ export class MergeManager {
     return this.withLock(repoPath, async () => {
       const git = simpleGit(repoPath);
       await git.checkout(toBranch);
-      await git.merge(["--no-ff", fromBranch]);
+      try {
+        await git.merge(["--no-ff", fromBranch]);
+      } catch (error) {
+        // Never leave a reusable Agent worktree in MERGING state. A later
+        // checkout/merge must start from a clean repository state.
+        await git.raw(["merge", "--abort"]).catch(() => undefined);
+        throw error;
+      }
     });
   }
 

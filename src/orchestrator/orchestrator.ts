@@ -4,7 +4,7 @@ import net from "node:net";
 import https from "node:https";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { AgentRoleEnum } from "../types";
+import { AgentRoleEnum, ProviderCompatibleTypeEnum, QueuedTaskStatusEnum, RuntimeModeEnum } from "../types";
 import type {
   OrchestratorCtorArgs,
   ResolvedConfig,
@@ -15,8 +15,9 @@ import { rewriteModelProviderByCompatibleType } from "../utils/model-utils";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { PiSessionProvider } from "../sandbox/local-process";
+import { DockerSessionProvider } from "../sandbox/docker-process";
+import { assertRuntimeTransition } from "../config/runtime-policy";
 import { MergeManager } from "../git/merge-manager";
 import { setLocalGitIdentity } from "../git/git-identity";
 import { SkillResolver } from "../skills/skill-resolver";
@@ -33,14 +34,15 @@ import {
   buildAgentSystemPrompt,
   type OatWorkspaceScopeContext,
 } from "../pi/workspace-inject";
-import { defineTool } from "@mariozechner/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { simpleGit } from "simple-git";
 
 function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     function performRequest(currentUrl: string, redirectsLeft: number) {
       if (redirectsLeft <= 0) {
-        reject(new Error("Too many redirects"));
+        reject(new Error(t("image_redirect_limit")));
         return;
       }
 
@@ -60,7 +62,7 @@ function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
         }
 
         if (statusCode !== 200) {
-          reject(new Error(`Failed to download image. Status code: ${statusCode}`));
+          reject(new Error(t("image_download_failed", { status: statusCode ?? "N/A" })));
           return;
         }
 
@@ -96,16 +98,13 @@ export class Orchestrator {
   private readonly stateDir: string;
   private readonly stateFile: string;
   private readonly configPath: string;
-  private readonly runtimeProvider: PiSessionProvider;
+  private readonly runtimeProvider: PiSessionProvider | DockerSessionProvider;
   private readonly workspaceProvider: ReturnType<
     WorkspaceProviderFactory["getProvider"]
   >;
   private readonly skillResolver: SkillResolver;
   private readonly observabilityHub: ObservabilityHub;
   private readonly usageTracker: UsageTracker;
-  /** 存在且含 index.html 时由 Express 托管观测 Web UI */
-  private readonly dashboardDist: string | undefined;
-
   private readonly port: number;
   private readonly goal: string;
 
@@ -116,19 +115,14 @@ export class Orchestrator {
     this.port = args.port;
     this.goal = args.goal;
     this.configPath = args.configPath;
-    this.dashboardDist =
-      args.dashboardDist &&
-      existsSync(path.join(args.dashboardDist, "index.html"))
-        ? path.resolve(args.dashboardDist)
-        : undefined;
     this.stateDir = parseBaseDir(config.runtime.persistence.state_dir);
     this.stateFile = path.join(this.stateDir, "orchestrator.json");
 
     for (const [, providerCfg] of Object.entries(config.providers)) {
-      if (providerCfg.compatible_type === "openai") {
+      if (providerCfg.compatible_type === ProviderCompatibleTypeEnum.OpenAI) {
         if (providerCfg.base_url) process.env.OPENAI_BASE_URL = providerCfg.base_url;
         if (providerCfg.api_key) process.env.OPENAI_API_KEY = providerCfg.api_key;
-      } else if (providerCfg.compatible_type === "anthropic") {
+      } else if (providerCfg.compatible_type === ProviderCompatibleTypeEnum.Anthropic) {
         if (providerCfg.base_url) process.env.ANTHROPIC_BASE_URL = providerCfg.base_url;
         if (providerCfg.api_key) process.env.ANTHROPIC_API_KEY = providerCfg.api_key;
       }
@@ -137,13 +131,13 @@ export class Orchestrator {
     this.observabilityHub = new ObservabilityHub();
     this.usageTracker = new UsageTracker(config.project.name, (agentId, role) => {
       let rawModel = "unknown";
-      if (role === "admin") rawModel = config.admin.model || "unknown";
-      else if (role === "leader") {
+      if (role === AgentRoleEnum.Admin) rawModel = config.admin.model || "unknown";
+      else if (role === AgentRoleEnum.Leader) {
         const teamName = agentId.replace("-lead", "");
         const team = config.teams.find(t => t.name === teamName);
         rawModel = team?.leader?.model || config.model || "unknown";
       }
-      else if (role === "worker") {
+      else if (role === AgentRoleEnum.Worker) {
         const match = agentId.match(/(.+)-worker-\d+/);
         if (match) {
           const team = config.teams.find(t => t.name === match[1]);
@@ -154,9 +148,7 @@ export class Orchestrator {
     });
     this.usageTracker.attach(this.observabilityHub);
 
-    this.runtimeProvider = new PiSessionProvider(
-      config.runtime.pi.agentDir,
-      ({ agentId, event, role }) => {
+    const onEvent = ({ agentId, event, role }: { agentId: string; event: { type: string }; role?: AgentRoleEnum }) => {
         this.observabilityHub.emit(
           {
             source: "pi",
@@ -167,17 +159,16 @@ export class Orchestrator {
           },
           { skipBuffer: true },
         );
-      },
-      ({ agentId, error }) => {
-        // SDK 上报的 session 级错误：转发给 TaskManager 向上层 Agent 推送崩溃通知
+      };
+    const onError =
+      ({ agentId, error }: { agentId: string; error: Error }) => {
         void this.taskManager.handleAgentCrash(agentId, error).catch((e: unknown) => {
-          logger.warn("handleAgentCrash failed", {
-            agentId,
-            error: e instanceof Error ? e.message : String(e),
-          });
+          logger.warn(t("operation_failed", { operation: "handle_agent_crash", error: e instanceof Error ? e.message : String(e) }), { agentId });
         });
-      },
-    );
+      };
+    this.runtimeProvider = config.runtime.mode === RuntimeModeEnum.Docker
+      ? new DockerSessionProvider(config.runtime.docker ?? (() => { throw new Error(t("runtime_docker_required")); })(), config.runtime.pi.agentDir, config.project.name, onEvent, onError)
+      : new PiSessionProvider(config.runtime.pi.agentDir, onEvent, onError);
 
     const workspaceProvider = new WorkspaceProviderFactory(
       config,
@@ -198,9 +189,15 @@ export class Orchestrator {
 
     this.app.use((req, res, next) => {
       const origin = req.headers.origin;
+      // The packaged Electron renderer has an opaque (`null`) or `file://`
+      // origin. The desktop app is local-only and its main process restricts
+      // navigation to this renderer, so explicitly support those origins
+      // alongside the Vite development server.
       if (
         origin &&
-        (/^http:\/\/localhost:\d+$/.test(origin) ||
+        (origin === "null" ||
+          origin === "file://" ||
+          /^http:\/\/localhost:\d+$/.test(origin) ||
           /^http:\/\/127\.0\.0\.1:\d+$/.test(origin))
       ) {
         res.setHeader("Access-Control-Allow-Origin", origin);
@@ -208,7 +205,7 @@ export class Orchestrator {
           "Access-Control-Allow-Headers",
           "Content-Type, Cache-Control",
         );
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       }
       if (req.method === "OPTIONS") {
         res.status(204).end();
@@ -227,6 +224,83 @@ export class Orchestrator {
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
       }
+    });
+
+    this.app.get("/tasks", (req, res) => {
+      try {
+        const agentId = typeof req.query.agentId === "string" ? req.query.agentId : undefined;
+        res.json(this.taskManager.getTasks(agentId));
+      } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+    });
+
+    this.app.post("/tasks", async (req, res) => {
+      try { res.status(201).json(await this.taskManager.createTask(req.body)); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.patch("/tasks/:id", async (req, res) => {
+      try { res.json(await this.taskManager.updateTask({ ...req.body, id: req.params.id })); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/tasks/reorder", async (req, res) => {
+      try { res.json(await this.taskManager.reorderQueuedTasks(String(req.body.targetAgentId ?? ""), Array.isArray(req.body.taskIds) ? req.body.taskIds.map(String) : [])); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.delete("/tasks/:id", async (req, res) => {
+      try { res.json(await this.taskManager.deleteTask(req.params.id)); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+
+    this.app.get("/reviews", async (req, res) => {
+      try { res.json(await this.taskManager.listReviewRequests(typeof req.query.leaderId === "string" ? req.query.leaderId : undefined)); }
+      catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/reviews/:id", async (req, res) => {
+      try { res.json(await this.taskManager.reviewWorkerBranch(req.body.leaderId, req.params.id, Boolean(req.body.approve), String(req.body.note ?? ""))); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.get("/releases", async (_req, res) => {
+      try { res.json(await this.taskManager.listReleaseProposals()); }
+      catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/releases/:id/approval", async (req, res) => {
+      try { res.json(await this.taskManager.approveRelease(req.body.adminId, req.params.id, Boolean(req.body.approve), String(req.body.note ?? ""))); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.get("/docker/runtime", (_req, res) => {
+      try { res.json(this.taskManager.getDockerRuntimeStatus()); }
+      catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/docker/agents/:agentId/restart", async (req, res) => {
+      try { res.json(await this.taskManager.restartDockerAgent(req.params.agentId)); }
+      catch (e: any) { res.status(409).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.get("/git/status", async (_req, res) => {
+      try { res.json(await this.taskManager.getGitManagementStatus()); }
+      catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.put("/git/config", async (req, res) => {
+      try {
+        const update = {
+          remote: typeof req.body?.remote === "string" ? req.body.remote : undefined,
+          remoteUrl: typeof req.body?.remoteUrl === "string" ? req.body.remoteUrl : undefined,
+          userName: typeof req.body?.userName === "string" ? req.body.userName : undefined,
+          userEmail: typeof req.body?.userEmail === "string" ? req.body.userEmail : undefined,
+          pushEnabled: req.body?.pushEnabled === true,
+        };
+        const status = await this.taskManager.updateGitConfiguration(update);
+        const raw = JSON.parse(await fs.readFile(this.configPath, "utf8")) as Record<string, any>;
+        raw.workspace = raw.workspace && typeof raw.workspace === "object" ? raw.workspace : {};
+        raw.workspace.git = raw.workspace.git && typeof raw.workspace.git === "object" ? raw.workspace.git : {};
+        const gitConfig = raw.workspace.git as Record<string, unknown>;
+        const assignOptional = (key: string, value?: string) => { if (value) gitConfig[key] = value; else delete gitConfig[key]; };
+        assignOptional("remote", update.remote?.trim());
+        assignOptional("remote_url", update.remoteUrl?.trim());
+        assignOptional("user_name", update.userName?.trim());
+        assignOptional("user_email", update.userEmail?.trim());
+        gitConfig.push_enabled = update.pushEnabled;
+        await fs.writeFile(this.configPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+        res.json(status);
+      } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
     });
 
     this.app.get("/observability/agent/:agentId/logs", (req, res) => {
@@ -322,7 +396,7 @@ export class Orchestrator {
       try {
         const body = req.body as any;
         const prompt = typeof body?.prompt === "string" ? body.prompt : "";
-        const result = await this.taskManager.sendAdminDashboardInstruction(prompt);
+        const result = await this.taskManager.sendAdminOperatorInstruction(prompt);
         res.json(result);
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
@@ -341,6 +415,8 @@ export class Orchestrator {
 
     this.app.put("/api/team-config", async (req, res) => {
       try {
+        const current = JSON.parse(await fs.readFile(this.configPath, "utf8"));
+        assertRuntimeTransition(current, req.body);
         const content = JSON.stringify(req.body, null, 2);
         await fs.writeFile(this.configPath, content, "utf8");
         res.json({ ok: true });
@@ -390,12 +466,60 @@ export class Orchestrator {
               : path.join(realTarget, state.configPath);
           }
         } catch { /* use default */ }
+        const current = JSON.parse(await fs.readFile(configFilePath, "utf8"));
+        assertRuntimeTransition(current, req.body);
         const content = JSON.stringify(req.body, null, 2);
         await fs.writeFile(configFilePath, content, "utf8");
         res.json({ ok: true });
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
       }
+    });
+
+    // Local control-plane fallback for Desktop. Git identity and remote
+    // settings remain editable even while the project's Orchestrator is down.
+    this.app.put("/api/projects/:name/git/config", async (req, res) => {
+      try {
+        const linkPath = path.join(os.homedir(), ".oat", "projects", req.params.name);
+        const realTarget = await fs.realpath(linkPath);
+        let configFilePath = path.join(realTarget, "team.json");
+        try {
+          const state = JSON.parse(await fs.readFile(path.join(realTarget, ".oat", "state", "orchestrator.json"), "utf8")) as Record<string, unknown>;
+          if (typeof state.configPath === "string") configFilePath = path.isAbsolute(state.configPath) ? state.configPath : path.join(realTarget, state.configPath);
+        } catch { /* use default */ }
+        const raw = JSON.parse(await fs.readFile(configFilePath, "utf8")) as Record<string, any>;
+        const remote = typeof req.body?.remote === "string" ? req.body.remote.trim() || undefined : undefined;
+        const remoteUrl = typeof req.body?.remoteUrl === "string" ? req.body.remoteUrl.trim() || undefined : undefined;
+        const userName = typeof req.body?.userName === "string" ? req.body.userName.trim() || undefined : undefined;
+        const userEmail = typeof req.body?.userEmail === "string" ? req.body.userEmail.trim() || undefined : undefined;
+        const pushEnabled = req.body?.pushEnabled === true;
+        if (remote && !/^[A-Za-z0-9._-]+$/.test(remote)) throw new Error(t("git_remote_name_invalid"));
+        if (remoteUrl && !remote) throw new Error(t("git_remote_url_requires_name"));
+        if (pushEnabled && !remote) throw new Error(t("git_push_requires_remote"));
+        if (pushEnabled && !(userName && userEmail && /^[^\s@]+@[^\s@]+$/.test(userEmail))) throw new Error(t("git_push_requires_identity"));
+        const repoValue = raw.project?.repo;
+        if (typeof repoValue !== "string") throw new Error(t("workspace_root_not_found", { path: configFilePath }));
+        const repoPath = path.resolve(path.dirname(configFilePath), repoValue);
+        const git = simpleGit(repoPath);
+        if (userName) await git.addConfig("user.name", userName, false, "local"); else await git.raw(["config", "--local", "--unset-all", "user.name"]).catch(() => undefined);
+        if (userEmail) await git.addConfig("user.email", userEmail, false, "local"); else await git.raw(["config", "--local", "--unset-all", "user.email"]).catch(() => undefined);
+        if (remote && remoteUrl) {
+          const exists = (await git.getRemotes()).some((entry) => entry.name === remote);
+          if (exists) {
+            await git.raw(["remote", "set-url", remote, remoteUrl]);
+            await git.raw(["config", "--local", "--unset-all", `remote.${remote}.pushurl`]).catch(() => undefined);
+          } else await git.addRemote(remote, remoteUrl);
+        }
+        if (pushEnabled && remote && !(await git.getRemotes()).some((entry) => entry.name === remote)) throw new Error(t("git_push_remote_not_configured", { remote }));
+        raw.workspace = raw.workspace && typeof raw.workspace === "object" ? raw.workspace : {};
+        raw.workspace.git = raw.workspace.git && typeof raw.workspace.git === "object" ? raw.workspace.git : {};
+        const target = raw.workspace.git as Record<string, unknown>;
+        const assign = (key: string, value?: string) => { if (value) target[key] = value; else delete target[key]; };
+        assign("remote", remote); assign("remote_url", remoteUrl); assign("user_name", userName); assign("user_email", userEmail);
+        target.push_enabled = pushEnabled;
+        await fs.writeFile(configFilePath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+        res.json({ ok: true });
+      } catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
     });
 
     // --- project achievements ---
@@ -585,7 +709,7 @@ export class Orchestrator {
             await fs.rm(realTarget, { recursive: true, force: true });
           } catch (e) {
             // Log but don't fail — symlink is already removed
-            logger.warn("Failed to remove project directory", {
+            logger.warn(t("operation_failed", { operation: "remove_project_directory", error: String(e) }), {
               path: realTarget,
               error: e instanceof Error ? e.message : String(e),
             });
@@ -828,7 +952,7 @@ export class Orchestrator {
             const base64Str = buffer.toString("base64");
             result.qrDataUrl = `data:image/png;base64,${base64Str}`;
           } catch (fetchErr: any) {
-            logger.error(`Failed to proxy WeChat QR image: ${fetchErr.message}`);
+            logger.error(t("operation_failed", { operation: "proxy_qr_image", error: fetchErr.message }));
           }
         }
 
@@ -964,24 +1088,6 @@ export class Orchestrator {
       }
     });
 
-    if (this.dashboardDist) {
-      this.app.use(express.static(this.dashboardDist));
-      this.app.use((req, res, next) => {
-        if (req.method !== "GET" && req.method !== "HEAD") {
-          return next();
-        }
-        if (
-          req.path.startsWith("/tool") ||
-          req.path.startsWith("/observability") ||
-          req.path.startsWith("/api")
-        ) {
-          return next();
-        }
-        res.sendFile(path.join(this.dashboardDist!, "index.html"), (err) => {
-          if (err) next(err);
-        });
-      });
-    }
   }
 
   private buildAdminSpec(): AgentInstanceSpec {
@@ -1024,25 +1130,89 @@ export class Orchestrator {
   private buildOrchestratorTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
     const tm = this.taskManager;
 
+    const createTaskTool = defineTool({
+      name: "create-task", label: "Create Task",
+      description: "Queue a task for an agent. Rejects an active task with the same conflictKey (or duplicate target/prompt).",
+      parameters: Type.Object({
+        targetAgentId: Type.String(), prompt: Type.String(),
+        conflictKey: Type.Optional(Type.String({ description: "Optional mutual-exclusion key" })),
+      }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.createTask({ ...params, createdBy: spec.id })) }], details: {} }),
+    });
+    const updateTaskTool = defineTool({
+      name: "update-task", label: "Update Task", description: "Modify or cancel a queued task.",
+      parameters: Type.Object({ id: Type.String(), prompt: Type.Optional(Type.String()), conflictKey: Type.Optional(Type.String()), status: Type.Optional(Type.Union([Type.Literal(QueuedTaskStatusEnum.Queued), Type.Literal(QueuedTaskStatusEnum.Cancelled)])) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.updateTask(params)) }], details: {} }),
+    });
+    const deleteTaskTool = defineTool({
+      name: "delete-task", label: "Delete Task", description: "Delete a queued or finished task; running tasks cannot be deleted.",
+      parameters: Type.Object({ id: Type.String() }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.deleteTask(params.id)) }], details: {} }),
+    });
+    const queryTasksTool = defineTool({
+      name: "query-tasks", label: "Query Tasks", description: "List task queues and their current statuses.",
+      parameters: Type.Object({ agentId: Type.Optional(Type.String()) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(tm.getTasks(params.agentId)) }], details: {} }),
+    });
+
     const dispatchWorkerTasksTool = defineTool({
       name: "dispatch-worker-tasks",
       label: "Dispatch Worker Tasks",
-      description: "Dispatch task prompts to pre-spawned workers in the worker pool.",
+      description: "Dispatch only genuinely independent implementation tasks. Each worker must self-test; the leader reviews completed work rather than assigning a parallel test task.",
       parameters: Type.Object({
         leaderId: Type.Optional(Type.String({ description: "The caller leader agent id (optional; defaults to current agent)" })),
         tasks: Type.Array(
           Type.Object({
             index: Type.Optional(Type.Number({ description: "Worker index (0-based); defaults to task order" })),
             prompt: Type.String({ description: "Task prompt for this worker" }),
+            independent: Type.Optional(Type.Boolean({ description: "Required true when dispatching more than one task; asserts this task has no implementation/test dependency on siblings" })),
+            conflictKey: Type.Optional(Type.String({ description: "Mutual-exclusion key checked against active queued/running tasks" })),
           }),
           { description: "Tasks to assign to workers" }
         ),
       }),
       execute: async (_toolCallId, params) => {
-        const leaderId = params.leaderId ?? spec.id;
+        const leaderId = spec.id;
         const result = await tm.dispatchWorkerTasks(leaderId, { leaderId, tasks: params.tasks ?? [] });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
       },
+    });
+
+    const listReviewRequestsTool = defineTool({
+      name: "list-review-requests", label: "List Review Requests",
+      description: "List persisted Worker Git review requests owned by a Leader.",
+      parameters: Type.Object({ leaderId: Type.Optional(Type.String()) }),
+      execute: async () => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.listReviewRequests(spec.id)) }], details: {} }),
+    });
+    const reviewWorkerBranchTool = defineTool({
+      name: "review-worker-branch", label: "Review Worker Branch",
+      description: "After inspecting the diff and test evidence, approve and merge a Worker branch into the Leader integration branch, or request changes."
+      ,parameters: Type.Object({ reviewId: Type.String(), approve: Type.Boolean(), note: Type.String() }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.reviewWorkerBranch(spec.id, params.reviewId, params.approve, params.note)) }], details: {} }),
+    });
+    const submitReleaseProposalTool = defineTool({
+      name: "submit-release-proposal", label: "Submit Release Proposal",
+      description: "Create an Admin-facing release proposal from the Leader integration branch after integration tests pass.",
+      parameters: Type.Object({ note: Type.Optional(Type.String()) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.submitReleaseProposal(spec.id, params.note ?? "")) }], details: {} }),
+    });
+    const listReleaseProposalsTool = defineTool({
+      name: "list-release-proposals", label: "List Release Proposals",
+      description: "List pending and completed release proposals with artifact paths.",
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.listReleaseProposals()) }], details: {} }),
+    });
+    const approveReleaseTool = defineTool({
+      name: "approve-release", label: "Approve Release",
+      description: "Admin-only: approve or reject a release proposal. Approval invokes the serialized MergeController for main/master.",
+      parameters: Type.Object({ proposalId: Type.String(), approve: Type.Boolean(), note: Type.Optional(Type.String()) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.approveRelease(spec.id, params.proposalId, params.approve, params.note ?? "")) }], details: {} }),
+    });
+    const pushReleaseTool = defineTool({
+      name: "push-release", label: "Push Release",
+      description: "Admin-only: push the current locally merged release to the configured remote without force. Remote publishing must be enabled and use a valid local Git identity.",
+      parameters: Type.Object({ proposalId: Type.String() }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.pushRelease(spec.id, params.proposalId)) }], details: {} }),
     });
 
 
@@ -1077,8 +1247,7 @@ export class Orchestrator {
         changelog: Type.Optional(Type.String({ description: "Optional CHANGELOG content" })),
       }),
       execute: async (_toolCallId, params) => {
-        const agentId = params.agentId ?? spec.id;
-        const result = await tm.notifyComplete({ ...params, agentId });
+        const result = await tm.notifyComplete({ ...params, agentId: spec.id, agentRole: spec.role });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
       },
     });
@@ -1093,7 +1262,7 @@ export class Orchestrator {
         message: Type.String({ description: "Progress message" }),
       }),
       execute: async (_toolCallId, params) => {
-        const result = await tm.reportProgress(params);
+        const result = await tm.reportProgress({ ...params, agentId: spec.id });
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
       },
     });
@@ -1105,28 +1274,44 @@ export class Orchestrator {
       parameters: Type.Object({
         agentId: Type.String({ description: "Agent id whose workspace changelog to read" }),
       }),
-      execute: async (_toolCallId, params) => {
-        const result = await tm.generateChangelog(params.agentId);
+      execute: async () => {
+        const result = await tm.generateChangelog(spec.id);
         return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: {} };
       },
     });
 
-    return [
-      dispatchWorkerTasksTool,
-      assignLeaderTaskTool,
-      notifyCompleteTool,
-      reportProgressTool,
-      generateChangelogTool,
-    ];
+    const sharedTools = [queryTasksTool, notifyCompleteTool, reportProgressTool, generateChangelogTool];
+    if (spec.role === AgentRoleEnum.Admin) {
+      return [assignLeaderTaskTool, listReleaseProposalsTool, approveReleaseTool, pushReleaseTool, ...sharedTools];
+    }
+    if (spec.role === AgentRoleEnum.Leader) {
+      return [dispatchWorkerTasksTool, listReviewRequestsTool, reviewWorkerBranchTool,
+        submitReleaseProposalTool, listReleaseProposalsTool, ...sharedTools];
+    }
+    return sharedTools;
   }
 
   async start(): Promise<void> {
+    // Enforce the irreversible Docker boundary before loading plugins or
+    // starting any runtime-related work.
+    const runtimePolicyPath = path.join(path.dirname(this.configPath), ".oat", "runtime-policy.json");
+    const runtimePolicy = await fs.readFile(runtimePolicyPath, "utf8").then((raw) => JSON.parse(raw) as { dockerRequired?: unknown }).catch(() => undefined);
+    if (runtimePolicy?.dockerRequired === true && this.config.runtime.mode !== RuntimeModeEnum.Docker) {
+      throw new Error(t("docker_runtime_downgrade_forbidden"));
+    }
+    if (this.config.runtime.mode === RuntimeModeEnum.Docker) {
+      await fs.mkdir(path.dirname(runtimePolicyPath), { recursive: true });
+      const tempPolicyPath = `${runtimePolicyPath}.${process.pid}.tmp`;
+      await fs.writeFile(tempPolicyPath, `${JSON.stringify({ dockerRequired: true, lockedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+      await fs.rename(tempPolicyPath, runtimePolicyPath);
+    }
+
     // ── 动态热加载兼容的 OpenClaw 插件 ──
     try {
       const { loadPlugins } = await import("../plugins/loader");
       await loadPlugins();
     } catch (pluginErr: any) {
-      logger.warn(`Failed to dynamically load plugins: ${pluginErr.message}`);
+      logger.warn(t("operation_failed", { operation: "load_plugins", error: pluginErr.message }));
     }
 
     // ── 端口占用检测 ──
@@ -1177,6 +1362,7 @@ export class Orchestrator {
           argv: process.argv,
           startedAt: new Date().toISOString(),
           projectRootDir: path.dirname(this.configPath),
+          runtimeMode: this.config.runtime.mode,
         },
         null,
         2,
@@ -1194,8 +1380,8 @@ export class Orchestrator {
     const projectName = this.config.project.name;
     await setLocalGitIdentity(
       adminSpec.workspacePath,
-      `${projectName}-${this.config.admin.name}`,
-      `admin@project-${projectName}.oat`,
+      this.config.workspace.git.user_name ?? `${projectName}-${this.config.admin.name}`,
+      this.config.workspace.git.user_email ?? `admin@project-${projectName}.oat`,
     );
     await this.skillResolver.installSkillsToWorkspace(
       adminSpec.skills ?? [],
@@ -1219,7 +1405,7 @@ export class Orchestrator {
     const hasCliGoal = this.goal.trim().length > 0;
     const cliGoalDisplay = hasCliGoal
       ? this.goal
-      : "(No CLI goal on startup. Operator goals may arrive as messages starting with DASHBOARD_INSTRUCTION: — you still choose the leader yourself.)";
+      : "(No CLI goal on startup. Operator goals may arrive as messages starting with OPERATOR_INSTRUCTION: — you still choose the leader yourself.)";
 
     const adminPromptWithGoal = [
       this.config.admin.prompt,
@@ -1229,7 +1415,7 @@ export class Orchestrator {
       `Available Leaders (pick exactly one per task — use descriptions and team fit; there is no default/first leader):\n${leadersCatalog}`,
       ``,
       `Rules (MUST follow):`,
-      `1) For every concrete objective (CLI Goal and/or DASHBOARD_INSTRUCTION), you MUST decide which single leaderId from "Available Leaders" is the best match and call tool assign-leader-task. The orchestrator does not auto-route to any leader.`,
+      `1) For every concrete objective (CLI Goal and/or OPERATOR_INSTRUCTION), you MUST decide which single leaderId from "Available Leaders" is the best match and call tool assign-leader-task. This queues work when that leader is busy; never do the leader or worker implementation yourself.`,
       `2) You MUST call tool assign-leader-task with:`,
       `   { "leaderId": "<chosen_leaderId>", "prompt": "<task prompt>" }`,
       `3) Do NOT dispatch worker tasks yourself; the chosen leader assigns workers.`,
@@ -1238,8 +1424,10 @@ export class Orchestrator {
       `5) You MUST call report-progress at least 3 times:`,
       `   1) stage="start" (when you begin orchestration),`,
       `   2) stage="after_assign_leader_task" (right after assign-leader-task returns),`,
-      `   3) stage="done" (as the last step before you finish).`,
-      `6) If you receive DASHBOARD_INSTRUCTION:, treat it as a new operator goal — choose the best leader again if needed, then assign-leader-task and report-progress as above.`,
+      `   3) stage="user_response" with a concise, plain-language response written directly for the operator. This message is displayed in the chat as your reply.`,
+      `6) After your user_response, call notify-complete with { "agentRole": "admin" } so the operator task is marked completed.`,
+      `7) If an OPERATOR_INSTRUCTION is a concrete objective, choose the best leader, assign it, then give the operator a concise acknowledgement and expected next step in user_response. If it is a greeting, question, or other non-development request, do not delegate it: answer it directly in user_response.`,
+      `8) For a RELEASE_PROPOSAL, do not edit code or merge manually. Inspect its artifactPaths and use approve-release to approve or reject the serialized main/master merge.`,
     ].join("\n");
 
     const adminScopeCtx: OatWorkspaceScopeContext = {
@@ -1254,6 +1442,7 @@ export class Orchestrator {
       role: AgentRoleEnum.Admin,
       scopeCtx: adminScopeCtx,
       orchestratorBaseUrl: `http://127.0.0.1:${this.port}`,
+      runtimeMetaPath: path.join(this.config.runtime.persistence.state_dir, "git-collaboration", "agent-meta", adminSpec.id),
     });
 
     const adminSystemPrompt = buildAgentSystemPrompt({
@@ -1307,6 +1496,7 @@ export class Orchestrator {
         role: AgentRoleEnum.Leader,
         scopeCtx: leaderScopeCtx,
         orchestratorBaseUrl: `http://127.0.0.1:${this.port}`,
+        runtimeMetaPath: path.join(this.config.runtime.persistence.state_dir, "git-collaboration", "agent-meta", spec.id, "pool"),
       });
 
       const taskWorkerCount = team.worker.total;
@@ -1335,10 +1525,14 @@ export class Orchestrator {
         `Rules (MUST follow):`,
         `1) Wait until you receive an ADMIN_TASK message from admin (the message always starts with "ADMIN_TASK:").`,
         `2) Before receiving ADMIN_TASK, do NOT call dispatch-worker-tasks.`,
-        `3) After receiving ADMIN_TASK, parse the goal and split into subtasks (at most ${taskWorkerCount}). Dispatch these subtasks via dispatch-worker-tasks. Workers are already pre-spawned.`,
-        `   - Prefer to OMIT tasks[].index so the orchestrator auto-assigns tasks to IDLE workers.`,
+        `3) After receiving ADMIN_TASK, dispatch at most ${taskWorkerCount} genuinely independent implementation subtasks via dispatch-worker-tasks. Workers are already pre-spawned.`,
+        `   - A multi-worker dispatch requires every task to set independent=true. Only use it when the work has no shared implementation, file, or test dependency.`,
+        `   - NEVER split one change into a developer task plus a tester task. The implementation Worker must run and inspect its own tests before handoff.`,
+        `   - Prefer to OMIT tasks[].index so the orchestrator assigns the shortest Worker queue. Busy workers receive queued tasks and will run them FIFO.`,
         `   - Only set tasks[].index when you must target a specific worker.`,
-        `4) After dispatch-worker-tasks, do NOT directly fetch the sources in the leader. Let workers do it; then summarize workers' CHANGELOG outputs.`,
+        `4) After dispatch-worker-tasks, do NOT directly implement worker subtasks in the leader, including when all workers are busy. Wait for every Worker self-tested handoff, then personally review the merged code and test evidence. Fix or enqueue follow-up implementation work when review finds an issue; only call notify-complete after all worker tasks are finished and your review passes. Use conflictKey for tasks that must not overlap.`,
+        `   - Workers submit Git review requests, not direct merges. Use list-review-requests and review-worker-branch to approve/reject each branch.`,
+        `   - After integration tests pass, call submit-release-proposal. Admin alone authorizes the serialized main/master merge.`,
         ``,
         `5) You MUST report execution progress using tool report-progress:`,
         `   { "agentId": "${spec.id}", "stage": "<stage>", "message": "<short message>" }`,
@@ -1347,7 +1541,7 @@ export class Orchestrator {
         `   2) stage="after_dispatch_worker_tasks" (right after dispatch-worker-tasks returns),`,
         `   3) stage="done" (as the last step before you finish).`,
         ``,
-        `If you already dispatched, you can wait for workers to call notify-complete.`,
+        `After dispatching, end the current turn. Worker review handoffs arrive as WORKER_REVIEW_READY events; never poll or hold a turn open while waiting.`,
       ].join("\n");
 
       const leaderSystemPrompt = buildAgentSystemPrompt({
@@ -1379,11 +1573,9 @@ export class Orchestrator {
       const leaderId = `${team.name}-lead`;
       const total = team.worker.total;
       if (total <= 0) {
-        throw new Error(
-          `team.worker.total must be an integer > 0 (team=${team.name})`,
-        );
+        throw new Error(t("scheduler_worker_count_invalid"));
       }
-      logger.info("pre-spawning worker pool", {
+      logger.info(t("worker_pool_pre_spawn", { teamName: team.name, count: team.worker.total }), {
         team: team.name,
         total,
         leaderId,
@@ -1407,9 +1599,6 @@ export class Orchestrator {
         type: "orchestrator.ready",
         payload: {
           orchestratorPort: this.port,
-          dashboardUrl: this.dashboardDist
-            ? `http://127.0.0.1:${this.port}/`
-            : undefined,
         },
       });
 
@@ -1425,7 +1614,7 @@ export class Orchestrator {
               text: `[Startup 🚀] Orchestrator has successfully started! Overall team goal is: "${this.goal}"`
             });
           } catch (err: any) {
-            logger.warn(`Startup notification bypass: ${err.message}`);
+            logger.warn(t("operation_failed", { operation: "startup_notification", error: err.message }));
           }
         })();
       }
@@ -1451,7 +1640,7 @@ export class Orchestrator {
           const { PluginRegistry } = await import("../plugins/registry");
           await PluginRegistry.triggerHook("gateway_stop");
         } catch (err: any) {
-          logger.warn(`Error during gateway_stop trigger: ${err.message}`);
+          logger.warn(t("operation_failed", { operation: "gateway_stop", error: err.message }));
         }
 
         try {
@@ -1461,6 +1650,7 @@ export class Orchestrator {
             error: e instanceof Error ? e.message : String(e),
           });
         }
+        await this.taskManager.flushSchedulerState();
         const server = getHttpServer();
         if (server) {
           server.close(() => process.exit(0));

@@ -1,5 +1,22 @@
 # Agent 团队架构（Orchestrator + pi-coding-agent）
 
+> **协作流程已更新。** 本文中任何描述“Worker 调用 `notify-complete` 后自动合并”或“Leader 自动合并主分支”的段落均为历史实现说明，不再适用。当前正式流程以 [Git 协作与交付流程](./git-collaboration.md) 为准：Worker `submit-review` → Leader review/integration → Admin `approve-release` → MergeController 串行更新 `main/master`。运行工件统一存于 `runtime.persistence.state_dir/git-collaboration/`，不写入 Git worktree。
+
+## 当前 Git 协作架构
+
+```mermaid
+flowchart LR
+  A[Admin: 项目治理] --> L[Leader: 任务计划与 review]
+  L --> W[Worker: task branch + self-test]
+  W -->|submit-review| R[持久化 Review Request]
+  R -->|review-worker-branch| I[Leader integration branch]
+  I -->|submit-release-proposal| P[Release Proposal]
+  P -->|approve-release| M[Serialized MergeController]
+  M --> G[main / master]
+```
+
+任务分支命名为 `oat/<team>/<taskId>/attempt-<n>`，基于创建时锁定的主分支 SHA；Leader 集成分支为 `oat/<team>/<workItem>/integration`。向上汇报使用 artifact manifest 路径、SHA、变更文件和测试证据。
+
 ## 1. 总览：声明式团队如何落地
 
 本项目提供一个“声明式的 agent team 构建”流程：你在 `team.json` 中声明 `Admin / Leader / Worker` 的角色、模型、skills、以及团队分支/工作空间策略；运行时由 Orchestrator 读取配置并完成以下工作：
@@ -31,7 +48,7 @@ Orchestrator 在启动时主要做三件事：
 
 1. 生成并启动 `Admin` 与 `Leader`（静态 agent，pi AgentSession 进程内创建）
 2. 预先生成各 Team 的 Worker 进程池（pre-spawn）
-3. 开 HTTP 服务（供 Dashboard 和外部 REST 调用；pi 工具直接通过 `defineTool` 闭包调用 TaskManager，无需 HTTP 往返）
+3. 开 HTTP 服务（供 Desktop 和外部 REST 调用；pi 工具直接通过 `defineTool` 闭包调用 TaskManager，无需 HTTP 往返）
 
 ### TaskManager（动态调度与合并回报）
 
@@ -226,9 +243,9 @@ Orchestrator 在启动后会监听 HTTP 端口（自动从 8787 开始扫描可�
 - `POST /tool/generate_changelog`
   - 用途：按 agentId 读取其 workspace 的 CHANGELOG.md
 
-### 5.2 管理 API（供 Dashboard 和外部调用）
+### 5.2 管理 API（供 Desktop 和外部调用）
 
-除了 agent 工具路由外，Orchestrator 还提供管理 REST API，用于仪表盘和外部系统集成：
+除了 agent 工具路由外，Orchestrator 还提供管理 REST API，用于 Desktop 和外部系统集成：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -241,20 +258,18 @@ Orchestrator 在启动后会监听 HTTP 端口（自动从 8787 开始扫描可�
 | PUT | `/api/team-config` | 更新当前实例的 team.json |
 | GET | `/api/global-config` | 读取全局配置 (`~/.oat/oat.json`) |
 | PUT | `/api/global-config` | 更新全局配置 |
-| POST | `/tool/admin_instruction` | 向 Admin agent 下发指令（由 Dashboard 调用） |
+| POST | `/tool/admin_instruction` | 向 Admin agent 下发操作员指令（由 Desktop 调用） |
 
-### 5.3 仪表盘（Dashboard）
+### 5.3 Desktop 管理界面
 
-OAT 内置了 Web 仪表盘（基于 React + Ant Design + @ant-design/x），由 Orchestrator 自动提供静态资源服务。
+OAT Desktop 通过本地控制面 IPC 与 Orchestrator REST/SSE 接口提供管理能力：
 
-仪表盘功能：
-
-- **仪表盘首页**：项目总览、运行中项目列表及删除操作
+- **项目总览**：项目列表、运行状态、重启和删除操作
 - **项目状态**：通过 SSE 实时接收 ObservabilityHub 事件、Agent 拓扑图、进度汇报、向 Admin 下发指令
 - **项目配置**：在线编辑 `team.json`，左侧表单 + 右侧 Shiki 语法高亮 JSON 预览，保存后触发项目自动重启
 - **设置**：全局设置管理（通用配置、模型服务商列表、模型列表管理）
 
-仪表盘支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接发现并管理多个运行中的 Orchestrator 实例。
+Desktop 支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接发现并管理多个 Orchestrator 实例。
 
 ## 6. 配置驱动点与关键默认值
 

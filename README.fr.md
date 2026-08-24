@@ -54,11 +54,9 @@ oat init
 oat start team.json
 ```
 
-### 4. Ouvrir le tableau de bord
+### 4. Ouvrir OAT Desktop
 
-```bash
-oat dashboard
-```
+Utilisez Desktop pour gérer les projets, tâches, observations en direct, configurations, statistiques, résultats, extensions, canaux, livraisons Git et runtimes Docker.
 
 ## Concepts clés
 
@@ -130,7 +128,7 @@ Choisir la langue de sortie/docs :
 oat start team.json [goal] --lang zh-CN
 ```
 
-Un **tableau de bord web** intégré est disponible à `http://localhost:<port>` après le démarrage, offrant l'observabilité en temps réel, l'édition de configuration projet (avec aperçu JSON Shiki), la gestion des paramètres globaux et la gestion multi-projets. Il propose également une page **Réalisations du projet (Project Achievements)** pour parcourir les enregistrements de travail quotidiens et l'historique `CHANGELOG.md` de chaque agent. Le tableau de bord utilise le chargement différé et la séparation du code (code splitting) pour des performances optimales.
+**OAT Desktop** fournit l'observabilité en temps réel, l'édition de configuration, les paramètres globaux, la gestion multi-projets, les opérations de tâches et les réalisations du projet.
 
 ### 4) Commandes utiles
 
@@ -217,7 +215,6 @@ Le tableau de bord Web d'OAT comprend une page premium **Plugin Center** (`/plug
 
 ## Remerciements
 
-- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Le système de design du Dashboard (thème, mise en page et effets glass) est porté depuis l'UI de CPAMC.
 
 ## Star History
 

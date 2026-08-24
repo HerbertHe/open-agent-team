@@ -3,6 +3,7 @@ import path from "node:path";
 import { TeamFileSchema } from "./schema";
 import { resolvePathFromTeamRoot, resolveTeamDataPath } from "../utils/team-paths";
 import {
+  ProviderCompatibleTypeEnum,
   RuntimeModeEnum,
   WorkspaceProviderTypeEnum,
   WorkerSkillSyncEnum,
@@ -82,7 +83,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     mode: RuntimeModeEnum.LocalProcess,
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
-  const providersDefaults: Record<string, { compatible_type: "openai" | "anthropic"; base_url?: string; api_key?: string }> = {};
+  const providersDefaults: Record<string, { compatible_type: ProviderCompatibleTypeEnum; base_url?: string; api_key?: string }> = {};
 
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
@@ -109,6 +110,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     runtime: {
       mode: runtime.mode,
       pi: { agentDir: `${process.env.HOME ?? "~"}/.pi/agent` },
+      docker: runtime.docker ? { image: runtime.docker.image, network: runtime.docker.network ?? "bridge", extra_args: runtime.docker.extra_args ?? [] } : undefined,
       persistence: {
         state_dir: resolveTeamDataPath(
           configPathAbs,

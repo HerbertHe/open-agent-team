@@ -15,6 +15,8 @@ export interface AgentInstanceSpec {
   name: string;
   /** Agent 绑定的 git 分支（worker/leader 分别用各自分支策略） */
   branch: string;
+  /** 创建 worktree 时的起点引用；任务分支固定为创建时 main/master 的 SHA。 */
+  baseRef?: string;
   /** Agent 的 workspace 根目录（独立文件系统隔离） */
   workspacePath: string;
   /** Agent 的模型（格式：provider/model-id，例如 anthropic/claude-opus-4-5） */

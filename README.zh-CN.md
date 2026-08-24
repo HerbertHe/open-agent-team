@@ -14,9 +14,9 @@
 
 `Admin -> Leader -> Worker`
 
-你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。运行时 Orchestrator 会启动所有 agent（`Admin`、`Leader` 以及预先创建的 `Worker` 池），`Leader` 向 `Worker` 分发任务。每个 `Worker` 都必须更新其 `CHANGELOG.md`，并按层级向上合并汇总：
+你在 `team.json` 中声明角色、模型、共享 skills、以及 workspace/git 策略。Admin 负责项目治理，Leader 负责 review 与集成，Worker 交付完成自测的短生命周期 Git 分支。Worker 不会直接合并；它提交持久化 review request，只有 Admin 批准后，串行 MergeController 才会更新 `main/master`。
 
-`Worker CHANGELOG` -> `Leader CHANGELOG` -> 最终 `Admin` 总结。所有角色在系统约束中都被严格要求必须以**追加（APPEND）**的方式更新各自的 `CHANGELOG.md`。
+完整分支、review、发布审批、产物清单与运行文件隔离规则见 [Git 协作文档](docs/zh-CN/git-collaboration.md)。
 
 ## 快速上手
 
@@ -48,17 +48,17 @@ npm i open-agent-team -g
 oat init
 ```
 
+不想手工填写配置时，可运行 `oat resources` 进入 Agent Resources 问答式建队流程；详见 [对话式项目与团队创建](docs/zh-CN/agent-resources.md)。
+
 ### 3. 启动团队
 
 ```bash
 oat start team.json
 ```
 
-### 4. 打开管理台
+### 4. 打开 OAT Desktop
 
-```bash
-oat dashboard
-```
+使用 Desktop 管理项目、任务、实时可观测、配置、用量、成果、插件、通道、Git 交付和 Docker 运行环境。
 
 ## 关键概念
 
@@ -93,13 +93,15 @@ Skills 通过 [`npx skills`](https://github.com/vercel-labs/skills) 管理，在
 - 启动时 OAT 为每个 entry 执行 `npx skills add`，将 skills 安装到 `<workspace>/skills/`
 - 创建 `.pi/skills` 符号链接以兼容 pi-coding-agent
 
-### 基于 CHANGELOG 的协作
+### 基于 Git review 的协作
 
 在初始化 Agent 时，Orchestrator 会注入系统约束：
 
-- 所有角色（Admin, Leader, Worker）都必须在 workspace 根目录**追加更新** `CHANGELOG.md`（即使没有代码改动也要记录原因）
-- 所有日常中间产物（笔记、草稿、日志）必须保存在 `.oat/workspaces/<agentId>/records/<date>/` 目录下
-- Worker 和 Leader 需要调用 `notify-complete`，并把准备好的 `CHANGELOG.md` 内容作为入参传递以向上汇报
+- `CHANGELOG.md` 是人可读交付证据，不再是协作总线。
+- Worker 实现、自测并调用 `submit-review`；请求记录分支、commit、变更文件、测试和产物路径。
+- Leader 通过 `review-worker-branch` 显式审核并合入 integration 分支，再创建 release proposal。
+- Admin 用 `approve-release` 批准或拒绝；只有串行 MergeController 可更新 `main/master`。
+- 日志、草稿、Agent 元数据等运行文件位于 `<runtime.persistence.state_dir>/git-collaboration/`，不会写入 Git worktree。
 
 ## 快速上手
 
@@ -131,7 +133,7 @@ oat start team.json [goal]
 oat start team.json [goal] --lang zh-CN
 ```
 
-启动后可在 `http://localhost:<port>` 访问内置的 **Web 仪表盘**，提供实时可观测、项目配置在线编辑（带 Shiki 语法高亮 JSON 预览）、全局设置管理和多项目管理功能。它还包含一个**项目成果（Project Achievements）**页面，用于浏览各个 Agent 的每日工作记录与 `CHANGELOG.md` 历史。仪表盘采用了按需加载和分包优化以提供极致性能。
+**OAT Desktop** 提供实时可观测、项目配置编辑、全局设置、多项目管理、任务操作和项目成果浏览，可查看各 Agent 的每日工作记录与 `CHANGELOG.md` 历史。
 
 ### 4) 常用命令
 
@@ -150,12 +152,10 @@ oat docs guide --lang zh-CN
 3. Orchestrator 将任务发送到预先创建好的 `Worker` 池：
    - 连接到目标 worker
    - 发送任务 prompt
-4. `Worker` 必须：
-   - 追加更新 workspace 根目录的 `CHANGELOG.md`
-   - 调用 `notify-complete` 并传递准备好的 `CHANGELOG.md`
-5. Orchestrator 自动提交所有变更（`git add -A && git commit`），然后执行 `Worker -> Leader` 合并，要求 `Leader` 汇总，再执行 `Leader -> project.base_branch` 合并。
-6. 每个 agent 的 git 提交会使用独立的本地身份标识（如 `worker-0-teamName@project-projectName.oat`）。
-7. Orchestrator 会保持 worker 池直到 shutdown；只有编排器退出时的 `stopAll` 才会停止/销毁进程。
+4. Worker 基于锁定的 `main/master` SHA 创建任务分支，完成自测并提交 `submit-review`。
+5. Leader 在 merge 前 review；通过后合入 integration 分支，拒绝则创建新的任务尝试。
+6. Leader 创建带产物路径的 release proposal；Admin 批准/拒绝，MergeController 串行且原子地更新 `main/master`。
+7. 任务 worktree 与 manifest 位于 `state_dir/git-collaboration/`，仓库 worktree 不保存运行垃圾。
 
 ## 当前实现要点（与代码对齐）
 
@@ -209,8 +209,8 @@ OAT 支持将任务进度、Agent 崩溃和最终的成果通知发送到外部�
   ```
 - `oat plugins uninstall <pluginId>` - 从磁盘物理删除插件，擦除其缓存的会话与相关凭证。
 
-### 3) 可视化插件中心 (Web 仪表盘)
-OAT 的 Web 仪表盘包含一个精致的毛玻璃效果 **插件中心** (`/plugins`) 页面，提供以下可视化功能：
+### 3) Desktop 可视化插件中心
+OAT Desktop 内置原生**插件中心**，提供以下功能：
 - 查看已安装插件和活跃账号的状态卡片。
 - 输入 NPM 包名，一键后台下载并动态热安装插件。
 - 根据插件的配置模式（`configSchema`）动态生成可视化表单字段，实时配置新账号。
@@ -218,7 +218,6 @@ OAT 的 Web 仪表盘包含一个精致的毛玻璃效果 **插件中心** (`/pl
 
 ## 致谢
 
-- [CLIProxyAPI Management Console (CPAMC)](https://github.com/router-for-me/CLIProxyAPI) — Dashboard 的设计系统（主题、布局和毛玻璃效果）移植自 CPAMC 的 UI。
 
 ## Star History
 
