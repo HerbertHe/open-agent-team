@@ -30,3 +30,5 @@ yarn-error.log*
 # test files
 __test__/
 team.json
+
+.tmp/
