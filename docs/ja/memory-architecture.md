@@ -1,36 +1,25 @@
-# 3 層 Agent メモリアーキテクチャ
+# Admin / Leader 向け3層メモリ
 
-> ステータス：設計提案であり、まだ実装されていません。人間が読める `CHANGELOG.md` を残したまま、それだけを唯一の協働メモリにする方式を置き換えます。
+> 状態：2026-08-26 実装済み。
 
-## 目的
+メモリの所有者は Admin と Leader です。Worker の有効なイベントは対応する Leader に帰属します。取得したメモリは「誤りうる過去の文脈」として明示され、現在の指示を上書きしません。
 
-メモリは、再起動後に目標とテストを復元し、タスク作成前に競合を検出し、決定を証拠に結び付け、コンテキスト注入量を制限します。すべての情報にはスコープ、ソース、バージョン、レビュー状態があります。
+保存には WAL モードのローカル `better-sqlite3` を使い、既定のパスは `<state_dir>/memory/memory.db` です。
 
-## レイヤー
+| 層 | 用途 |
+| --- | --- |
+| L1 | 最近のタスク、進捗、応答、失敗。Agent ごとの上限と TTL あり |
+| L2 | アイドル時に統合されたエピソード、判断、失敗パターン。反復で証拠数・信頼度・重要度が上昇 |
+| L3 | 証拠閾値で自動昇格、または Desktop から手動昇格した安定知識 |
 
-| レイヤー | 役割 | 保存先と期間 |
-| --- | --- | --- |
-| L1 | セッションとタスクのホットコンテキスト：目標、テスト、ブロッカー、次の手順 | インメモリ `Map`、短い TTL、1,000–2,000 token 予算 |
-| L2 | 構造化された協働事実：タスク、リソース主張、決定、レビュー | `<state_dir>/memory.sqlite` の SQLite WAL + FTS5 |
-| L3 | CHANGELOG、イベント、commit、diff、承認済みバージョンのアーカイブと意味検索 | ローカルファイル/インデックス。必要に応じて差し替え可能なベクトルストア |
+夢モードは、実行中の prompt がなく、`queued`、`running`、`waiting`、`review_pending` のタスクもない場合だけ動作します。処理件数を制限したトランザクションで L2 統合、L3 昇格、L2 期限切れ、L1 TTL 清掃を行います。新規タスクはキャンセルを要求します。
 
-L1 は `agentId + taskId + sessionId` に属します。L2 は `task → agent → team → project → global` のスコープでレビュー可能な情報だけを共有します。L3 はコンテキストを圧迫しないよう必要時だけ検索します。
+生の payload 全体は保存しません。有用なテキストだけを最大 4,000 文字で保存し、一般的な API key、token、secret の形式を伏せ字にします。Admin はプロジェクト内の L2/L3 を検索でき、Leader は自分のメモリだけを検索できます。
 
-## 権限、証拠、競合
+API は `GET /memory/overview`、`GET /memory`、`POST /memory/dream`、`POST /memory/:id/promote`、`POST /memory/:id/forget` です。
 
-Worker は L1 を書き、L2 への引き継ぎを提案できます。Leader はチーム事実をレビューして昇格し、Admin だけがプロジェクトの事実や決定を公開できます。昇格にはタスク、commit、テスト、イベント、ファイル、レビューの少なくとも一つの証拠を引用します。修正は新しいバージョンを作り、古いものを `superseded` にします。
+Desktop では Admin / Leader 選択時に脳アイコンが表示されます。ダイアログから各層、証拠数、ソース数、信頼度、重要度、夢モードの状態を確認し、L2 の昇格と忘却を実行できます。Worker には表示されません。
 
-`create task` の前に L2 のゲートが `resource_claims`、アクティブなコンテキスト、`conflictKey` を照会します。競合時はタスクを拒否、直列化、または真に独立したものへ再分割します。
+現在の検索は語彙の一致、重要度、信頼度、経過時間による決定的な方式です。Embedding、時間知識グラフ、LLM リフレクターは将来の拡張であり、現時点の依存関係ではありません。
 
-## 予定インターフェース
-
-提案ツールは `memory-context-get`、`memory-search`、`memory-propose`、`memory-promote`、`memory-supersede`、`memory-claim-resources`、`memory-check-conflicts`、`memory-forget` で、同等の REST API を持ちます。ダッシュボードは L1 の現在コンテキスト、レビュー待ち L2、ソース・日付・信頼度・バージョンチェーン付きの L3 アーカイブを表示します。
-
-## 段階的な導入
-
-1. `MemoryProvider` 契約、監査、マイグレーションを定義する。
-2. SQLite/FTS5 を使った L1 + L2 とキューの競合チェックを提供する。
-3. L3 アーカイブをインデックス化し、キーワード/ベクトルのハイブリッド検索を追加する。
-4. 多段検索が実証された要件になった時だけ、Graphiti などの時間グラフを評価する。
-
-設計の参考： [Letta](https://github.com/letta-ai/letta)、[Mem0](https://github.com/mem0ai/mem0)、[LangGraph Persistence](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/persistence.mdx)、[Graphiti](https://github.com/getzep/graphiti)、[OpenMemory](https://github.com/CaviraOSS/OpenMemory)。
+検証：`pnpm test:memory`、`pnpm exec tsc --noEmit`、`pnpm run build`、`pnpm --filter desktop run build`。

@@ -72,6 +72,7 @@ function runDocker(args: string[], timeoutMs = 30_000): Promise<{ code: number; 
 /** Docker-backed Agent runtime. Containers are named and labelled for Desktop discovery. */
 export class DockerSessionProvider {
   private readonly entries = new Map<string, Entry>();
+  private readonly knownSessions = new Map<string, { spec: AgentInstanceSpec; options: StartOptions }>();
   private engineCheck?: Promise<void>;
   constructor(
     private readonly dockerConfig: { image: string; network: "none" | "bridge" | "host"; extra_args: string[] },
@@ -136,7 +137,7 @@ export class DockerSessionProvider {
       });
     });
     this.send(spec.id, { type: "start", spec: { id: spec.id, role: spec.role, name: spec.name, branch: spec.branch, workspacePath: "/workspace", model: spec.model, teamName: spec.teamName }, agentDir: "/agent", systemPrompt: options.systemPrompt, toolDefs: (options.customTools ?? []).map((tool) => { const value = tool as unknown as ToolLike; return { name: value.name, label: value.label, description: value.description, parameters: value.parameters } as SerializableToolDef; }) });
-    try { await ready; readyComplete = true; } catch (error) { this.entries.delete(spec.id); await runDocker(["rm", "-f", name]).catch(() => undefined); await fs.rm(gitLinkDir, { recursive: true, force: true }); throw error; }
+    try { await ready; readyComplete = true; this.knownSessions.set(spec.id, { spec, options }); } catch (error) { this.entries.delete(spec.id); await runDocker(["rm", "-f", name]).catch(() => undefined); await fs.rm(gitLinkDir, { recursive: true, force: true }); throw error; }
     return { agentId: spec.id };
   }
 
@@ -149,6 +150,6 @@ export class DockerSessionProvider {
   async stop(agentId: string): Promise<void> { const entry = this.entries.get(agentId); if (!entry) return; this.send(agentId, { type: "stop" }); await Promise.race([new Promise<void>((resolve) => entry.child.once("exit", () => resolve())), new Promise<void>((resolve) => setTimeout(resolve, 2_000))]); if (entry.child.exitCode === null) { const stopped = await runDocker(["stop", "--time", "10", entry.containerName], 15_000).catch(() => ({ code: 1, stdout: "", stderr: "" })); if (stopped.code !== 0) await runDocker(["rm", "-f", entry.containerName], 15_000).catch(() => undefined); } this.entries.delete(agentId); if (entry.child.exitCode === null) entry.child.kill("SIGTERM"); }
   async stopAll(): Promise<void> { await Promise.all([...this.entries.keys()].map((id) => this.stop(id))); }
   async health(agentId: string): Promise<boolean> { const entry = this.entries.get(agentId); if (!entry || entry.child.exitCode !== null) return false; return (await runDocker(["inspect", "--format", "{{.State.Running}}", entry.containerName], 5_000).catch(() => ({ code: 1, stdout: "", stderr: "" }))).stdout.trim() === "true"; }
-  async resetSession(agentId: string): Promise<void> { const entry = this.entries.get(agentId); if (!entry) throw new Error(t("docker_agent_not_running", { agentId })); const { spec, options } = entry; await this.stop(agentId); await this.start(spec, options); }
-  async rebindSession(agentId: string, spec: AgentInstanceSpec): Promise<void> { const entry = this.entries.get(agentId); if (!entry) throw new Error(t("docker_agent_not_running", { agentId })); const options = entry.options; await this.stop(agentId); await this.start(spec, options); }
+  async resetSession(agentId: string): Promise<void> { const entry = this.entries.get(agentId); const known = entry ?? this.knownSessions.get(agentId); if (!known) throw new Error(t("docker_agent_not_running", { agentId })); const { spec, options } = known; if (entry) await this.stop(agentId); await this.start(spec, options); }
+  async rebindSession(agentId: string, spec: AgentInstanceSpec): Promise<void> { const entry = this.entries.get(agentId); const known = entry ?? this.knownSessions.get(agentId); if (!known) throw new Error(t("docker_agent_not_running", { agentId })); const options = known.options; if (entry) await this.stop(agentId); await this.start(spec, options); }
 }

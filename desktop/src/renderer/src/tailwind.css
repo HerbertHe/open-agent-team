@@ -5,4 +5,10 @@
   --color-oat-taupe: #8b8680;
   --color-oat-canvas: #f7f6f4;
   --color-oat-line: #e4e1dd;
+
+  /* Unified type scale: micro (badges/meta) < xs (secondary) < body (default) < sm/base (content) */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
 }

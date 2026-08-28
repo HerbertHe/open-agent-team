@@ -35,6 +35,7 @@ export const TeamSchema = z.object({
 });
 
 export const TeamFileSchema = z.object({
+  $schema: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   providers: z
     .record(
@@ -46,6 +47,30 @@ export const TeamFileSchema = z.object({
       }),
     )
     .optional(),
+  memory: z.object({
+    enabled: z.boolean().default(true),
+    roles: z.array(z.enum(["admin", "leader"])).default(["admin", "leader"]),
+    database: z.string().min(1).optional(),
+    l1: z.object({
+      maxItems: z.number().int().min(5).max(100).default(24),
+      completedTaskTtlHours: z.number().int().min(1).max(720).default(48),
+    }).default({ maxItems: 24, completedTaskTtlHours: 48 }),
+    l2: z.object({
+      maxResults: z.number().int().min(1).max(20).default(5),
+      retentionDays: z.number().int().min(1).max(3650).default(180),
+    }).default({ maxResults: 5, retentionDays: 180 }),
+    l3: z.object({
+      maxPromptItems: z.number().int().min(1).max(20).default(5),
+      minEvidence: z.number().int().min(2).max(20).default(2),
+    }).default({ maxPromptItems: 5, minEvidence: 2 }),
+    dream: z.object({
+      enabled: z.boolean().default(true),
+      idleAfterSeconds: z.number().int().min(30).max(86400).default(300),
+      pollSeconds: z.number().int().min(5).max(3600).default(30),
+      maxEventsPerRun: z.number().int().min(10).max(5000).default(250),
+      cancelOnNewTask: z.boolean().default(true),
+    }).default({ enabled: true, idleAfterSeconds: 300, pollSeconds: 30, maxEventsPerRun: 250, cancelOnNewTask: true }),
+  }).optional(),
   project: z.object({
     name: z.string().min(1),
     repo: z.string().min(1),

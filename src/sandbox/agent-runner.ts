@@ -33,11 +33,13 @@ import type {
 import readline from "node:readline";
 import path from "node:path";
 import { ProviderCompatibleTypeEnum } from "../types";
+import { normalizeDeepSeekReplaySignatures, type DeepSeekReplayApi } from "./deepseek-compat";
 
 // ─── 状态 ───────────────────────────────────────────────────────────────────
 
 let agentSession: { prompt: (t: string) => Promise<void>; dispose: () => void } | null = null;
 let stopping = false;
+let fatalErrorReported = false;
 /** 防止父进程重复发送 "start" 导致 session 被覆盖或并发初始化 */
 let startReceived = false;
 
@@ -76,6 +78,30 @@ function handleToolResult(callId: string, result?: ToolResultPayload, error?: st
   }
 }
 
+function isDeepSeekThinkingModel(modelId: string): boolean {
+  const normalized = modelId.toLowerCase();
+  return normalized.includes("deepseek") && (
+    normalized.includes("reasoner") ||
+    /(?:^|[-_/])r1(?:[-_/]|$)/.test(normalized) ||
+    /deepseek[-_/]?v(?:3(?:\.\d+)?|4)/.test(normalized)
+  );
+}
+
+function terminalAgentError(event: Record<string, unknown>): string | undefined {
+  if (event.type !== "agent_end" || event.willRetry !== false || !Array.isArray(event.messages)) return undefined;
+  for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+    const message = event.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const assistant = message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown };
+    if (assistant.role !== "assistant") continue;
+    if (assistant.stopReason !== "error") return undefined;
+    return typeof assistant.errorMessage === "string" && assistant.errorMessage.trim()
+      ? assistant.errorMessage
+      : "Agent session ended with an unrecoverable model error";
+  }
+  return undefined;
+}
+
 // ─── Stub 工具构建 ───────────────────────────────────────────────────────────
 
 /**
@@ -109,6 +135,7 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     const slashIdx = spec.model.indexOf("/");
     const provider = slashIdx < 0 ? "anthropic" : spec.model.slice(0, slashIdx);
     const modelId = slashIdx < 0 ? spec.model : spec.model.slice(slashIdx + 1);
+    const deepSeekThinking = provider === ProviderCompatibleTypeEnum.OpenAI && isDeepSeekThinkingModel(modelId);
 
     // pi-coding-agent 0.84 exposes the asynchronous ModelRuntime factory;
     // AuthStorage is intentionally internal to the SDK and is no longer a
@@ -120,12 +147,6 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     });
     const modelRegistry = new ModelRegistry(modelRuntime);
 
-    if (process.env.OPENAI_BASE_URL) {
-      modelRegistry.registerProvider("openai", {
-        baseUrl: process.env.OPENAI_BASE_URL,
-      });
-    }
-
     const openaiProxyCompat = {
       supportsStore: false,
       supportsDeveloperRole: false,
@@ -135,12 +156,42 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       requiresToolResultName: false,
       requiresAssistantAfterToolResult: false,
       requiresThinkingAsText: false,
+      requiresReasoningContentOnAssistantMessages: deepSeekThinking,
+      thinkingFormat: deepSeekThinking ? "deepseek" as const : "openai" as const,
       supportsStrictMode: false,
     };
 
+    const customOpenAIProvider = provider === ProviderCompatibleTypeEnum.OpenAI && process.env.OPENAI_BASE_URL
+      ? ProviderCompatibleTypeEnum.OpenAI
+      : undefined;
+
+    if (customOpenAIProvider && process.env.OPENAI_BASE_URL) {
+      const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+      // Register the concrete proxy model, not only a provider base URL. This
+      // keeps its reasoning and compatibility metadata in pi's canonical model
+      // catalog for every automatic continuation after a tool call.
+      modelRegistry.registerProvider(customOpenAIProvider, {
+        name: "OAT OpenAI-compatible proxy",
+        baseUrl: process.env.OPENAI_BASE_URL,
+        apiKey: process.env.OPENAI_API_KEY,
+        api: "openai-completions",
+        models: [{
+          id: modelId,
+          name: modelId,
+          api: "openai-completions",
+          reasoning: deepSeekThinking,
+          input: ["text"],
+          cost: defaultCost,
+          contextWindow: 128000,
+          maxTokens: 16384,
+          compat: openaiProxyCompat,
+        }],
+      });
+    }
+
     // 先从 SDK 内置 registry 查找模型；若不存在且用户配置了 OPENAI_BASE_URL（兼容网关），则允许任意新模型 ID。
     // 这等价于“动态注册”一个 openai-completions 模型，避免 registry 白名单导致新模型无法使用。
-    let model: any = modelRegistry.find(provider, modelId) ?? undefined;
+    let model: any = modelRegistry.find(customOpenAIProvider ?? provider, modelId) ?? undefined;
     if (!model && provider === ProviderCompatibleTypeEnum.OpenAI && process.env.OPENAI_BASE_URL) {
       const defaultCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
       model = {
@@ -149,7 +200,7 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
         api: "openai-completions",
         provider: ProviderCompatibleTypeEnum.OpenAI,
         baseUrl: process.env.OPENAI_BASE_URL,
-        reasoning: false,
+        reasoning: deepSeekThinking,
         input: ["text"],
         cost: defaultCost,
         contextWindow: 128000,
@@ -169,6 +220,20 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       model = {
         ...model,
         api: "openai-completions" as typeof model.api,
+        reasoning: deepSeekThinking || model.reasoning,
+        compat: openaiProxyCompat,
+      };
+    }
+    // DeepSeek reasoning responses use the Chat Completions `reasoning_content`
+    // field. Some registry entries are declared as Responses models even when
+    // they are routed through a DeepSeek-compatible endpoint; allowing those
+    // entries through would make pi parse the literal field name as JSON and
+    // crash on the next turn (`Unexpected token 'r'`).
+    if (model && deepSeekThinking && provider === ProviderCompatibleTypeEnum.OpenAI) {
+      model = {
+        ...model,
+        api: "openai-completions" as typeof model.api,
+        reasoning: true,
         compat: openaiProxyCompat,
       };
     }
@@ -182,6 +247,12 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       process.exit(1);
       return;
     }
+    // Keep replay signatures compatible with the protocol selected above. The
+    // SDK gives `thinkingSignature` incompatible meanings in Chat Completions
+    // and Responses, so sanitize both directions before the message is reused.
+    const deepSeekReplayApi = deepSeekThinking && (
+      model.api === "openai-completions" || model.api === "openai-responses"
+    ) ? model.api as DeepSeekReplayApi : undefined;
 
     const loader = new DefaultResourceLoader({
       cwd: spec.workspacePath,
@@ -196,6 +267,11 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       cwd: spec.workspacePath,
       agentDir,
       model,
+      // Reuse the runtime where the proxy model was registered. AgentSession
+      // resolves request auth again after tool results; without this, it builds
+      // a fresh default runtime and can silently switch DeepSeek back to the
+      // Responses API on the continuation turn.
+      modelRuntime,
       sessionManager: SessionManager.inMemory(),
       settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
       customTools,
@@ -205,6 +281,7 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     agentSession = session;
 
     session.subscribe((event: Record<string, unknown>) => {
+      if (deepSeekReplayApi) normalizeDeepSeekReplaySignatures(event, deepSeekReplayApi);
       send({ type: "agent_event", event, role: spec.role });
 
       // 检测 SDK 级别的致命错误事件：上报后立即退出
@@ -214,10 +291,14 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
       // 注意：stopping = true 时跳过，避免 session.dispose() 内部触发 error 事件导致
       // 子进程以 code=1 退出，从而被父进程误判为崩溃（应由 stop 流程以 code=0 正常退出）。
       const ev = event as { type?: string; error?: unknown };
-      if (!stopping && ev.type === "error" && ev.error !== undefined) {
-        const errMsg = ev.error instanceof Error ? ev.error.message : String(ev.error);
+      const settledError = terminalAgentError(event);
+      if (!stopping && !fatalErrorReported && ((ev.type === "error" && ev.error !== undefined) || settledError)) {
+        fatalErrorReported = true;
+        const errMsg = settledError ?? (ev.error instanceof Error ? ev.error.message : String(ev.error));
         send({ type: "agent_error", error: errMsg });
-        process.exit(1);
+        // Let the IPC message flush before exit. The parent then marks the
+        // running workflow failed through its normal crash path.
+        setImmediate(() => process.exit(1));
       }
     });
 

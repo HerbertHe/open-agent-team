@@ -43,6 +43,7 @@ import type {
   ReleaseProposal,
   ReviewRequest,
   SpawnWorkersResult,
+  TaskDeliveryReport,
   ToolCreateTaskBody,
   ToolDispatchWorkerTasksBody,
   ToolRegisterWorkersBody,
@@ -50,6 +51,7 @@ import type {
 } from "../types";
 import type { ObservabilityGraph } from "../types";
 import type { ObservabilityHub } from "./observability-hub";
+import type { MemoryService } from "../memory/memory-service";
 import { GitCollaborationStore } from "./git-collaboration-store";
 
 type SchedulerSnapshot = {
@@ -59,6 +61,7 @@ type SchedulerSnapshot = {
   tasks: QueuedTask[];
   queues: Record<string, string[]>;
   leaderEvents: LeaderInboxEvent[];
+  releasesByLeaderTask?: Record<string, string>;
 };
 
 type LeaderInboxEvent = {
@@ -107,6 +110,8 @@ export class TaskManager {
   private readonly pendingScheduleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Prevents a newly freed queue slot from starting inside the prior prompt turn. */
   private readonly promptActiveAgents = new Set<string>();
+  /** Startup gate: restored queues may run only after the complete Agent pool exists. */
+  private schedulingEnabled = false;
   private schedulerPersistenceTail: Promise<void> = Promise.resolve();
   private readonly leaderEventsById = new Map<string, LeaderInboxEvent>();
   private nextTaskNumber = 1;
@@ -116,6 +121,8 @@ export class TaskManager {
   private releaseTail: Promise<void> = Promise.resolve();
   /** 已触发过崩溃通知的 agentId 集合，防止重复推送。 */
   private readonly crashedAgents = new Set<string>();
+  /** A single controlled restart clears transient runtime crashes without retry loops. */
+  private readonly recoveringAgents = new Set<string>();
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -125,6 +132,7 @@ export class TaskManager {
     private readonly orchestratorBaseUrl: string,
     private readonly skillResolver: SkillResolver,
     private readonly observabilityHub: ObservabilityHub,
+    private readonly memoryService?: MemoryService,
   ) {
     this.gitStore = new GitCollaborationStore(config.runtime.persistence.state_dir);
   }
@@ -135,6 +143,15 @@ export class TaskManager {
 
   getAllAgents(): AgentRuntimeState[] {
     return Array.from(this.agents.values());
+  }
+
+  isSystemIdle(): boolean {
+    return this.promptActiveAgents.size === 0 && !this.getTasks().some((task) =>
+      task.status === QueuedTaskStatusEnum.Queued ||
+      task.status === QueuedTaskStatusEnum.Running ||
+      task.status === QueuedTaskStatusEnum.Waiting ||
+      task.status === QueuedTaskStatusEnum.ReviewPending
+    );
   }
 
   getDockerRuntimeStatus(): { mode: RuntimeModeEnum; image?: string; network?: DockerNetworkModeEnum; containers: ReturnType<DockerSessionProvider["listRuntimeEntries"]> } {
@@ -148,8 +165,25 @@ export class TaskManager {
     const active = this.getTasks(agentId).some((task) => task.status === QueuedTaskStatusEnum.Running || task.status === QueuedTaskStatusEnum.Waiting || task.status === QueuedTaskStatusEnum.ReviewPending);
     if (active || this.promptActiveAgents.has(agentId)) throw new Error(t("docker_agent_restart_busy", { agentId }));
     await this.runtimeProvider.resetSession(agentId);
+    this.crashedAgents.delete(agentId);
+    this.promptActiveAgents.delete(agentId);
     this.observabilityHub.emit({ source: "orchestrator", type: "docker.agent.restarted", agentId, role: this.getAgent(agentId).spec.role, payload: {} });
+    this.requestSchedule(agentId);
     return { ok: true };
+  }
+
+  handleRuntimeEvent(agentId: string, event: { type?: unknown; willRetry?: unknown; messages?: unknown }): void {
+    if (event.type === "agent_start") {
+      this.promptActiveAgents.add(agentId);
+      return;
+    }
+    if (event.type !== "agent_end") return;
+    const terminalError = event.willRetry === false && Array.isArray(event.messages) && [...event.messages].reverse().some((message) =>
+      isRecord(message) && message.role === "assistant" && message.stopReason === "error",
+    );
+    if (terminalError) return;
+    this.promptActiveAgents.delete(agentId);
+    if (!this.runningTaskByAgent.has(agentId)) this.requestSchedule(agentId);
   }
 
   getTasks(agentId?: string): QueuedTask[] {
@@ -160,6 +194,50 @@ export class TaskManager {
       .sort((a, b) => a.targetAgentId === b.targetAgentId
         ? (queueOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (queueOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER)
         : a.createdAt.localeCompare(b.createdAt));
+  }
+
+  getTaskSchedulingState(task: QueuedTask): { runnable: boolean; reason?: string } {
+    if (task.status !== QueuedTaskStatusEnum.Queued) return { runnable: false, reason: task.status };
+    if (!this.schedulingEnabled) return { runnable: false, reason: "startup" };
+    if (this.crashedAgents.has(task.targetAgentId)) return { runnable: false, reason: "agent_crashed" };
+    const agent = this.agents.get(task.targetAgentId);
+    if (!agent) return { runnable: false, reason: "agent_missing" };
+    if (this.promptActiveAgents.has(task.targetAgentId)) return { runnable: false, reason: "agent_prompt_active" };
+    const runningTaskId = this.runningTaskByAgent.get(task.targetAgentId);
+    if (runningTaskId) return { runnable: false, reason: `waiting_for:${runningTaskId}` };
+    const firstQueued = (this.taskQueueByAgent.get(task.targetAgentId) ?? [])
+      .find((id) => this.taskById.get(id)?.status === QueuedTaskStatusEnum.Queued);
+    if (firstQueued !== task.id) return { runnable: false, reason: `behind:${firstQueued ?? "unknown"}` };
+    if (agent.spec.role === AgentRoleEnum.Leader && agent.leaderTeam) {
+      const missing = Array.from({ length: agent.leaderTeam.worker.total }, (_, index) => `${agent.leaderTeam!.name}-worker-${index}`)
+        .filter((id) => this.agents.get(id)?.spec.role !== AgentRoleEnum.Worker);
+      if (missing.length) return { runnable: false, reason: `workers_missing:${missing.join(",")}` };
+    }
+    return { runnable: true };
+  }
+
+  getTasksWithSchedulingState(agentId?: string): Array<QueuedTask & { scheduling: { runnable: boolean; reason?: string } }> {
+    return this.getTasks(agentId).map((task) => ({ ...task, scheduling: this.getTaskSchedulingState(task) }));
+  }
+
+  getTaskSnapshots(id: string): NonNullable<QueuedTask["snapshots"]> {
+    const task = this.taskById.get(id);
+    if (!task) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    return structuredClone(task.snapshots ?? []);
+  }
+
+  private checkpointTask(task: QueuedTask, reason: NonNullable<QueuedTask["snapshots"]>[number]["reason"]): void {
+    const snapshot = {
+      id: `snapshot-${randomUUID()}`,
+      createdAt: new Date().toISOString(),
+      reason,
+      status: task.status,
+      prompt: task.prompt,
+      progress: task.lastProgress ? structuredClone(task.lastProgress) : undefined,
+      error: task.error,
+      git: task.git ? structuredClone(task.git) : undefined,
+    };
+    task.snapshots = [...(task.snapshots ?? []), snapshot].slice(-50);
   }
 
   private removeTaskFromActiveQueue(task: QueuedTask): void {
@@ -178,6 +256,7 @@ export class TaskManager {
       tasks: Array.from(this.taskById.values(), (task) => structuredClone(task)),
       queues: Object.fromEntries(Array.from(this.taskQueueByAgent.entries(), ([id, queue]) => [id, [...queue]])),
       leaderEvents: Array.from(this.leaderEventsById.values(), (event) => structuredClone(event)),
+      releasesByLeaderTask: Object.fromEntries(this.releaseByLeaderTask),
     };
     const write = this.schedulerPersistenceTail.then(() => this.gitStore.saveSchedulerState(snapshot));
     this.schedulerPersistenceTail = write.catch((error: unknown) => {
@@ -197,6 +276,7 @@ export class TaskManager {
   private isValidSnapshot(snapshot: SchedulerSnapshot): boolean {
     if (!Number.isInteger(snapshot.nextTaskNumber) || snapshot.nextTaskNumber < 1 || typeof snapshot.taskIdDate !== "string") return false;
     if (!Array.isArray(snapshot.tasks) || !isRecord(snapshot.queues) || !Array.isArray(snapshot.leaderEvents)) return false;
+    if (snapshot.releasesByLeaderTask !== undefined && (!isRecord(snapshot.releasesByLeaderTask) || Object.values(snapshot.releasesByLeaderTask).some((id) => typeof id !== "string"))) return false;
     const tasks = new Map<string, QueuedTask>();
     for (const raw of snapshot.tasks as unknown[]) {
       if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.targetAgentId !== "string" ||
@@ -226,6 +306,28 @@ export class TaskManager {
     return true;
   }
 
+  /**
+   * Scheduler snapshots written before `QueuedTask.createdBy` became durable
+   * are still structurally recoverable. Infer a child task's creator from its
+   * parent target; root tasks originated from the operator-facing task API.
+   */
+  private migrateLegacySnapshot(snapshot: unknown): { snapshot: SchedulerSnapshot; migrated: boolean } {
+    if (!isRecord(snapshot) || !Array.isArray(snapshot.tasks)) return { snapshot: snapshot as SchedulerSnapshot, migrated: false };
+    const tasksById = new Map<string, Record<string, unknown>>();
+    for (const task of snapshot.tasks) {
+      if (isRecord(task) && typeof task.id === "string") tasksById.set(task.id, task);
+    }
+    let migrated = false;
+    const tasks = snapshot.tasks.map((task) => {
+      if (!isRecord(task) || (typeof task.createdBy === "string" && task.createdBy.trim())) return task;
+      const parentId = typeof task.parentTaskId === "string" ? task.parentTaskId : undefined;
+      const parentTarget = parentId ? tasksById.get(parentId)?.targetAgentId : undefined;
+      migrated = true;
+      return { ...task, createdBy: typeof parentTarget === "string" && parentTarget.trim() ? parentTarget : "operator" };
+    });
+    return { snapshot: { ...snapshot, tasks } as SchedulerSnapshot, migrated };
+  }
+
   private configuredAgentIds(): Set<string> {
     const ids = new Set(this.agents.keys());
     for (const team of this.config.teams) {
@@ -235,24 +337,28 @@ export class TaskManager {
   }
 
   private async restoreSchedulerState(): Promise<void> {
-    const snapshot = await this.gitStore.loadSchedulerState<SchedulerSnapshot>();
-    if (!snapshot) return;
+    const stored = await this.gitStore.loadSchedulerState<unknown>();
+    if (!stored) return;
+    const { snapshot, migrated } = this.migrateLegacySnapshot(stored);
     if (snapshot.version !== 1 || !this.isValidSnapshot(snapshot)) {
       const quarantine = await this.gitStore.quarantineSchedulerState();
       logger.warn(t("scheduler_snapshot_quarantined", { path: quarantine ?? "N/A" }));
       return;
     }
+    if (migrated) await this.gitStore.saveSchedulerState(snapshot);
     this.nextTaskNumber = snapshot.nextTaskNumber;
     this.taskIdDate = snapshot.taskIdDate;
     const configuredAgentIds = this.configuredAgentIds();
     for (const task of snapshot.tasks) {
-      // A process restart has no live session or in-memory event inbox. Do not
-      // pretend that partially running work can continue safely; preserve the
-      // task and its evidence as an explicit recovery failure instead.
-      if (task.status === QueuedTaskStatusEnum.Running || task.status === QueuedTaskStatusEnum.Waiting || task.status === QueuedTaskStatusEnum.ReviewPending) {
-        task.status = QueuedTaskStatusEnum.Failed;
-        task.error = t("scheduler_restart_workflow_failed");
-        task.completedAt = task.updatedAt = new Date().toISOString();
+      // A process restart has no live prompt. Preserve interrupted work as a
+      // paused, recallable checkpoint rather than silently failing or replaying
+      // side effects. The operator can inspect the snapshot before recall.
+      if (task.status === QueuedTaskStatusEnum.Running) {
+        task.status = QueuedTaskStatusEnum.Paused;
+        task.pauseReason = "startup_recovery";
+        task.pausedAt = task.updatedAt = new Date().toISOString();
+        task.completedAt = undefined;
+        this.checkpointTask(task, "startup_recovery");
       }
       if (task.status === QueuedTaskStatusEnum.Queued && !configuredAgentIds.has(task.targetAgentId)) {
         task.status = QueuedTaskStatusEnum.Failed;
@@ -262,15 +368,22 @@ export class TaskManager {
       this.taskById.set(task.id, task);
     }
     for (const [agentId, queue] of Object.entries(snapshot.queues)) {
-      const active = queue.filter((taskId) => this.taskById.get(taskId)?.status === QueuedTaskStatusEnum.Queued);
+      const active = queue.filter((taskId) => {
+        const status = this.taskById.get(taskId)?.status;
+        return status === QueuedTaskStatusEnum.Queued || status === QueuedTaskStatusEnum.Waiting;
+      });
       if (active.length > 0) this.taskQueueByAgent.set(agentId, active);
     }
+    for (const [taskId, proposalId] of Object.entries(snapshot.releasesByLeaderTask ?? {})) {
+      if (this.taskById.has(taskId)) this.releaseByLeaderTask.set(taskId, proposalId);
+    }
     for (const event of snapshot.leaderEvents ?? []) {
-      // The associated workflow was explicitly failed above; retain an audit
-      // record rather than replaying a review into an unrelated new session.
+      // Review handoffs are durable. Reset an interrupted lease so the Leader
+      // can receive the same event after its runtime and Worker pool recover.
       if (event.status === LeaderInboxEventStatusEnum.Pending || event.status === LeaderInboxEventStatusEnum.Leased || event.status === LeaderInboxEventStatusEnum.LegacyDelivered) {
-        event.status = LeaderInboxEventStatusEnum.Failed;
-        event.error = t("scheduler_restart_event_failed");
+        event.status = LeaderInboxEventStatusEnum.Pending;
+        event.leaseExpiresAt = undefined;
+        event.error = undefined;
         event.updatedAt = new Date().toISOString();
       }
       this.leaderEventsById.set(event.id, event);
@@ -483,7 +596,7 @@ export class TaskManager {
     return `task-${projectId}-${date}-${String(this.nextTaskNumber++).padStart(7, "0")}`;
   }
 
-  async createTask(body: ToolCreateTaskBody, options: { schedule?: boolean } = {}): Promise<QueuedTask> {
+  async createTask(body: ToolCreateTaskBody, options: { schedule?: boolean; ignoreConflictTaskId?: string } = {}): Promise<QueuedTask> {
     const target = this.getAgent(body.targetAgentId);
     if (body.parentTaskId && !this.taskById.has(body.parentTaskId)) {
       throw new Error(t("scheduler_parent_not_found", { taskId: body.parentTaskId }));
@@ -491,10 +604,10 @@ export class TaskManager {
     const prompt = body.prompt?.trim();
     if (!prompt) throw new Error(t("scheduler_prompt_required", { operation: "create_task" }));
     const conflictKey = body.conflictKey?.trim() || undefined;
-    const duplicate = this.activeTasks().find((task) =>
+    const duplicate = this.activeTasks().find((task) => task.id !== options.ignoreConflictTaskId && (
       (conflictKey && task.conflictKey === conflictKey) ||
-      (task.targetAgentId === body.targetAgentId && task.prompt === prompt),
-    );
+      (task.targetAgentId === body.targetAgentId && task.prompt === prompt)
+    ));
     if (duplicate) {
       throw new Error(t("scheduler_task_conflict", { taskId: duplicate.id, status: duplicate.status }));
     }
@@ -511,6 +624,7 @@ export class TaskManager {
       createdAt: now,
       updatedAt: now,
     };
+    this.checkpointTask(task, "created");
     this.taskById.set(task.id, task);
     const queue = this.taskQueueByAgent.get(task.targetAgentId) ?? [];
     queue.push(task.id);
@@ -530,6 +644,7 @@ export class TaskManager {
   }
 
   private requestSchedule(agentId: string): void {
+    if (!this.schedulingEnabled) return;
     if (this.pendingScheduleTimers.has(agentId)) return;
     const timer = setTimeout(() => {
       this.pendingScheduleTimers.delete(agentId);
@@ -545,10 +660,14 @@ export class TaskManager {
   private async sendManagedPrompt(agentId: string, prompt: string): Promise<void> {
     this.promptActiveAgents.add(agentId);
     try {
-      await this.runtimeProvider.sendPrompt(agentId, prompt);
-    } finally {
+      const memory = await this.memoryService?.buildContext(agentId, prompt);
+      await this.runtimeProvider.sendPrompt(agentId, memory ? `${memory}\n\n${prompt}` : prompt);
+      // IPC delivery is not prompt completion. Keep the Agent occupied until
+      // the runtime emits agent_end (or the crash path clears the slot).
+    } catch (error) {
       this.promptActiveAgents.delete(agentId);
       if (!this.runningTaskByAgent.has(agentId)) this.requestSchedule(agentId);
+      throw error;
     }
   }
 
@@ -574,6 +693,60 @@ export class TaskManager {
     this.emitTaskEvent("task.updated", task);
     await this.persistSchedulerState();
     return task;
+  }
+
+  async pauseTask(id: string): Promise<QueuedTask> {
+    const task = this.taskById.get(id);
+    if (!task) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if (task.status !== QueuedTaskStatusEnum.Queued) {
+      throw new Error(`Task ${id} cannot be paused while it is ${task.status}. Wait for the current Agent turn to reach a checkpoint.`);
+    }
+    task.status = QueuedTaskStatusEnum.Paused;
+    task.pausedAt = task.updatedAt = new Date().toISOString();
+    task.pauseReason = "operator";
+    this.removeTaskFromActiveQueue(task);
+    this.checkpointTask(task, "paused");
+    this.emitTaskEvent("task.paused", task);
+    await this.persistSchedulerState();
+    return task;
+  }
+
+  async resumeTask(id: string): Promise<QueuedTask> {
+    const task = this.taskById.get(id);
+    if (!task) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if (task.status !== QueuedTaskStatusEnum.Paused) throw new Error(`Only paused tasks can be resumed: ${id}`);
+    task.status = QueuedTaskStatusEnum.Queued;
+    task.pausedAt = undefined;
+    task.pauseReason = undefined;
+    task.error = undefined;
+    task.updatedAt = new Date().toISOString();
+    const queue = this.taskQueueByAgent.get(task.targetAgentId) ?? [];
+    if (!queue.includes(task.id)) queue.push(task.id);
+    this.taskQueueByAgent.set(task.targetAgentId, queue);
+    this.emitTaskEvent("task.resumed", task);
+    await this.persistSchedulerState();
+    this.requestSchedule(task.targetAgentId);
+    return task;
+  }
+
+  async recallTask(id: string): Promise<QueuedTask> {
+    const source = this.taskById.get(id);
+    if (!source) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if ([QueuedTaskStatusEnum.Queued, QueuedTaskStatusEnum.Running, QueuedTaskStatusEnum.Waiting, QueuedTaskStatusEnum.ReviewPending].includes(source.status)) {
+      throw new Error(`Active task ${id} cannot be recalled.`);
+    }
+    const recalled = await this.createTask({
+      targetAgentId: source.targetAgentId,
+      createdBy: "operator",
+      prompt: source.prompt,
+      conflictKey: source.conflictKey,
+    }, { schedule: false });
+    recalled.recalledFromTaskId = source.id;
+    this.checkpointTask(recalled, "recalled");
+    await this.persistSchedulerState();
+    this.emitTaskEvent("task.recalled", recalled);
+    this.requestSchedule(recalled.targetAgentId);
+    return recalled;
   }
 
   /** Reorder only pending work. A currently running task always keeps its slot. */
@@ -622,7 +795,32 @@ export class TaskManager {
     this.persistSchedulerStateInBackground();
   }
 
+  private rootTaskFor(task: QueuedTask): QueuedTask {
+    let current = task;
+    const visited = new Set<string>();
+    while (current.parentTaskId && !visited.has(current.id)) {
+      visited.add(current.id);
+      const parent = this.taskById.get(current.parentTaskId);
+      if (!parent) break;
+      current = parent;
+    }
+    return current;
+  }
+
+  private recordDeliveryReport(task: QueuedTask, report: TaskDeliveryReport): void {
+    const root = this.rootTaskFor(task);
+    const targets = root.id === task.id ? [task] : [task, root];
+    for (const target of targets) {
+      const reports = target.deliveryReports ?? [];
+      if (reports.some((item) => item.id === report.id)) continue;
+      target.deliveryReports = [...reports, report];
+      target.updatedAt = report.createdAt;
+      this.emitTaskEvent("task.delivery_report", target);
+    }
+  }
+
   private async scheduleAgent(agentId: string): Promise<void> {
+    if (!this.schedulingEnabled) return;
     if (this.crashedAgents.has(agentId)) return;
     if (this.promptActiveAgents.has(agentId)) return;
     if (this.runningTaskByAgent.has(agentId)) return;
@@ -654,6 +852,7 @@ export class TaskManager {
     task.startedAt = task.updatedAt = new Date().toISOString();
     this.runningTaskByAgent.set(agentId, task.id);
     this.lastCompletedWorkflowByAgent.delete(agentId);
+    this.checkpointTask(task, "started");
     // Commit the ownership transition before rebinding a workspace or sending
     // a prompt. A crash after the external side effect must never replay the
     // same queue item as if it were still pending.
@@ -704,6 +903,7 @@ export class TaskManager {
       task.status = failedError ? QueuedTaskStatusEnum.Failed : QueuedTaskStatusEnum.Completed;
       task.error = failedError;
       task.completedAt = task.updatedAt = new Date().toISOString();
+      this.checkpointTask(task, failedError ? "failed" : "completed");
       this.removeTaskFromActiveQueue(task);
       this.emitTaskEvent(failedError ? "task.failed" : "task.completed", task);
     }
@@ -721,11 +921,26 @@ export class TaskManager {
       task.status = failedError ? QueuedTaskStatusEnum.Failed : QueuedTaskStatusEnum.Completed;
       task.error = failedError;
       task.completedAt = task.updatedAt = new Date().toISOString();
+      this.checkpointTask(task, failedError ? "failed" : "completed");
       this.removeTaskFromActiveQueue(task);
       this.emitTaskEvent(failedError ? "task.failed" : "task.completed", task);
     }
     if (!failedError) this.lastCompletedWorkflowByAgent.set(agentId, taskId);
     this.releaseByLeaderTask.delete(taskId);
+    await this.persistSchedulerState();
+    this.requestSchedule(agentId);
+  }
+
+  private async waitForDelegatedWorkflow(agentId: string): Promise<void> {
+    const taskId = this.runningTaskByAgent.get(agentId);
+    if (!taskId) return;
+    const task = this.taskById.get(taskId);
+    this.runningTaskByAgent.delete(agentId);
+    if (task) {
+      task.status = QueuedTaskStatusEnum.Waiting;
+      task.updatedAt = new Date().toISOString();
+      this.emitTaskEvent("task.waiting_for_delivery", task);
+    }
     await this.persistSchedulerState();
     this.requestSchedule(agentId);
   }
@@ -783,21 +998,25 @@ export class TaskManager {
   }
 
   private async prepareWorkerWorkspace(agent: AgentRuntimeState, task: QueuedTask): Promise<void> {
-    if (task.git?.workspacePath && task.git.branch) return;
     const teamName = agent.spec.teamName;
     if (!teamName) throw new Error(t("scheduler_worker_no_team", { agentId: agent.spec.id }));
-    const attempt = 1;
-    const baseSha = await this.resolveBaseSha();
-    const branch = `oat/${teamName}/${task.id}/attempt-${attempt}`;
-    const workspacePath = this.gitStore.workerWorkspace(task.id, attempt);
-    const artifact: GitTaskArtifact = {
-      taskId: task.id, attempt, baseSha, branch, workspacePath,
-      artifactPath: this.gitStore.taskArtifactPath(task.id),
-    };
-    task.git = artifact;
-    await this.gitStore.saveArtifact(artifact);
+    const team = this.resolveTeam(teamName);
+    let artifact = task.git;
+    if (!artifact?.workspacePath || !artifact.branch) {
+      const attempt = 1;
+      const baseSha = await this.resolveBaseSha();
+      const branch = `oat/${teamName}/${task.id}/attempt-${attempt}`;
+      const workspacePath = this.gitStore.workerWorkspace(task.id, attempt);
+      artifact = {
+        taskId: task.id, attempt, baseSha, branch, workspacePath,
+        artifactPath: this.gitStore.taskArtifactPath(task.id),
+      };
+      task.git = artifact;
+      await this.gitStore.saveArtifact(artifact);
+    }
+    const { branch, baseSha, workspacePath } = artifact;
     const spec: AgentInstanceSpec = { ...agent.spec, branch, baseRef: baseSha, workspacePath };
-    await this.workspaceProvider.ensureWorkspace(spec, agent.leaderTeam?.leader.repos ?? []);
+    await this.workspaceProvider.ensureWorkspace(spec, team.leader.repos ?? []);
     await setLocalGitIdentity(spec.workspacePath, `${agent.spec.id}-${task.id}`, `${agent.spec.id}@${this.config.project.name}.oat`);
     await writeAgentWorkspaceConfig({
       workspacePath: spec.workspacePath, agentName: spec.name, role: AgentRoleEnum.Worker,
@@ -878,6 +1097,20 @@ export class TaskManager {
     );
     if (existing) {
       await this.handoffWorkerReview(workerId, task, leader.spec.id, existing);
+      this.recordDeliveryReport(task, {
+        id: `delivery-${existing.id}`,
+        taskId: task.id,
+        agentId: workerId,
+        role: AgentRoleEnum.Worker,
+        stage: "review_submitted",
+        summary: task.lastProgress?.message?.trim() || "",
+        createdAt: existing.createdAt,
+        reviewId: existing.id,
+        branch: existing.branch,
+        changedFiles: existing.changedFiles,
+        tests: existing.tests,
+        artifactPaths: [existing.artifactPath],
+      });
       return existing;
     }
     const committed = await commitWorkspaceChanges(worker.spec.workspacePath, `feat(${worker.spec.teamName}): ${task.id}`);
@@ -911,6 +1144,20 @@ export class TaskManager {
     };
     await this.gitStore.saveReview(review);
     await this.handoffWorkerReview(workerId, task, leader.spec.id, review);
+    this.recordDeliveryReport(task, {
+      id: `delivery-${review.id}`,
+      taskId: task.id,
+      agentId: workerId,
+      role: AgentRoleEnum.Worker,
+      stage: "review_submitted",
+      summary: task.lastProgress?.message?.trim() || "",
+      createdAt: review.createdAt,
+      reviewId: review.id,
+      branch: review.branch,
+      changedFiles: review.changedFiles,
+      tests: review.tests,
+      artifactPaths: [review.artifactPath],
+    });
     this.observabilityHub.emit({
       source: "orchestrator", type: "leader.review_ready", agentId: leader.spec.id,
       role: AgentRoleEnum.Leader, sessionId: leader.sessionId,
@@ -945,7 +1192,7 @@ export class TaskManager {
         parentTaskId: original.parentTaskId,
         prompt: `Address review ${review.id}: ${note}\nOriginal task: ${original.prompt}`,
         conflictKey: original.conflictKey,
-      }, { schedule: false });
+      }, { schedule: false, ignoreConflictTaskId: original.id });
       try {
         await this.gitStore.saveReview(review);
         original.status = QueuedTaskStatusEnum.Failed;
@@ -1244,7 +1491,36 @@ export class TaskManager {
       source: "orchestrator", type: proposal.status === ReleaseStatusEnum.Merged ? "release.merged" : "release.rejected",
       agentId: adminId, role: AgentRoleEnum.Admin, sessionId: admin.sessionId, payload: { proposal },
     });
+    await this.settleRootTaskForRelease(admin, proposal, note);
     return proposal;
+  }
+
+  private async settleRootTaskForRelease(admin: AgentRuntimeState, proposal: ReleaseProposal, note: string): Promise<void> {
+    const root = Array.from(this.taskById.values()).find((task) =>
+      !task.parentTaskId && task.deliveryReports?.some((report) => report.releaseProposalId === proposal.id),
+    );
+    if (!root || (root.status !== QueuedTaskStatusEnum.Waiting && root.status !== QueuedTaskStatusEnum.Running)) return;
+    const succeeded = proposal.status === ReleaseStatusEnum.Merged;
+    const message = succeeded
+      ? t("scheduler_root_delivery_completed", { proposalId: proposal.id })
+      : t("scheduler_root_delivery_rejected", { proposalId: proposal.id, note: note || proposal.note || "N/A" });
+    const at = new Date().toISOString();
+    root.status = succeeded ? QueuedTaskStatusEnum.Completed : QueuedTaskStatusEnum.Failed;
+    root.error = succeeded ? undefined : message;
+    root.lastProgress = { stage: succeeded ? "done" : "failed", message, at };
+    root.completedAt = root.updatedAt = at;
+    this.checkpointTask(root, succeeded ? "completed" : "failed");
+    this.removeTaskFromActiveQueue(root);
+    this.emitTaskEvent(succeeded ? "task.completed" : "task.failed", root);
+    this.observabilityHub.emit({
+      source: "orchestrator",
+      type: "report_progress",
+      agentId: admin.spec.id,
+      role: AgentRoleEnum.Admin,
+      sessionId: admin.sessionId,
+      payload: { taskId: root.id, stage: succeeded ? "done" : "failed", message },
+    });
+    await this.persistSchedulerState();
   }
 
   private async withReleaseLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -1268,6 +1544,14 @@ export class TaskManager {
     };
 
     const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
+    const statusFor = (agentId: string): NonNullable<ObservabilityGraph["nodes"][number]["status"]> => {
+      if (this.crashedAgents.has(agentId)) return "failed";
+      const activeTaskId = this.runningTaskByAgent.get(agentId);
+      const activeTask = activeTaskId ? this.taskById.get(activeTaskId) : undefined;
+      if (this.promptActiveAgents.has(agentId) || activeTask?.status === QueuedTaskStatusEnum.Running) return "running";
+      if (this.getTasks(agentId).some((task) => [QueuedTaskStatusEnum.Queued, QueuedTaskStatusEnum.Waiting, QueuedTaskStatusEnum.ReviewPending, QueuedTaskStatusEnum.Paused].includes(task.status))) return "waiting";
+      return "idle";
+    };
 
     for (const a of this.agents.values()) {
       nodes.push({
@@ -1276,6 +1560,7 @@ export class TaskManager {
         label: a.spec.name,
         teamName: a.spec.teamName,
         sessionId: a.sessionId,
+        status: statusFor(a.spec.id),
       });
       if (a.spec.role === AgentRoleEnum.Leader && admin) {
         pushEdge(admin.spec.id, a.spec.id, "admin_leader");
@@ -1306,6 +1591,8 @@ export class TaskManager {
 
   registerAgent(state: AgentRuntimeState): void {
     this.agents.set(state.spec.id, state);
+    this.crashedAgents.delete(state.spec.id);
+    this.promptActiveAgents.delete(state.spec.id);
     if (this.taskQueueByAgent.has(state.spec.id)) this.requestSchedule(state.spec.id);
     if (state.spec.role === AgentRoleEnum.Worker && state.spec.teamName) {
       for (const leader of this.agents.values()) {
@@ -1347,6 +1634,16 @@ export class TaskManager {
       this.teamByLeaderId.set(l.spec.id, l.team);
     }
     await this.restoreSchedulerState();
+    for (const agentId of this.taskQueueByAgent.keys()) {
+      if (this.agents.has(agentId)) this.requestSchedule(agentId);
+    }
+  }
+
+  /** Open the startup gate only after Admin, Leaders, and every Worker exist. */
+  startScheduling(): void {
+    if (this.schedulingEnabled) return;
+    this.schedulingEnabled = true;
+    this.observabilityHub.emit({ source: "orchestrator", type: "scheduler.ready", payload: { restoredTasks: this.taskById.size } });
     for (const agentId of this.taskQueueByAgent.keys()) {
       if (this.agents.has(agentId)) this.requestSchedule(agentId);
     }
@@ -1806,7 +2103,6 @@ export class TaskManager {
               workerId,
               error: error.message,
             });
-            this.agents.delete(workerId);
             void this.handleAgentCrash(workerId, error);
             continue;
           }
@@ -1893,7 +2189,10 @@ export class TaskManager {
     if (admin && !adminTaskId) {
       const previousAdminTaskId = this.lastCompletedWorkflowByAgent.get(admin.spec.id);
       const existing = Array.from(this.taskById.values()).find((task) =>
-        task.parentTaskId === previousAdminTaskId && task.targetAgentId === leaderId && task.prompt === prompt.trim(),
+        task.targetAgentId === leaderId && task.prompt === prompt.trim() && (
+          task.parentTaskId === previousAdminTaskId ||
+          (Boolean(task.parentTaskId) && this.taskById.get(task.parentTaskId!)?.status === QueuedTaskStatusEnum.Waiting)
+        ),
       );
       if (existing) return { ok: true, taskId: existing.id };
       throw new Error(t("scheduler_admin_no_active_task", { adminId: admin.spec.id }));
@@ -1905,7 +2204,7 @@ export class TaskManager {
         stage: "delegated",
         message: t("scheduler_delegated", { leaderName: leader.spec.name, taskId: task.id }),
       });
-      await this.completeRunningTask(admin.spec.id);
+      await this.waitForDelegatedWorkflow(admin.spec.id);
     }
     logger.info(t("scheduler_leader_task_queued", { taskId: task.id }), { leaderId });
     return { ok: true, taskId: task.id };
@@ -2088,6 +2387,7 @@ export class TaskManager {
         const task = taskId ? this.taskById.get(taskId) : undefined;
         if (task) {
           task.lastProgress = { stage, message, at: new Date().toISOString() };
+          this.checkpointTask(task, "progress");
           this.emitTaskEvent("task.progress", task);
         }
         this.observabilityHub.emit({
@@ -2135,6 +2435,7 @@ export class TaskManager {
 
     const interruptedTaskId = this.currentWorkflowTaskId(agentId);
     this.crashedAgents.add(agentId);
+    this.promptActiveAgents.delete(agentId);
     this.workerBusy.delete(agentId);
     await this.failActiveWorkflow(agentId, t("scheduler_agent_crashed", { error: error.message }));
 
@@ -2153,6 +2454,12 @@ export class TaskManager {
     void this.pushNotification(
       t("notification_agent_crashed", { agentId, role, error: error.message })
     );
+
+    // The process may have exited because of a transient transport or model
+    // compatibility failure. Restart its empty session once, then re-open its
+    // still-queued work. Active workflows remain failed rather than replaying
+    // side effects; queued tasks are safe to schedule again.
+    this.scheduleAgentRecovery(agentId);
 
     if (role === AgentRoleEnum.Worker) {
       const teamName = agent.spec.teamName ?? "";
@@ -2207,6 +2514,36 @@ export class TaskManager {
     }
   }
 
+  private scheduleAgentRecovery(agentId: string): void {
+    if (this.recoveringAgents.has(agentId)) return;
+    this.recoveringAgents.add(agentId);
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          await this.runtimeProvider.resetSession(agentId);
+          this.crashedAgents.delete(agentId);
+          this.promptActiveAgents.delete(agentId);
+          this.observabilityHub.emit({
+            source: "orchestrator",
+            type: "agent.recovered",
+            agentId,
+            role: this.getAgent(agentId).spec.role,
+            payload: {},
+          });
+          this.requestSchedule(agentId);
+        } catch (recoveryError) {
+          logger.warn(t("scheduler_event_delivery_failed", {
+            operation: "agent_runtime_recovery",
+            error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
+          }), { agentId });
+        } finally {
+          this.recoveringAgents.delete(agentId);
+        }
+      })();
+    }, 400);
+    timer.unref();
+  }
+
   async generateChangelog(agentId: string): Promise<any> {
     const agent = this.getAgent(agentId);
     this.observabilityHub.emit({
@@ -2232,18 +2569,32 @@ export class TaskManager {
       throw new Error(t("scheduler_release_proposal_required"));
     }
     const proposal = await this.gitStore.loadRelease(proposalId);
+    const leaderTask = taskId ? this.taskById.get(taskId) : undefined;
+    if (leaderTask) {
+      this.recordDeliveryReport(leaderTask, {
+        id: `delivery-${proposal.id}`,
+        taskId: leaderTask.id,
+        agentId: leaderId,
+        role: AgentRoleEnum.Leader,
+        stage: "release_submitted",
+        summary: changelog?.trim() || proposal.note?.trim() || "",
+        createdAt: proposal.createdAt,
+        releaseProposalId: proposal.id,
+        branch: proposal.integrationBranch,
+        artifactPaths: proposal.artifactPaths,
+      });
+    }
     const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
     if (!admin) throw new Error(t("admin_not_found"));
     // The Admin root task is completed after it acknowledges delegation. Link
     // the downstream delivery back to that original task so the operator gets
     // a final answer in the same conversation instead of an unbound internal
     // RELEASE_PROPOSAL prompt.
-    const leaderTask = taskId ? this.taskById.get(taskId) : undefined;
     const rootTask = leaderTask?.parentTaskId ? this.taskById.get(leaderTask.parentTaskId) : undefined;
     if (rootTask) {
       const message = t("scheduler_release_waiting_approval", { teamName: team.name, proposalId: proposal.id });
       const at = new Date().toISOString();
-      rootTask.lastProgress = { stage: "done", message, at };
+      rootTask.lastProgress = { stage: "awaiting_approval", message, at };
       rootTask.updatedAt = at;
       this.emitTaskEvent("task.progress", rootTask);
       this.observabilityHub.emit({
@@ -2252,7 +2603,7 @@ export class TaskManager {
         agentId: admin.spec.id,
         role: AgentRoleEnum.Admin,
         sessionId: admin.sessionId,
-        payload: { taskId: rootTask.id, stage: "done", message },
+        payload: { taskId: rootTask.id, stage: "awaiting_approval", message },
       });
     }
     this.observabilityHub.emit({

@@ -8,6 +8,24 @@ import { homedir, platform, arch, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  AgentRoleEnum,
+  BaseBranchEnum,
+  DockerNetworkModeEnum,
+  QueuedTaskStatusEnum,
+  RuntimeModeEnum,
+} from '../../../src/types/enums.js';
+import { buildResourceProjectConfig, validateResourceProjectConfig } from '../../../src/resources/config-builder.js';
+import { ResourceSupervisor, type ResourceProposal } from './resource-supervisor.js';
+import {
+  AgentRuntimeStatusEnum,
+  ProjectRestartAvailabilityEnum,
+  ProjectRestartPhaseEnum,
+  ProjectRestartTriggerEnum,
+  ProjectRuntimeModeEnum,
+  ResourceRequiredActionEnum,
+  type ProjectRestartStatus,
+} from '../shared/resource-types.js';
 
 type CommandResult = { code: number; stdout: string; stderr: string };
 type RuntimeStatus = {
@@ -22,12 +40,21 @@ type ControlPlaneResult = { handled: boolean; value?: unknown };
 type OrchestratorState = { orchestratorPort?: unknown; pid?: unknown; startedAt?: unknown; configPath?: unknown; argv?: unknown };
 type StatePidStatus = 'missing' | 'stopped' | 'mismatch' | 'current';
 enum ProjectRuntimeMode { LocalProcess = 'local_process', Docker = 'docker' }
-enum ActiveTaskStatus { Running = 'running', Waiting = 'waiting', ReviewPending = 'review_pending' }
+enum ActiveTaskStatus { Queued = 'queued', Running = 'running', Waiting = 'waiting', ReviewPending = 'review_pending' }
 type DockerContainerSummary = { id: string; name: string; image: string; state: string; status: string; createdAt: string; agentId: string; role: string };
 type DockerHostIssue = 'not_installed' | 'permission_denied' | 'daemon_unavailable';
 type DockerManagementStatus = { installed: boolean; daemonRunning: boolean; available: boolean; version?: string; cliVersion?: string; issue?: DockerHostIssue; error?: string; autoInstallSupported: boolean; runtimeMode: ProjectRuntimeMode; migrationLocked: boolean; configured?: { image?: string; network?: string; extraArgs: string[] }; containers: DockerContainerSummary[]; runtimeEntries: Array<{ agentId: string; role: string; containerName: string; startedAt: string; state: string; recentErrors: string[] }> };
 type DockerHostStatus = Pick<DockerManagementStatus, 'installed' | 'daemonRunning' | 'available' | 'version' | 'cliVersion' | 'issue' | 'error' | 'autoInstallSupported'> & { executable?: string };
+const DESKTOP_APP_ID = 'me.ibert.oat-desktop';
 const observabilityStreams = new Map<number, AbortController>();
+const projectRestartPhases = new Map<string, ProjectRestartPhaseEnum>();
+let resourceSupervisor: ResourceSupervisor | undefined;
+
+function desktopIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'logo.png')
+    : resolve(dirname(fileURLToPath(import.meta.url)), '../../../logo/logo-512.png');
+}
 
 const REQUIRED_NODE_MAJOR = 22;
 const PROJECT_PROBE_TIMEOUT_MS = 5_000;
@@ -704,6 +731,144 @@ async function saveLocalGlobalModels(incoming: Record<string, unknown>): Promise
   await fs.writeFile(join(oatDataDir(), 'models.json'), JSON.stringify(result, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
 
+/** Resolve provider credentials in memory without exposing or copying them to
+ * the global catalog. Existing project configs remain the current credential
+ * source until Desktop gains a dedicated keychain-backed store. */
+async function resourceGlobalModels(): Promise<LocalModels> {
+  const catalog = structuredClone(await localGlobalModels());
+  const missing = new Set(Object.entries(catalog.providers)
+    .filter(([, value]) => !isRecord(value) || typeof value.api_key !== 'string' || !value.api_key)
+    .map(([key]) => key));
+  if (!missing.size) return catalog;
+  for (const project of await listProjects()) {
+    let config: Record<string, unknown> | undefined;
+    try { config = await localProjectConfig(project.name, { path: '' }, 'GET') as Record<string, unknown>; } catch { continue; }
+    if (!isRecord(config.providers)) continue;
+    for (const key of [...missing]) {
+      const declared = config.providers[key];
+      if (!isRecord(declared) || typeof declared.api_key !== 'string' || !declared.api_key) continue;
+      const current = isRecord(catalog.providers[key]) ? catalog.providers[key] : {};
+      catalog.providers[key] = { ...current, api_key: declared.api_key };
+      missing.delete(key);
+    }
+    if (!missing.size) break;
+  }
+  return catalog;
+}
+
+async function resourceInventory(): Promise<Record<string, unknown>> {
+  const projects = await listProjects();
+  const detail = await Promise.all(projects.map(async (project) => {
+    let config: Record<string, unknown> | undefined;
+    try { config = await localProjectConfig(project.name, { path: '' }, 'GET') as Record<string, unknown>; } catch { /* reported as invalid below */ }
+    let tasks: Array<{ status?: unknown }> = [];
+    if (project.alive) {
+      try { tasks = await requestOrchestrator({ projectName: project.name, path: '/tasks' }) as Array<{ status?: unknown }>; } catch { /* runtime may be recovering */ }
+    }
+    const agentsByRole = {
+      [AgentRoleEnum.Admin]: project.agents.filter((agent) => agent.role === AgentRoleEnum.Admin).length,
+      [AgentRoleEnum.Leader]: project.agents.filter((agent) => agent.role === AgentRoleEnum.Leader).length,
+      [AgentRoleEnum.Worker]: project.agents.filter((agent) => agent.role === AgentRoleEnum.Worker).length,
+    };
+    const teams = Array.isArray(config?.teams) ? config.teams : [];
+    const workerCapacity = teams.reduce((total, team) => total + (isRecord(team) && isRecord(team.worker) && Number.isInteger(team.worker.total) ? Number(team.worker.total) : 0), 0);
+    return {
+      name: project.name,
+      projectName: project.projectName,
+      alive: project.alive,
+      configValid: Boolean(config),
+      runtimeMode: isRecord(config?.runtime) && config?.runtime.mode === ProjectRuntimeMode.Docker ? ProjectRuntimeMode.Docker : ProjectRuntimeMode.LocalProcess,
+      teamCount: teams.length,
+      workerCapacity,
+      agents: agentsByRole,
+      busyAgents: project.agents.filter((agent) => agent.status === AgentRuntimeStatusEnum.Running).length,
+      failedAgents: project.agents.filter((agent) => agent.status === AgentRuntimeStatusEnum.Failed).length,
+      tasks: Object.fromEntries(Object.values(QueuedTaskStatusEnum).map((status) => [status, tasks.filter((task) => task.status === status).length])),
+    };
+  }));
+  return {
+    generatedAt: new Date().toISOString(),
+    projects: {
+      total: projects.length,
+      running: projects.filter((project) => project.alive).length,
+      stopped: projects.filter((project) => !project.alive).length,
+    },
+    agents: {
+      total: projects.reduce((total, project) => total + project.agents.length, 0),
+      busy: projects.flatMap((project) => project.agents).filter((agent) => agent.status === AgentRuntimeStatusEnum.Running).length,
+      failed: projects.flatMap((project) => project.agents).filter((agent) => agent.status === AgentRuntimeStatusEnum.Failed).length,
+    },
+    detail,
+  };
+}
+
+async function draftResourceProject(input: {
+  projectName: string;
+  repo?: string;
+  modelAlias: string;
+  runtimeMode: ProjectRuntimeModeEnum;
+  dockerImage?: string;
+  teams: Array<{ name: string; responsibility: string; workers: number; repos?: string[] }>;
+}): Promise<{ projectName: string; config: Record<string, unknown> }> {
+  const catalog = await localGlobalModels();
+  const modelId = catalog.models[input.modelAlias];
+  if (typeof modelId !== 'string' || !modelId.trim()) throw new Error(`Model alias ${input.modelAlias} is not registered in the global model catalog.`);
+  const config = buildResourceProjectConfig({
+    projectName: input.projectName,
+    repo: input.repo,
+    modelAlias: input.modelAlias,
+    modelId,
+    runtimeMode: input.runtimeMode === ProjectRuntimeModeEnum.Docker ? RuntimeModeEnum.Docker : RuntimeModeEnum.LocalProcess,
+    dockerImage: input.dockerImage,
+    dockerNetwork: DockerNetworkModeEnum.Bridge,
+    baseBranch: BaseBranchEnum.Main,
+    teams: input.teams,
+  });
+  return { projectName: config.project.name, config: config as unknown as Record<string, unknown> };
+}
+
+async function provisionResourceProject(proposal: ResourceProposal): Promise<{ requiredAction: ResourceRequiredActionEnum; message: string }> {
+  const config = validateResourceProjectConfig(proposal.config);
+  const registryName = config.project.name;
+  if (!isSafePathSegment(registryName)) throw new Error('The generated project name cannot be used as a registered project identifier.');
+  const linkRoot = join(homedir(), '.oat', 'projects');
+  const linkPath = join(linkRoot, registryName);
+  if (await exists(linkPath)) throw new Error(`Project ${registryName} is already registered.`);
+  const root = join(homedir(), '.oat', 'projects-data', registryName);
+  const rootAlreadyExists = await exists(root);
+  if (rootAlreadyExists && (await fs.readdir(root)).length > 0) throw new Error(`Project directory ${root} already exists and is not empty.`);
+  await fs.mkdir(root, { recursive: true });
+  const target = join(root, 'team.json');
+  const temporary = `${target}.${process.pid}.tmp`;
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    validateResourceProjectConfig(JSON.parse(await fs.readFile(temporary, 'utf8')));
+    await fs.rename(temporary, target);
+    await fs.mkdir(linkRoot, { recursive: true });
+    await fs.symlink(root, linkPath, isWindows ? 'junction' : 'dir');
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+    await fs.rm(linkPath, { force: true }).catch(() => undefined);
+    if (!rootAlreadyExists) await fs.rm(root, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return {
+    requiredAction: ResourceRequiredActionEnum.ManualProjectStart,
+    message: `项目 ${registryName} 已创建，team.json 已通过 Schema 校验并注册到项目列表。资源管理主任没有启动本地团队进程或 Docker 的权限，请由你手动启动该项目。`,
+  };
+}
+
+function getResourceSupervisor(): ResourceSupervisor {
+  resourceSupervisor ??= new ResourceSupervisor({
+    globalConfig: localGlobalConfig,
+    globalModels: resourceGlobalModels,
+    inventory: resourceInventory,
+    draft: draftResourceProject,
+    apply: provisionResourceProject,
+  });
+  return resourceSupervisor;
+}
+
 async function localProjectConfig(name: string, input: Omit<OrchestratorRequest, 'projectName'>, method: string): Promise<unknown> {
   const configPath = await projectConfigPath(name);
   if (method === 'GET') {
@@ -711,7 +876,7 @@ async function localProjectConfig(name: string, input: Omit<OrchestratorRequest,
     if (!isRecord(parsed)) throw new Error('Project configuration is not a JSON object.');
     return parsed;
   }
-  const config = jsonBody(input);
+  const config = validateResourceProjectConfig(jsonBody(input)) as unknown as Record<string, unknown>;
   const current = await readJson<Record<string, unknown>>(configPath);
   if (!current) throw new Error('The current project configuration cannot be read.');
   const { root } = await registeredProject(name);
@@ -856,7 +1021,14 @@ async function localControlPlane(input: Omit<OrchestratorRequest, 'projectName'>
   if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'projects' && segments[3] === 'restart' && noQuery) {
     if (method !== 'POST') throw new Error('Unsupported local control-plane request method.');
     if (!isSafePathSegment(segments[2])) throw new Error('Invalid project name.');
-    return { handled: true, value: await restartProject(segments[2]) };
+    const trigger = jsonBody(input).trigger;
+    if (trigger !== ProjectRestartTriggerEnum.HumanUi) throw new Error('Project restart requires an explicit human UI action.');
+    return { handled: true, value: await restartProject(segments[2], ProjectRestartTriggerEnum.HumanUi) };
+  }
+  if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'projects' && segments[3] === 'restart-status' && noQuery) {
+    if (method !== 'GET') throw new Error('Unsupported local control-plane request method.');
+    if (!isSafePathSegment(segments[2])) throw new Error('Invalid project name.');
+    return { handled: true, value: await projectRestartStatus(segments[2]) };
   }
   if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'projects' && segments[3] === 'config' && noQuery) {
     if (!['GET', 'PUT'].includes(method)) throw new Error('Unsupported local control-plane request method.');
@@ -977,7 +1149,52 @@ async function subscribeObservability(event: IpcMainInvokeEvent, projectName: st
   void pump();
 }
 
-async function restartProject(name: string): Promise<{ ok: true; newPid?: number }> {
+async function projectRestartStatus(name: string): Promise<ProjectRestartStatus> {
+  const phase = projectRestartPhases.get(name) ?? ProjectRestartPhaseEnum.Idle;
+  if (phase !== ProjectRestartPhaseEnum.Idle && phase !== ProjectRestartPhaseEnum.Completed && phase !== ProjectRestartPhaseEnum.Failed) {
+    return { availability: ProjectRestartAvailabilityEnum.AlreadyRestarting, phase, activeTaskCount: 0, projectAlive: true, message: 'Project team restart is already in progress.' };
+  }
+  let root: string;
+  try { ({ root } = await registeredProject(name)); }
+  catch { return { availability: ProjectRestartAvailabilityEnum.Unavailable, phase, activeTaskCount: 0, projectAlive: false, message: 'Project is not registered.' }; }
+  const state = await readJson<OrchestratorState>(join(root, '.oat', 'state', 'orchestrator.json'));
+  if (!state || !stateArgv(state)) {
+    return { availability: ProjectRestartAvailabilityEnum.StartupCommandMissing, phase, activeTaskCount: 0, projectAlive: false, message: 'Start the project manually once before using restart.' };
+  }
+  const pidStatus = await inspectStatePid(state);
+  const projectAlive = pidStatus === 'current' && validPid(state.pid);
+  if (!projectAlive) {
+    return { availability: ProjectRestartAvailabilityEnum.ProjectStopped, phase, activeTaskCount: 0, projectAlive: false, message: 'The project is stopped. Start it manually; restart only operates on a running project team.' };
+  }
+  const port = validPort(state.orchestratorPort) ? state.orchestratorPort : undefined;
+  if (port && (await statePidOwnsPort(state.pid as number, port)) === false) {
+    return { availability: ProjectRestartAvailabilityEnum.StaleProcessState, phase, activeTaskCount: 0, projectAlive: true, message: 'The saved project process does not own its recorded port.' };
+  }
+  let activeTaskCount = 0;
+  try {
+    const tasks = await requestOrchestrator({ projectName: name, path: '/tasks' }) as Array<{ status?: unknown }>;
+    activeTaskCount = tasks.filter((task) => Object.values(ActiveTaskStatus).includes(task.status as ActiveTaskStatus)).length;
+  } catch { /* the health checks below provide the actionable failure */ }
+  if (activeTaskCount > 0) {
+    return { availability: ProjectRestartAvailabilityEnum.ActiveTasks, phase, activeTaskCount, projectAlive: true, message: `${activeTaskCount} active task(s) must reach a checkpoint before restart.` };
+  }
+  const config = await readJson<Record<string, unknown>>(await projectConfigPath(name));
+  const runtimeMode = config && isRecord(config.runtime) && config.runtime.mode === ProjectRuntimeMode.Docker ? ProjectRuntimeModeEnum.Docker : ProjectRuntimeModeEnum.LocalProcess;
+  if (runtimeMode === ProjectRuntimeModeEnum.Docker) {
+    const docker = await dockerHostStatus();
+    if (!docker.installed || !docker.daemonRunning) {
+      return { availability: ProjectRestartAvailabilityEnum.DockerEngineUnavailable, phase, activeTaskCount, projectAlive: true, runtimeMode, message: 'Start Docker Engine manually before restarting this project team.' };
+    }
+  }
+  return { availability: ProjectRestartAvailabilityEnum.Ready, phase, activeTaskCount, projectAlive: true, runtimeMode };
+}
+
+async function restartProject(name: string, trigger: ProjectRestartTriggerEnum): Promise<{ ok: true; newPid?: number }> {
+  if (trigger !== ProjectRestartTriggerEnum.HumanUi) throw new Error('Project restart requires an explicit human UI action.');
+  const status = await projectRestartStatus(name);
+  if (status.availability !== ProjectRestartAvailabilityEnum.Ready) throw new Error(status.message || `Project restart is unavailable: ${status.availability}`);
+  projectRestartPhases.set(name, ProjectRestartPhaseEnum.Validating);
+  try {
   const { root } = await registeredProject(name);
   const statePath = join(root, '.oat', 'state', 'orchestrator.json');
   const state = await readJson<OrchestratorState>(statePath);
@@ -987,7 +1204,7 @@ async function restartProject(name: string): Promise<{ ok: true; newPid?: number
   if (config && isRecord(config.runtime) && config.runtime.mode === ProjectRuntimeMode.Docker) {
     const docker = await dockerHostStatus();
     if (!docker.installed) throw new Error('Docker is required by this project but is not installed. Open Docker management to review and confirm installation.');
-    if (!docker.daemonRunning) await startDocker();
+    if (!docker.daemonRunning) throw new Error('Docker Engine is not running. Start it manually before restarting the project team.');
   }
   const pidStatus = await inspectStatePid(state);
   const port = validPort(state.orchestratorPort) ? state.orchestratorPort : undefined;
@@ -995,24 +1212,33 @@ async function restartProject(name: string): Promise<{ ok: true; newPid?: number
     if (port && (await statePidOwnsPort(state.pid, port)) === false) {
       throw new Error('The saved PID does not own this project\'s recorded Orchestrator port. Refusing to terminate it.');
     }
+    projectRestartPhases.set(name, ProjectRestartPhaseEnum.Stopping);
     process.kill(state.pid, 'SIGTERM');
+    projectRestartPhases.set(name, ProjectRestartPhaseEnum.WaitingForRelease);
     await waitForProjectRelease(state.pid, port);
   } else if (port && await isPortListening(port)) {
     throw new Error('A process is active on this project\'s recorded port, but its PID cannot be verified. Stop it before restarting.');
   }
   const [command, ...args] = argv;
-  const child = spawn(command, args, { cwd: root, detached: true, stdio: 'ignore', env: { ...process.env } });
+  projectRestartPhases.set(name, ProjectRestartPhaseEnum.Starting);
+  const child = spawn(command, args, { cwd: root, detached: true, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env } });
   let launchFailure: Error | undefined;
+  let launchStderr = '';
+  child.stderr?.on('data', (chunk: Buffer | string) => {
+    launchStderr = `${launchStderr}${String(chunk)}`.slice(-4_000);
+  });
   await new Promise<void>((resolveSpawn, rejectSpawn) => {
     child.once('spawn', resolveSpawn);
     child.once('error', (error) => { launchFailure = error; rejectSpawn(error); });
     child.once('exit', (code, signal) => {
-      launchFailure = new Error(`The restarted Orchestrator exited before it became ready (${signal ? `signal ${signal}` : `code ${code ?? 1}`}).`);
+      const detail = launchStderr.trim();
+      launchFailure = new Error(`The restarted Orchestrator exited before it became ready (${signal ? `signal ${signal}` : `code ${code ?? 1}`})${detail ? `:\n${detail}` : ''}`);
     });
   });
   if (!validPid(child.pid)) throw new Error('The restarted Orchestrator did not report a process id.');
   const newPid = child.pid;
   child.unref();
+  projectRestartPhases.set(name, ProjectRestartPhaseEnum.WaitingForReady);
   const startDeadline = Date.now() + ORCHESTRATOR_START_TIMEOUT_MS;
   do {
     if (launchFailure || child.exitCode !== null || child.signalCode !== null) {
@@ -1020,6 +1246,7 @@ async function restartProject(name: string): Promise<{ ok: true; newPid?: number
     }
     const startedState = await readJson<OrchestratorState>(statePath);
     if (startedState?.pid === newPid && (await inspectStatePid(startedState)) === 'current') {
+      projectRestartPhases.set(name, ProjectRestartPhaseEnum.Completed);
       return { ok: true, newPid };
     }
     await delay(200);
@@ -1027,7 +1254,12 @@ async function restartProject(name: string): Promise<{ ok: true; newPid?: number
   if (isPidAlive(newPid)) {
     try { process.kill(newPid, 'SIGTERM'); } catch { /* the child stopped between checks */ }
   }
+  projectRestartPhases.set(name, ProjectRestartPhaseEnum.Failed);
   throw new Error('The restarted Orchestrator did not publish valid startup state before the timeout.');
+  } catch (error) {
+    projectRestartPhases.set(name, ProjectRestartPhaseEnum.Failed);
+    throw error;
+  }
 }
 
 async function validateProjectDeletion(link: string, root: string, state: OrchestratorState | undefined): Promise<void> {
@@ -1106,7 +1338,8 @@ async function listProviderModels(input: ProviderProbe): Promise<string[]> {
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 1080, minHeight: 720, show: false,
-    title: 'Open Agent Team',
+    title: 'OAT',
+    icon: desktopIconPath(),
     // Replace the default chrome with the renderer toolbar while preserving
     // macOS's native traffic lights (we never draw window controls ourselves).
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
@@ -1130,6 +1363,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Keep the native app identity aligned with the product name in the Dock,
+  // menu bar and window chrome (Electron otherwise uses its default name in dev).
+  app.setName('OAT');
+  app.setAppUserModelId(DESKTOP_APP_ID);
+  if (process.platform === 'darwin') app.dock?.setIcon(desktopIconPath());
   ipcMain.handle('runtime:status', (event) => { requireTrustedRenderer(event); return getRuntimeStatus(); });
   ipcMain.handle('runtime:prepare', (event) => { requireTrustedRenderer(event); return prepareRuntime(); });
   ipcMain.handle('runtime:ensure-node', (event) => { requireTrustedRenderer(event); return ensureNodeRuntime(); });
@@ -1141,8 +1379,21 @@ app.whenReady().then(() => {
   ipcMain.handle('docker:status', (event) => { requireTrustedRenderer(event); return dockerHostStatus(); });
   ipcMain.handle('docker:start', (event) => { requireTrustedRenderer(event); return startDocker(); });
   ipcMain.handle('projects:list', (event) => { requireTrustedRenderer(event); return listProjects(); });
-  ipcMain.handle('projects:restart', (event, name: string) => { requireTrustedRenderer(event); return restartProject(name); });
+  ipcMain.handle('projects:restart-status', (event, name: string) => { requireTrustedRenderer(event); return projectRestartStatus(name); });
+  ipcMain.handle('projects:restart', (event, name: string) => { requireTrustedRenderer(event); return restartProject(name, ProjectRestartTriggerEnum.HumanUi); });
   ipcMain.handle('projects:delete', (event, name: string) => { requireTrustedRenderer(event); return deleteProject(name); });
+  ipcMain.handle('resource-agent:send', (event, text: string) => {
+    requireTrustedRenderer(event);
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Resource Manager message is required.');
+    return getResourceSupervisor().send(text.trim());
+  });
+  ipcMain.handle('resource-agent:history', (event) => { requireTrustedRenderer(event); return getResourceSupervisor().history(); });
+  ipcMain.handle('resource-agent:confirm', (event, proposalId: string) => {
+    requireTrustedRenderer(event);
+    if (typeof proposalId !== 'string' || !proposalId.trim()) throw new Error('Resource proposal id is required.');
+    return getResourceSupervisor().confirm(proposalId);
+  });
+  ipcMain.handle('resource-agent:cancel', (event) => { requireTrustedRenderer(event); return getResourceSupervisor().cancel(); });
   ipcMain.handle('providers:list-models', (event, input: ProviderProbe) => { requireTrustedRenderer(event); return listProviderModels(input); });
   ipcMain.handle('orchestrator:request', (event, input: OrchestratorRequest) => { requireTrustedRenderer(event); return requestOrchestrator(input); });
   ipcMain.handle('control-plane:request', (event, input: Omit<OrchestratorRequest, 'projectName'>) => { requireTrustedRenderer(event); return requestControlPlane(input); });
@@ -1151,4 +1402,5 @@ app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
+app.on('before-quit', () => resourceSupervisor?.dispose());
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

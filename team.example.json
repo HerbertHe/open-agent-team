@@ -11,6 +11,20 @@
       "api_key": "sk-xxx"
     }
   },
+  "memory": {
+    "enabled": true,
+    "roles": ["admin", "leader"],
+    "l1": { "maxItems": 24, "completedTaskTtlHours": 48 },
+    "l2": { "maxResults": 5, "retentionDays": 180 },
+    "l3": { "maxPromptItems": 5, "minEvidence": 2 },
+    "dream": {
+      "enabled": true,
+      "idleAfterSeconds": 300,
+      "pollSeconds": 30,
+      "maxEventsPerRun": 250,
+      "cancelOnNewTask": true
+    }
+  },
   "project": {
     "name": "open-agent-team-demo",
     "repo": ".",

@@ -41,7 +41,7 @@ function isPortFree(port: number): Promise<boolean> {
     const tester = net.createServer();
     tester.once("error", () => resolve(false));
     tester.once("listening", () => tester.close(() => resolve(true)));
-    tester.listen(port, "0.0.0.0");
+    tester.listen(port, "127.0.0.1");
   });
 }
 

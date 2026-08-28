@@ -53,6 +53,40 @@ export interface QueuedTask {
   completedAt?: string;
   error?: string;
   lastProgress?: { stage?: string; message: string; at: string };
+  /** Durable completion reports shown in the parent task conversation. */
+  deliveryReports?: TaskDeliveryReport[];
+  /** Durable checkpoints used by startup recovery and the task board. */
+  snapshots?: TaskSnapshot[];
+  pausedAt?: string;
+  pauseReason?: string;
+  recalledFromTaskId?: string;
+  git?: GitTaskArtifact;
+}
+
+export interface TaskDeliveryReport {
+  id: string;
+  taskId: string;
+  agentId: string;
+  role: AgentRoleEnum.Leader | AgentRoleEnum.Worker;
+  stage: "review_submitted" | "release_submitted";
+  summary: string;
+  createdAt: string;
+  reviewId?: string;
+  releaseProposalId?: string;
+  branch?: string;
+  changedFiles?: string[];
+  tests?: Array<{ command: string; status: ReviewTestStatusEnum; evidencePath?: string }>;
+  artifactPaths?: string[];
+}
+
+export interface TaskSnapshot {
+  id: string;
+  createdAt: string;
+  reason: "created" | "started" | "progress" | "paused" | "startup_recovery" | "completed" | "failed" | "recalled";
+  status: QueuedTaskStatus;
+  prompt: string;
+  progress?: QueuedTask["lastProgress"];
+  error?: string;
   git?: GitTaskArtifact;
 }
 

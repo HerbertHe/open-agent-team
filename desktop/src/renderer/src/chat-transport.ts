@@ -1,4 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from 'ai';
+import type { ResourceAgentReply } from '../../shared/resource-types';
 
 export type ChatTarget = {
   projectName?: string;
@@ -54,9 +55,19 @@ export class IpcTaskTransport implements ChatTransport<UIMessage> {
 
 /** A separate AI SDK conversation for the local Agentic Resources steward. */
 export class ResourceAgentTransport implements ChatTransport<UIMessage> {
-  async sendMessages({ messages }: Parameters<ChatTransport<UIMessage>['sendMessages']>[0]): Promise<ReadableStream<UIMessageChunk>> {
+  constructor(private readonly onReply?: (reply: ResourceAgentReply) => void) {}
+
+  async sendMessages({ messages, abortSignal }: Parameters<ChatTransport<UIMessage>['sendMessages']>[0]): Promise<ReadableStream<UIMessageChunk>> {
     const prompt = textFrom(messages.at(-1));
-    return response(`Resource Agent recorded your request: “${prompt}”. Open project configuration to update teams, Agents, providers, or workspace permissions.`);
+    if (abortSignal?.aborted) throw new DOMException('The Resource Manager request was cancelled.', 'AbortError');
+    const cancel = () => { void window.oatDesktop.cancelResourceAgent(); };
+    abortSignal?.addEventListener('abort', cancel, { once: true });
+    let reply: ResourceAgentReply;
+    try { reply = await window.oatDesktop.sendResourceAgentMessage(prompt); }
+    finally { abortSignal?.removeEventListener('abort', cancel); }
+    if (abortSignal?.aborted) throw new DOMException('The Resource Manager request was cancelled.', 'AbortError');
+    this.onReply?.(reply);
+    return response(reply.text);
   }
 
   async reconnectToStream(): Promise<null> { return null; }

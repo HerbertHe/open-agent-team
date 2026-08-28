@@ -1,42 +1,65 @@
-# Three-tier Agent memory architecture
+# Three-tier memory for Admin and Leader agents
 
-> Status: design proposal; it is not implemented yet. It replaces the idea that `CHANGELOG.md` is the only collaboration memory without removing that human-readable record.
+> Status: implemented on 2026-08-26. This document describes current behavior.
 
-## Goal
+Memory is enabled for Admin and Leader agents. Useful Worker events belong to the matching Leader; Workers do not own an independent long-term memory. Retrieved memories are explicitly marked as fallible historical context, never as new operator instructions.
 
-Memory should restore goals and tests after a restart, detect conflicts before task creation, link decisions to evidence, and keep context injection bounded. Every item has a scope, source, version, and review status.
+## Storage and tiers
 
-## Tiers
+The implementation uses local `better-sqlite3` with WAL, foreign keys, and a busy timeout. The default database is `<state_dir>/memory/memory.db`.
 
-| Tier | Role | Storage and lifetime |
+| Tier | Purpose | Lifecycle |
 | --- | --- | --- |
-| L1 | Hot session and task context: goal, tests, blockers, and next step | In-memory `Map`, short TTL, 1,000–2,000-token budget |
-| L2 | Structured collaboration facts: tasks, resource claims, decisions, and reviews | SQLite WAL + FTS5 at `<state_dir>/memory.sqlite` |
-| L3 | Archives and semantic retrieval: CHANGELOG, events, commits, diffs, and approved versions | Local files/index first; replaceable vector store when needed |
+| L1 | Recent tasks, progress, replies, and failures | Captured from observability events, capped per agent, deleted after its configured TTL during a dream run |
+| L2 | Consolidated decisions, episodes, and failure patterns | Created during idle consolidation; repeated content increases evidence, confidence, and salience; expired items become `superseded` |
+| L3 | Stable deep memories and procedures | Promoted when L2 evidence reaches the threshold, or manually promoted in Desktop |
 
-L1 belongs to `agentId + taskId + sessionId`. L2 shares only reviewable information across `task → agent → team → project → global` scopes. L3 is queried on demand so that it does not overload the active context.
+The current summarizer and ranker are deterministic. Retrieval combines lexical overlap, salience, confidence, and age; embeddings and a temporal graph are not current runtime dependencies. Admin can retrieve project-wide L2/L3 records. A Leader can only retrieve its own L2/L3 records. L1 is always agent-local.
 
-## Control, evidence, and conflicts
+## Dream mode and safety
 
-A Worker may write L1 and propose an L2 promotion. A Leader reviews and promotes team facts; only the Admin publishes a project fact or decision. Every promotion must cite at least one piece of evidence: a task, commit, test, event, file, or review. Corrections create a new version and mark the old one `superseded`.
+Dream mode runs only after the idle delay and only when no prompt is active and no task is `queued`, `running`, `waiting`, or `review_pending`. One bounded transaction consolidates pending events, updates evidence, promotes eligible L2 records to L3, expires old L2 records, prunes old L1 records, and records an auditable result. A new task requests cancellation. Interrupted `running` records are marked `failed` at the next startup.
 
-Before `create task`, an L2 gate checks `resource_claims`, active context, and `conflictKey`. On conflict, it rejects the task, serializes it, or asks for a genuinely independent split.
+Only useful extracted text is stored, not the complete raw event payload. Common token, API-key, and secret forms are redacted, content is capped at 4,000 characters, and `memory.*` events are excluded to prevent recursion. Streaming `pi.message_update` snapshots are ignored; only a completed `pi.message_end` Assistant message is retained, and unsupported pending snapshots from an older build are cleaned up at startup. Forgetting marks a record `forgotten`; it disappears from normal retrieval and prompt injection.
 
-## Proposed interface
+## Configuration
 
-The proposed tools are `memory-context-get`, `memory-search`, `memory-propose`, `memory-promote`, `memory-supersede`, `memory-claim-resources`, `memory-check-conflicts`, and `memory-forget`, with equivalent REST APIs. Desktop would expose L1 active summaries, L2 items awaiting review and resource occupancy, and L3 archives with sources, dates, confidence, and version history.
+```json
+{
+  "memory": {
+    "enabled": true,
+    "roles": ["admin", "leader"],
+    "database": "memory/memory.db",
+    "l1": { "maxItems": 24, "completedTaskTtlHours": 48 },
+    "l2": { "maxResults": 5, "retentionDays": 180 },
+    "l3": { "maxPromptItems": 5, "minEvidence": 2 },
+    "dream": {
+      "enabled": true,
+      "idleAfterSeconds": 300,
+      "pollSeconds": 30,
+      "maxEventsPerRun": 250,
+      "cancelOnNewTask": true
+    }
+  }
+}
+```
 
-## Phased delivery
+A relative database path is resolved from `state_dir`. Defaults are defined in the TypeScript types, Zod loader, and `schema/v1.json`.
 
-1. Define `MemoryProvider` contracts, auditing, and migrations.
-2. Deliver L1 and L2 with SQLite/FTS5 and queue conflict control.
-3. Index L3 archives and add hybrid keyword/vector search.
-4. Evaluate a temporal graph such as Graphiti only if multi-hop queries become a demonstrated need.
+## API and Desktop
 
-## Design references
+- `GET /memory/overview`
+- `GET /memory?agentId=&level=&status=&limit=`
+- `POST /memory/dream`
+- `POST /memory/:id/promote`
+- `POST /memory/:id/forget`
 
-- [Letta](https://github.com/letta-ai/letta)
-- [Mem0](https://github.com/mem0ai/mem0)
-- [LangGraph Persistence](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/persistence.mdx)
-- [Graphiti](https://github.com/getzep/graphiti)
-- [OpenMemory](https://github.com/CaviraOSS/OpenMemory)
+When an Admin or Leader is selected, Desktop exposes a brain icon. Its dialog displays tier counts, pending events, dream status, evidence, source Agent and event type, confidence, and salience. It refreshes every five seconds to tolerate a project-port transition, can run an idle consolidation, promote L2 to L3, and forget a record. Workers do not see the entry.
+
+Tables are `memory_events`, `memory_items`, `dream_runs`, and `memory_injections`. Prompt injections record the query and selected memory IDs for auditability.
+
+## Validation and limitations
+
+Run `pnpm test:memory`, `pnpm exec tsc --noEmit`, `pnpm run build`, and `pnpm --filter desktop run build`.
+
+The current system has no embedding index, autonomous LLM reflector, cross-project global memory, or resource-conflict knowledge graph. These can later be implemented behind the existing service/API contract. Letta, Mem0, LangGraph persistence, Graphiti, OpenMemory, and Qdrant are relevant references, but none is currently required at runtime.

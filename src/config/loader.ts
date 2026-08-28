@@ -84,6 +84,30 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
   const providersDefaults: Record<string, { compatible_type: ProviderCompatibleTypeEnum; base_url?: string; api_key?: string }> = {};
+  const memory = {
+    enabled: withInheritance.memory?.enabled ?? true,
+    roles: withInheritance.memory?.roles ?? ["admin", "leader"],
+    database: withInheritance.memory?.database,
+    l1: {
+      maxItems: withInheritance.memory?.l1?.maxItems ?? 24,
+      completedTaskTtlHours: withInheritance.memory?.l1?.completedTaskTtlHours ?? 48,
+    },
+    l2: {
+      maxResults: withInheritance.memory?.l2?.maxResults ?? 5,
+      retentionDays: withInheritance.memory?.l2?.retentionDays ?? 180,
+    },
+    l3: {
+      maxPromptItems: withInheritance.memory?.l3?.maxPromptItems ?? 5,
+      minEvidence: withInheritance.memory?.l3?.minEvidence ?? 2,
+    },
+    dream: {
+      enabled: withInheritance.memory?.dream?.enabled ?? true,
+      idleAfterSeconds: withInheritance.memory?.dream?.idleAfterSeconds ?? 300,
+      pollSeconds: withInheritance.memory?.dream?.pollSeconds ?? 30,
+      maxEventsPerRun: withInheritance.memory?.dream?.maxEventsPerRun ?? 250,
+      cancelOnNewTask: withInheritance.memory?.dream?.cancelOnNewTask ?? true,
+    },
+  };
 
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
@@ -98,6 +122,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   return {
     ...withInheritance,
+    memory,
     project: {
       ...withInheritance.project,
       // Resolve repo relative to team.json location, not process.cwd().

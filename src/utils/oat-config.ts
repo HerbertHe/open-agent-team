@@ -5,6 +5,9 @@ import path from "node:path";
 export interface OatGlobalConfig {
   language?: string;
   logRetentionDays?: number;
+  resource_agent?: {
+    model?: string;
+  };
   channels?: Record<
     string,
     {
@@ -46,12 +49,11 @@ export async function saveOatConfig(
 }
 
 /**
- * 获取日志保留天数（默认 7 天）。
+ * 获取日志保留天数（默认 3 天）。
  */
 export async function getLogRetentionDays(): Promise<number> {
   const config = await loadOatConfig();
   const days = config.logRetentionDays;
   if (typeof days === "number" && days > 0) return days;
-  return 7;
+  return 3;
 }
-

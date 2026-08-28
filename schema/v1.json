@@ -61,6 +61,54 @@
         }
       }
     },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["admin", "leader"] },
+          "default": ["admin", "leader"]
+        },
+        "database": { "type": "string", "minLength": 1 },
+        "l1": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxItems": { "type": "integer", "minimum": 5, "maximum": 100, "default": 24 },
+            "completedTaskTtlHours": { "type": "integer", "minimum": 1, "maximum": 720, "default": 48 }
+          }
+        },
+        "l2": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxResults": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+            "retentionDays": { "type": "integer", "minimum": 1, "maximum": 3650, "default": 180 }
+          }
+        },
+        "l3": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxPromptItems": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+            "minEvidence": { "type": "integer", "minimum": 2, "maximum": 20, "default": 2 }
+          }
+        },
+        "dream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "idleAfterSeconds": { "type": "integer", "minimum": 30, "maximum": 86400, "default": 300 },
+            "pollSeconds": { "type": "integer", "minimum": 5, "maximum": 3600, "default": 30 },
+            "maxEventsPerRun": { "type": "integer", "minimum": 10, "maximum": 5000, "default": 250 },
+            "cancelOnNewTask": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
     "project": {
       "type": "object",
       "required": ["name", "repo", "base_branch"],

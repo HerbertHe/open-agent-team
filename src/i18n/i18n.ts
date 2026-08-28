@@ -130,6 +130,8 @@ type MessageKey =
   | "scheduler_restart_workflow_failed"
   | "scheduler_target_missing"
   | "scheduler_restart_event_failed"
+  | "scheduler_root_delivery_completed"
+  | "scheduler_root_delivery_rejected"
   | "scheduler_owner_unavailable"
   | "scheduler_event_delivery_failed"
   | "scheduler_daily_capacity"
@@ -416,6 +418,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     scheduler_leader_task_queued: "Leader task queued: {taskId}",
     scheduler_release_proposal_required: "The Leader must submit a release proposal after integration tests before completing the work item.",
     scheduler_release_waiting_approval: "Team {teamName} completed implementation and integration tests and submitted release proposal {proposalId}. Waiting for Admin approval; final delivery status will be updated afterward.",
+    scheduler_root_delivery_completed: "Release {proposalId} was approved and merged. The original operator task is complete.",
+    scheduler_root_delivery_rejected: "Release {proposalId} was rejected. The original operator task failed: {note}",
     notification_delivery_success: "Delivery succeeded: Admin pushed the approved release to {remote} ({branch}).",
     notification_progress: "Agent {agentId} progress — stage: {stage}; message: {message}",
     notification_agent_crashed: "Agent {agentId} ({role}) crashed: {error}",
@@ -646,6 +650,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     scheduler_leader_task_queued: "Leader 任务已排队：{taskId}",
     scheduler_release_proposal_required: "Leader 必须在集成测试后提交发布提案，才能完成当前任务。",
     scheduler_release_waiting_approval: "团队「{teamName}」已完成实现与集成测试，并提交发布提案 {proposalId}。正在等待 Admin 审批，完成后会更新最终交付状态。",
+    scheduler_root_delivery_completed: "发布提案 {proposalId} 已审批并完成合并，原始任务交付完成。",
+    scheduler_root_delivery_rejected: "发布提案 {proposalId} 未通过审批，原始任务失败：{note}",
     notification_delivery_success: "交付成功：Admin 已将审批通过的发布推送到 {remote}（{branch}）。",
     notification_progress: "Agent {agentId} 进度——阶段：{stage}；消息：{message}",
     notification_agent_crashed: "Agent {agentId}（{role}）已崩溃：{error}",
@@ -877,6 +883,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     scheduler_leader_task_queued: "Tâche du Leader mise en file : {taskId}",
     scheduler_release_proposal_required: "Le Leader doit soumettre une proposition après les tests d'intégration avant de terminer.",
     scheduler_release_waiting_approval: "L'équipe {teamName} a terminé l'implémentation et les tests et soumis la proposition {proposalId}. En attente de l'approbation Admin avant le statut final.",
+    scheduler_root_delivery_completed: "La proposition {proposalId} a été approuvée et fusionnée. La tâche initiale est terminée.",
+    scheduler_root_delivery_rejected: "La proposition {proposalId} a été rejetée. La tâche initiale a échoué : {note}",
     notification_delivery_success: "Livraison réussie : l'Admin a poussé la version approuvée vers {remote} ({branch}).",
     notification_progress: "Progression de l'Agent {agentId} — étape : {stage} ; message : {message}",
     notification_agent_crashed: "L'Agent {agentId} ({role}) a planté : {error}",
@@ -1108,6 +1116,8 @@ const messages: Record<Lang, Record<MessageKey, string>> = {
     scheduler_leader_task_queued: "Leader タスクを待機列に追加しました：{taskId}",
     scheduler_release_proposal_required: "Leader は統合テスト後にリリース提案を提出してから作業を完了する必要があります。",
     scheduler_release_waiting_approval: "チーム「{teamName}」は実装と統合テストを完了し、リリース提案 {proposalId} を提出しました。Admin の承認後に最終状態を更新します。",
+    scheduler_root_delivery_completed: "リリース提案 {proposalId} は承認・マージされ、元のタスクは完了しました。",
+    scheduler_root_delivery_rejected: "リリース提案 {proposalId} は却下され、元のタスクは失敗しました：{note}",
     notification_delivery_success: "配信成功：Admin が承認済みリリースを {remote}（{branch}）へ push しました。",
     notification_progress: "Agent {agentId} の進捗 — 段階：{stage}、メッセージ：{message}",
     notification_agent_crashed: "Agent {agentId}（{role}）がクラッシュしました：{error}",

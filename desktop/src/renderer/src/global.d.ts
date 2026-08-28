@@ -13,8 +13,13 @@ interface Window {
     getDockerStatus(): Promise<DockerHostStatus>;
     startDocker(): Promise<DockerHostStatus>;
     listProjects(): Promise<Project[]>;
+    getProjectRestartStatus(name: string): Promise<import('../../shared/resource-types').ProjectRestartStatus>;
     restartProject(name: string): Promise<{ ok: true; newPid?: number }>;
     deleteProject(name: string): Promise<{ ok: true }>;
+    sendResourceAgentMessage(text: string): Promise<import('../../shared/resource-types').ResourceAgentReply>;
+    getResourceAgentHistory(): Promise<import('../../shared/resource-types').ResourceHistoryMessage[]>;
+    confirmResourceProposal(proposalId: string): Promise<import('../../shared/resource-types').ResourceAgentReply>;
+    cancelResourceAgent(): Promise<void>;
     listProviderModels(input: { baseUrl: string; apiKey?: string }): Promise<string[]>;
     requestOrchestrator(input: { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;
     requestControlPlane(input: { path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;

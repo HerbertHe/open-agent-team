@@ -14,6 +14,31 @@ export interface ProviderConfig {
 /** providers 配置：key 为服务商名称，value 为该服务商的接入配置。 */
 export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 
+export interface MemoryConfig {
+  enabled: boolean;
+  roles: Array<"admin" | "leader">;
+  database?: string;
+  l1: {
+    maxItems: number;
+    completedTaskTtlHours: number;
+  };
+  l2: {
+    maxResults: number;
+    retentionDays: number;
+  };
+  l3: {
+    maxPromptItems: number;
+    minEvidence: number;
+  };
+  dream: {
+    enabled: boolean;
+    idleAfterSeconds: number;
+    pollSeconds: number;
+    maxEventsPerRun: number;
+    cancelOnNewTask: boolean;
+  };
+}
+
 /**
  * Admin agent 的声明式配置。
  */
@@ -42,10 +67,19 @@ export type ProjectBaseBranch = BaseBranchEnum;
  * team.json 的原始结构（runtime/workspace 可选，用 loader 做默认值补齐）。
  */
 export interface TeamFileConfig {
+  /** JSON Schema reference used by editors and generated project files. */
+  $schema?: string;
   /** 全局统一模型（可作为 admin/leader/worker 的默认值） */
   model?: string;
   /** 全局模型供应商接入配置（推荐入口） */
   providers?: TeamFileProvidersConfig;
+  /** Admin/Leader persistent memory and idle consolidation. */
+  memory?: Partial<MemoryConfig> & {
+    l1?: Partial<MemoryConfig["l1"]>;
+    l2?: Partial<MemoryConfig["l2"]>;
+    l3?: Partial<MemoryConfig["l3"]>;
+    dream?: Partial<MemoryConfig["dream"]>;
+  };
   project: {
     /** 当前项目名称（用于日志与提示） */
     name: string;
@@ -103,6 +137,7 @@ export interface TeamFileConfig {
  */
 export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace"> {
   providers: TeamFileProvidersConfig;
+  memory: MemoryConfig;
   runtime: {
     /** 解析后的运行时模式（必填） */
     mode: RuntimeModeEnum;

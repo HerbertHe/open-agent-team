@@ -24,6 +24,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "tsx watch src/index.ts start --config __test__/niu-ma/team.json",
+    "test:memory": "node --import tsx --test src/memory/memory-service.test.ts",
     "dev:www": "pnpm --filter www run dev",
     "build:www": "pnpm --filter www run build",
     "dev:desktop": "pnpm --filter desktop run dev",
@@ -60,6 +61,7 @@
   ],
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.2",
+    "better-sqlite3": "^13.0.3",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
     "express": "^5.2.1",
@@ -69,6 +71,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/express": "^5.0.6",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.2.0",

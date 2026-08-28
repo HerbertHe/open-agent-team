@@ -26,9 +26,12 @@ import { WorkspaceProviderFactory } from "../workspace/workspace-provider";
 import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
 import { UsageTracker } from "./usage-tracker";
+import { MemoryService } from "../memory/memory-service";
+import type { MemoryLevel, MemoryStatus } from "../memory/types";
 import { logger } from "../utils/logger";
 import { t } from "../i18n/i18n";
 import { loadOatConfig, saveOatConfig } from "../utils/oat-config";
+import { cleanupAgentLogs, scanAgentLogs } from "../utils/log-cleanup";
 import {
   writeAgentWorkspaceConfig,
   buildAgentSystemPrompt,
@@ -105,8 +108,10 @@ export class Orchestrator {
   private readonly skillResolver: SkillResolver;
   private readonly observabilityHub: ObservabilityHub;
   private readonly usageTracker: UsageTracker;
+  private readonly memoryService: MemoryService;
   private readonly port: number;
   private readonly goal: string;
+  private logCleanupTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -129,6 +134,7 @@ export class Orchestrator {
     }
 
     this.observabilityHub = new ObservabilityHub();
+    this.memoryService = new MemoryService(config.project.name, this.stateDir, config.memory, this.observabilityHub);
     this.usageTracker = new UsageTracker(config.project.name, (agentId, role) => {
       let rawModel = "unknown";
       if (role === AgentRoleEnum.Admin) rawModel = config.admin.model || "unknown";
@@ -159,6 +165,7 @@ export class Orchestrator {
           },
           { skipBuffer: true },
         );
+        this.taskManager?.handleRuntimeEvent(agentId, event);
       };
     const onError =
       ({ agentId, error }: { agentId: string; error: Error }) => {
@@ -185,30 +192,17 @@ export class Orchestrator {
       `http://127.0.0.1:${this.port}`,
       this.skillResolver,
       this.observabilityHub,
+      this.memoryService,
     );
+    this.memoryService.setIdleResolver(() => this.taskManager.isSystemIdle());
 
     this.app.use((req, res, next) => {
       const origin = req.headers.origin;
-      // The packaged Electron renderer has an opaque (`null`) or `file://`
-      // origin. The desktop app is local-only and its main process restricts
-      // navigation to this renderer, so explicitly support those origins
-      // alongside the Vite development server.
-      if (
-        origin &&
-        (origin === "null" ||
-          origin === "file://" ||
-          /^http:\/\/localhost:\d+$/.test(origin) ||
-          /^http:\/\/127\.0\.0\.1:\d+$/.test(origin))
-      ) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader(
-          "Access-Control-Allow-Headers",
-          "Content-Type, Cache-Control",
-        );
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-      }
-      if (req.method === "OPTIONS") {
-        res.status(204).end();
+      // Desktop traffic is brokered by the trusted Electron main process and
+      // Agent tools execute over IPC. Reject browser-originated access instead
+      // of exposing a localhost control API through permissive CORS.
+      if (origin) {
+        res.status(403).json({ error: "Browser-originated orchestrator requests are not allowed." });
         return;
       }
       next();
@@ -218,6 +212,48 @@ export class Orchestrator {
   }
 
   private registerRoutes(): void {
+    this.app.get("/memory/overview", (req, res) => {
+      try { res.json(this.memoryService.overview(typeof req.query.agentId === "string" ? req.query.agentId : undefined)); }
+      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.get("/memory", (req, res) => {
+      try {
+        const level = typeof req.query.level === "string" && ["L1", "L2", "L3"].includes(req.query.level)
+          ? req.query.level as MemoryLevel : undefined;
+        const status = typeof req.query.status === "string" && ["active", "superseded", "disputed", "forgotten"].includes(req.query.status)
+          ? req.query.status as MemoryStatus : undefined;
+        const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+        res.json(this.memoryService.list({
+          agentId: typeof req.query.agentId === "string" ? req.query.agentId : undefined,
+          level,
+          status,
+          limit: Number.isFinite(limit) ? limit : undefined,
+        }));
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/dream", async (_req, res) => {
+      try { res.json(await this.memoryService.runDream("manual")); }
+      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/:id/forget", (req, res) => {
+      try {
+        const ok = this.memoryService.forget(req.params.id);
+        if (!ok) { res.status(404).json({ error: "Memory not found" }); return; }
+        res.json({ ok: true });
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/:id/promote", (req, res) => {
+      try {
+        const memory = this.memoryService.promote(req.params.id);
+        if (!memory) { res.status(404).json({ error: "L2 memory not found" }); return; }
+        res.json(memory);
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
     this.app.get("/observability/graph", (_req, res) => {
       try {
         res.json(this.taskManager.getObservabilityGraph());
@@ -229,12 +265,14 @@ export class Orchestrator {
     this.app.get("/tasks", (req, res) => {
       try {
         const agentId = typeof req.query.agentId === "string" ? req.query.agentId : undefined;
-        res.json(this.taskManager.getTasks(agentId));
+        res.json(this.taskManager.getTasksWithSchedulingState(agentId));
       } catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
     });
 
     this.app.post("/tasks", async (req, res) => {
-      try { res.status(201).json(await this.taskManager.createTask(req.body)); }
+      // The operator-facing endpoint must persist an explicit creator. Do not
+      // trust a caller-supplied value: this route represents an operator task.
+      try { res.status(201).json(await this.taskManager.createTask({ ...req.body, createdBy: "operator" })); }
       catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
     });
     this.app.patch("/tasks/:id", async (req, res) => {
@@ -248,6 +286,22 @@ export class Orchestrator {
     this.app.delete("/tasks/:id", async (req, res) => {
       try { res.json(await this.taskManager.deleteTask(req.params.id)); }
       catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.get("/tasks/:id/snapshots", (req, res) => {
+      try { res.json(this.taskManager.getTaskSnapshots(req.params.id)); }
+      catch (e: any) { res.status(404).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/tasks/:id/pause", async (req, res) => {
+      try { res.json(await this.taskManager.pauseTask(req.params.id)); }
+      catch (e: any) { res.status(409).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/tasks/:id/resume", async (req, res) => {
+      try { res.json(await this.taskManager.resumeTask(req.params.id)); }
+      catch (e: any) { res.status(409).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.post("/tasks/:id/recall", async (req, res) => {
+      try { res.status(201).json(await this.taskManager.recallTask(req.params.id)); }
+      catch (e: any) { res.status(409).json({ error: String(e?.message ?? e) }); }
     });
 
     this.app.get("/reviews", async (req, res) => {
@@ -277,6 +331,49 @@ export class Orchestrator {
     this.app.get("/git/status", async (_req, res) => {
       try { res.json(await this.taskManager.getGitManagementStatus()); }
       catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
+    });
+    this.app.get("/workspace/:agentId/files", async (req, res) => {
+      try {
+        const agent = this.taskManager.getAgent(req.params.agentId);
+        const requested = typeof req.query.path === "string" ? req.query.path : "";
+        if (requested.includes("\0") || path.isAbsolute(requested) || requested.split(/[\\/]+/).some((segment) => segment === "..")) {
+          res.status(400).json({ error: "Invalid workspace path." });
+          return;
+        }
+        const workspaceRoot = await fs.realpath(agent.spec.workspacePath);
+        const target = path.resolve(workspaceRoot, requested || ".");
+        const realTarget = await fs.realpath(target);
+        if (realTarget !== workspaceRoot && !realTarget.startsWith(`${workspaceRoot}${path.sep}`)) {
+          res.status(403).json({ error: "Workspace path is outside the selected Agent workspace." });
+          return;
+        }
+        const stat = await fs.stat(realTarget);
+        const relativePath = path.relative(workspaceRoot, realTarget).split(path.sep).join("/");
+        if (stat.isDirectory()) {
+          const directoryEntries = await fs.readdir(realTarget, { withFileTypes: true });
+          const entries = directoryEntries
+            .filter((entry) => entry.isDirectory() || entry.isFile())
+            .map((entry) => ({ name: entry.name, path: [relativePath, entry.name].filter(Boolean).join("/"), type: entry.isDirectory() ? "directory" : "file" }))
+            .sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.type === "directory" ? -1 : 1);
+          res.json({ kind: "directory", path: relativePath, entries });
+          return;
+        }
+        if (!stat.isFile()) {
+          res.status(415).json({ error: "Unsupported workspace entry type." });
+          return;
+        }
+        const maxBytes = 512 * 1024;
+        if (stat.size > maxBytes) {
+          res.json({ kind: "file", path: relativePath, size: stat.size, truncated: true, content: "" });
+          return;
+        }
+        const content = await fs.readFile(realTarget);
+        const binary = content.includes(0);
+        res.json({ kind: "file", path: relativePath, size: stat.size, binary, content: binary ? "" : content.toString("utf8") });
+      } catch (e: any) {
+        const code = e?.code === "ENOENT" ? 404 : 500;
+        res.status(code).json({ error: code === 404 ? "Workspace entry not found." : String(e?.message ?? e) });
+      }
     });
     this.app.put("/git/config", async (req, res) => {
       try {
@@ -790,6 +887,31 @@ export class Orchestrator {
         const updates = req.body as Record<string, unknown>;
         await saveOatConfig(updates);
         res.json({ ok: true });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+
+    // Runtime logs are disposable diagnostics. They are intentionally separate
+    // from task snapshots, delivery reports, and the memory database.
+    this.app.get("/logs/summary", async (_req, res) => {
+      try {
+        const [summary, config] = await Promise.all([
+          scanAgentLogs(this.config.workspace.root_dir),
+          loadOatConfig(),
+        ]);
+        res.json({ ...summary, retentionDays: config.logRetentionDays ?? 3 });
+      } catch (e: any) {
+        res.status(500).json({ error: String(e?.message ?? e) });
+      }
+    });
+    this.app.post("/logs/cleanup", async (_req, res) => {
+      try {
+        const config = await loadOatConfig();
+        const retentionDays = typeof config.logRetentionDays === "number" && config.logRetentionDays > 0 ? config.logRetentionDays : 3;
+        const result = await cleanupAgentLogs(this.config.workspace.root_dir, retentionDays);
+        const summary = await scanAgentLogs(this.config.workspace.root_dir);
+        res.json({ ...summary, retentionDays, cleaned: result.cleaned.length, errors: result.errors });
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
       }
@@ -1325,7 +1447,7 @@ export class Orchestrator {
       tester.once("listening", () => {
         tester.close(() => resolve(false));
       });
-      tester.listen(this.port, "0.0.0.0");
+      tester.listen(this.port, "127.0.0.1");
     });
     if (portInUse) {
       // 尝试从 state 文件读取已运行实例的信息
@@ -1369,6 +1491,7 @@ export class Orchestrator {
       ),
       "utf8",
     );
+    this.memoryService.start();
 
     const adminSpec = this.buildAdminSpec();
     const leadersSpecs = this.config.teams.map((team) =>
@@ -1425,7 +1548,7 @@ export class Orchestrator {
       `   1) stage="start" (when you begin orchestration),`,
       `   2) stage="after_assign_leader_task" (right after assign-leader-task returns),`,
       `   3) stage="user_response" with a concise, plain-language response written directly for the operator. This message is displayed in the chat as your reply.`,
-      `6) After your user_response, call notify-complete with { "agentRole": "admin" } so the operator task is marked completed.`,
+      `6) After your user_response, call notify-complete with { "agentRole": "admin" }. Direct answers complete immediately; delegated operator tasks remain waiting until the release is approved or rejected.`,
       `7) If an OPERATOR_INSTRUCTION is a concrete objective, choose the best leader, assign it, then give the operator a concise acknowledgement and expected next step in user_response. If it is a greeting, question, or other non-development request, do not delegate it: answer it directly in user_response.`,
       `8) For a RELEASE_PROPOSAL, do not edit code or merge manually. Inspect its artifactPaths and use approve-release to approve or reject the serialized main/master merge.`,
     ].join("\n");
@@ -1466,7 +1589,6 @@ export class Orchestrator {
       spec: AgentInstanceSpec;
       team: TeamConfig;
     }> = [];
-    const leaderInitialPrompts: Array<{ specId: string; prompt: string }> = [];
 
     for (let i = 0; i < leadersSpecs.length; i++) {
       const team = this.config.teams[i];
@@ -1548,7 +1670,7 @@ export class Orchestrator {
         agentName: spec.name,
         description: `Leader agent for ${team.name}`,
         role: AgentRoleEnum.Leader,
-        promptText: team.leader.prompt,
+        promptText: `${team.leader.prompt}\n\n${leaderPrompt}`,
       });
 
       const leaderTools = this.buildOrchestratorTools(spec);
@@ -1559,7 +1681,6 @@ export class Orchestrator {
       this.observabilityHub.enableDiskLogger(spec.workspacePath, spec.id);
 
       leaders.push({ sessionId: spec.id, spec, team });
-      leaderInitialPrompts.push({ specId: spec.id, prompt: leaderPrompt });
     }
 
     // 先将全部 Agent 注册到 TaskManager，再发送任何 prompt（避免 prompt 触发工具调用时 agent 尚未注册的竞态）
@@ -1586,13 +1707,19 @@ export class Orchestrator {
       });
     }
 
-    // 4) 所有 Agent 注册完毕后再统一发送初始 prompt（消除注册竞态）
-    await this.runtimeProvider.sendPrompt(adminSpec.id, adminPromptWithGoal);
-    for (const { specId, prompt } of leaderInitialPrompts) {
-      await this.runtimeProvider.sendPrompt(specId, prompt);
+    // 4) Open scheduling only after the complete pool is registered. Bootstrap
+    // rules live in system prompts, so idle Agents do not consume a synthetic
+    // user turn that can leave real operator work queued behind startup.
+    this.taskManager.startScheduling();
+    if (hasCliGoal) {
+      await this.taskManager.createTask({
+        targetAgentId: adminSpec.id,
+        createdBy: "operator",
+        prompt: this.goal,
+      });
     }
 
-    httpServer = this.app.listen(this.port, "0.0.0.0", () => {
+    httpServer = this.app.listen(this.port, "127.0.0.1", () => {
       logger.info(t("orchestrator_listening_on", { port: this.port }));
       this.observabilityHub.emit({
         source: "orchestrator",
@@ -1619,6 +1746,18 @@ export class Orchestrator {
         })();
       }
     });
+    // Retention is not tied to task or memory lifecycle. Recheck once a day so
+    // a long-running Desktop project does not need a restart to reclaim space.
+    this.logCleanupTimer = setInterval(() => {
+      void (async () => {
+        const config = await loadOatConfig();
+        const retentionDays = typeof config.logRetentionDays === "number" && config.logRetentionDays > 0 ? config.logRetentionDays : 3;
+        const result = await cleanupAgentLogs(this.config.workspace.root_dir, retentionDays);
+        if (result.cleaned.length) logger.info(t("log_cleaned_old_agent_logs"), { count: result.cleaned.length, retentionDays });
+        if (result.errors.length) logger.warn(t("log_agent_log_cleanup_failed"), { errors: result.errors });
+      })().catch((error) => logger.warn(t("log_agent_log_cleanup_failed"), { error: error instanceof Error ? error.message : String(error) }));
+    }, 24 * 60 * 60 * 1000);
+    this.logCleanupTimer.unref();
   }
 
   /**
@@ -1650,6 +1789,8 @@ export class Orchestrator {
             error: e instanceof Error ? e.message : String(e),
           });
         }
+        if (this.logCleanupTimer) clearInterval(this.logCleanupTimer);
+        this.memoryService.stop();
         await this.taskManager.flushSchedulerState();
         const server = getHttpServer();
         if (server) {

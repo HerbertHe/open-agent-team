@@ -3,13 +3,12 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { TeamFileSchema } from "../config/schema";
+import { buildResourceProjectConfig } from "./config-builder";
 import {
   BaseBranchEnum,
   DockerNetworkModeEnum,
   ProviderCompatibleTypeEnum,
   RuntimeModeEnum,
-  WorkerSkillSyncEnum,
-  WorkspaceProviderTypeEnum,
 } from "../types";
 import { t } from "../i18n/i18n";
 
@@ -47,9 +46,13 @@ export async function runResourcesInterview(configPath: string, force = false): 
     const apiKey = await ask(t("resources_provider_api_key"));
     const runtimeMode = await ask(t("resources_runtime_mode"), RuntimeModeEnum.Docker);
     if (runtimeMode !== RuntimeModeEnum.LocalProcess && runtimeMode !== RuntimeModeEnum.Docker) throw new Error(t("resources_runtime_mode_invalid"));
+    const dockerNetwork = runtimeMode === RuntimeModeEnum.Docker
+      ? await ask(t("resources_docker_network"), DockerNetworkModeEnum.Bridge)
+      : undefined;
+    if (dockerNetwork !== undefined && !Object.values(DockerNetworkModeEnum).includes(dockerNetwork as DockerNetworkModeEnum)) throw new Error(t("resources_runtime_mode_invalid"));
     const docker = runtimeMode === RuntimeModeEnum.Docker ? {
       image: await ask(t("resources_docker_image"), "node:22-bookworm"),
-      network: await ask(t("resources_docker_network"), DockerNetworkModeEnum.Bridge),
+      network: dockerNetwork as DockerNetworkModeEnum,
       extra_args: (await ask(t("resources_docker_extra_args"))).split(",").map((x) => x.trim()).filter(Boolean),
     } : undefined;
     const teamCount = Number(await ask(t("resources_team_count"), "1"));
@@ -62,20 +65,21 @@ export async function runResourcesInterview(configPath: string, force = false): 
       const workers = Number(await ask(t("resources_worker_capacity"), "2"));
       if (!Number.isInteger(workers) || workers < 1) throw new Error(t("resources_positive_integer", { field: t("resources_worker_capacity") }));
       const repos = (await ask(t("resources_allowed_paths"))).split(",").map((x) => x.trim()).filter(Boolean);
-      teams.push({
-        name, branch_prefix: `team/${name}`,
-        leader: { name: `${name}-lead`, description, prompt: `You are the ${name} Leader. Plan independent work, review Worker Git branches, integrate approved changes, and submit release proposals.`, skills: [], repos },
-        worker: { total: workers, prompt: `You are a ${name} Worker. Implement and self-test one task branch, then submit-review with evidence. Never merge directly.`, extra_skills: [], skill_sync: WorkerSkillSyncEnum.InheritAndInjectOnSpawn },
-      });
+      teams.push({ name, responsibility: description, workers, repos });
     }
     const raw = {
-      model, models: { default: model },
+      ...buildResourceProjectConfig({
+        projectName,
+        repo,
+        baseBranch: baseBranch as BaseBranchEnum,
+        modelAlias: "default",
+        modelId: model,
+        runtimeMode: runtimeMode as RuntimeModeEnum,
+        dockerImage: docker?.image,
+        dockerNetwork: docker?.network,
+        teams,
+      }),
       providers: { [provider]: { compatible_type: compatibleType, ...(baseUrl ? { base_url: baseUrl } : {}), ...(apiKey ? { api_key: apiKey } : {}) } },
-      project: { name: projectName, repo, base_branch: baseBranch },
-      runtime: { mode: runtimeMode, ...(docker ? { docker } : {}), persistence: { state_dir: ".oat/state" } },
-      workspace: { provider: WorkspaceProviderTypeEnum.Worktree, root_dir: "workspaces", git: { remote: "origin", lfs: "pull" }, sparse_checkout: { enabled: true } },
-      admin: { name: "admin", description: "Project administrator responsible for staffing, prioritization, status analysis, and release approval.", prompt: "You are the Admin. Manage projects and teams, answer status questions, and approve or reject release proposals. Do not implement Worker tasks.", skills: [] },
-      teams,
     };
     TeamFileSchema.parse(raw);
     await fs.mkdir(path.dirname(target), { recursive: true });

@@ -19,6 +19,8 @@ export interface ObservabilityGraphNode {
   port?: number;
   teamName?: string;
   sessionId: string;
+  /** Scheduler-derived runtime state; does not depend on an Agent-specific port. */
+  status?: "running" | "waiting" | "idle" | "failed";
   /** 尚未 spawn 的配置槽位，与真实 worker 同 id 格式，spawn 后由运行时节点替换 */
   placeholder?: boolean;
 }
