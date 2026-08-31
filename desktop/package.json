@@ -1,6 +1,6 @@
 {
   "name": "me.ibert.oat-desktop",
-  "version": "2.0.0",
+  "version": "2026.8.31",
   "private": true,
   "description": "Open Agent Team desktop control center",
   "author": "Herbert He <Herbert.He0229@gmail.com>",
@@ -13,6 +13,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder",
+    "package:ci": "electron-vite build && electron-builder --publish never",
     "lint": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
   "devDependencies": {

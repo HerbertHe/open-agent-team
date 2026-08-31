@@ -1,7 +1,7 @@
 {
   "name": "open-agent-team",
   "description": "Declarative multi-agent orchestration powered by pi-coding-agent: Admin → Leader → Worker hierarchy, team.json config, isolated workspaces (git worktree), and the oat CLI.",
-  "version": "2.0.0",
+  "version": "2026.8.31",
   "private": false,
   "packageManager": "pnpm@9.15.9",
   "type": "module",
@@ -25,10 +25,12 @@
     "dev": "tsx watch src/index.ts",
     "test": "tsx watch src/index.ts start --config __test__/niu-ma/team.json",
     "test:memory": "node --import tsx --test src/memory/memory-service.test.ts",
+    "test:release-version": "node --test scripts/set-release-version.test.mjs",
+    "version:date": "node scripts/set-release-version.mjs",
     "dev:www": "pnpm --filter www run dev",
     "build:www": "pnpm --filter www run build",
-    "dev:desktop": "pnpm --filter desktop run dev",
-    "build:desktop": "pnpm --filter desktop run build"
+    "dev:desktop": "pnpm --filter ./desktop run dev",
+    "build:desktop": "pnpm --filter ./desktop run build"
   },
   "license": "MIT",
   "author": {

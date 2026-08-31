@@ -1,0 +1,221 @@
+name: Desktop build and daily release
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # GitHub cron is UTC. 10:00 UTC is 18:00 in Asia/Shanghai.
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-daily-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      release: ${{ steps.release.outputs.release }}
+      npm-version: ${{ steps.release.outputs.npm-version }}
+      display-version: ${{ steps.release.outputs.display-version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Checkout main with release history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Resolve today's release
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export TZ=Asia/Shanghai
+          display_version="$(date +'%Y.%m.%d')"
+          npm_version="$(date +'%Y.%-m.%-d')"
+          tag="v${display_version}"
+          hour="$(date +'%H')"
+          should_release=false
+
+          git fetch --force --tags origin
+          if [[ "${EVENT_NAME}" == "schedule" || "${EVENT_NAME}" == "workflow_dispatch" || 10#${hour} -ge 18 ]]; then
+            release_is_draft="$(gh release view "${tag}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+            if [[ "${release_is_draft}" != "false" ]]; then
+              should_release=true
+            fi
+          fi
+
+          release_sha="$(git rev-parse HEAD)"
+          if [[ "${should_release}" == "true" ]]; then
+            node scripts/set-release-version.mjs "${npm_version}"
+            if ! git diff --quiet -- package.json desktop/package.json; then
+              git config user.name github-actions[bot]
+              git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+              git add package.json desktop/package.json
+              git commit -m "chore(release): ${display_version} [skip ci]"
+              git push origin HEAD:main
+              release_sha="$(git rev-parse HEAD)"
+            fi
+          fi
+
+          echo "release=${should_release}" >> "${GITHUB_OUTPUT}"
+          echo "npm-version=${npm_version}" >> "${GITHUB_OUTPUT}"
+          echo "display-version=${display_version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "sha=${release_sha}" >> "${GITHUB_OUTPUT}"
+
+  build-desktop:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+          - name: windows-x64
+            os: windows-2022
+          - name: macos-arm64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout build commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install --global pnpm@9.15.9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check Desktop
+        run: pnpm --filter ./desktop run lint
+
+      - name: Package Desktop
+        run: pnpm --filter ./desktop run package:ci
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload Desktop package
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}-${{ needs.prepare.outputs.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+            desktop/release/*.AppImage
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
+
+  publish:
+    if: needs.prepare.outputs.release == 'true'
+    needs: [prepare, build-desktop]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Setup Node.js and npm registry
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install pnpm
+        run: npm install --global pnpm@9.15.9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify synchronized versions
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.npm-version }}
+        run: |
+          set -euo pipefail
+          cli_version="$(node -p "require('./package.json').version")"
+          desktop_version="$(node -p "require('./desktop/package.json').version")"
+          [[ "${cli_version}" == "${EXPECTED_VERSION}" ]]
+          [[ "${desktop_version}" == "${EXPECTED_VERSION}" ]]
+
+      - name: Build CLI
+        run: pnpm run build
+
+      - name: Publish CLI to npm once
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_VERSION: ${{ needs.prepare.outputs.npm-version }}
+        run: |
+          set -euo pipefail
+          if npm view "open-agent-team@${NPM_VERSION}" version >/dev/null 2>&1; then
+            echo "open-agent-team@${NPM_VERSION} is already published; skipping npm publish."
+          else
+            test -n "${NODE_AUTH_TOKEN:-}" || { echo 'Missing repository secret NPM_TOKEN.' >&2; exit 1; }
+            npm publish --access public --provenance
+          fi
+
+      - name: Download Desktop packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*-${{ needs.prepare.outputs.sha }}
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS.txt
+
+      - name: Publish the daily GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          DISPLAY_VERSION: ${{ needs.prepare.outputs.display-version }}
+          TARGET_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" \
+              --draft \
+              --target "${TARGET_SHA}" \
+              --title "OAT ${DISPLAY_VERSION}" \
+              --generate-notes
+          fi
+          gh release upload "${TAG}" "${assets[@]}" --clobber
+          gh release edit "${TAG}" --draft=false --latest
