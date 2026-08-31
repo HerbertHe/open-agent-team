@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       release: ${{ steps.release.outputs.release }}
+      has-changes: ${{ steps.release.outputs.has-changes }}
       npm-version: ${{ steps.release.outputs.npm-version }}
       display-version: ${{ steps.release.outputs.display-version }}
       tag: ${{ steps.release.outputs.tag }}
@@ -50,11 +51,20 @@ jobs:
           tag="v${display_version}"
           hour="$(date +'%H')"
           should_release=false
+          has_changes=true
 
           git fetch --force --tags origin
+          latest_release_tag="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          if [[ -n "${latest_release_tag}" ]] \
+            && git rev-parse --verify --quiet "refs/tags/${latest_release_tag}" >/dev/null \
+            && git merge-base --is-ancestor "${latest_release_tag}" HEAD \
+            && [[ "$(git rev-list --count "${latest_release_tag}..HEAD")" == "0" ]]; then
+            has_changes=false
+          fi
+
           if [[ "${EVENT_NAME}" == "schedule" || "${EVENT_NAME}" == "workflow_dispatch" || 10#${hour} -ge 18 ]]; then
             release_is_draft="$(gh release view "${tag}" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
-            if [[ "${release_is_draft}" != "false" ]]; then
+            if [[ "${release_is_draft}" != "false" && "${has_changes}" == "true" ]]; then
               should_release=true
             fi
           fi
@@ -73,12 +83,14 @@ jobs:
           fi
 
           echo "release=${should_release}" >> "${GITHUB_OUTPUT}"
+          echo "has-changes=${has_changes}" >> "${GITHUB_OUTPUT}"
           echo "npm-version=${npm_version}" >> "${GITHUB_OUTPUT}"
           echo "display-version=${display_version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "sha=${release_sha}" >> "${GITHUB_OUTPUT}"
 
   build-desktop:
+    if: github.event_name == 'push' || needs.prepare.outputs.release == 'true'
     needs: prepare
     strategy:
       fail-fast: false

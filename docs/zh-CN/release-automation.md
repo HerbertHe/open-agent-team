@@ -6,6 +6,7 @@
 
 - 每次提交到 `main` 都会在 Linux、Windows 和 macOS 上构建 Desktop，并保存 14 天的 Actions 构建产物。
 - 每天北京时间 18:00（GitHub cron `10:00 UTC`）创建当天唯一正式版本。
+- 只有最新正式 Release 之后存在新 commit 时，才会创建新的日期版本；没有新 commit 时，定时和手动任务会跳过 Desktop 构建与发布。
 - 如果定时任务未执行或失败，18:00 后当天第一次提交到 `main` 会尝试补发。
 - `workflow_dispatch` 可以手动补发；已正式发布的当天版本不会重复发布，失败留下的草稿会继续补齐。
 
@@ -32,8 +33,8 @@ chore(release): YYYY.MM.DD [skip ci]
 
 正式发布顺序为：
 
-1. 计算北京时间日期并检查当日 tag。
-2. 同步 CLI 与 Desktop 版本并提交到 `main`。
+1. 计算北京时间日期，检查当日 Release，并比较最新正式 Release 与 `main` 是否存在新 commit。
+2. 没有新 commit 时结束；存在新 commit 时同步 CLI 与 Desktop 版本并提交到 `main`。
 3. 构建 Linux AppImage、Windows NSIS 和 macOS DMG。
 4. 构建并发布 npm CLI；已存在的当日 npm 版本会被安全跳过。
 5. 生成 `SHA256SUMS.txt`。
