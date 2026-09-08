@@ -25,7 +25,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
-    "electron": "^43.4.1",
+    "electron": "^44.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "less": "^4.9.0",
@@ -82,7 +82,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.76",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
     "ai": "^7.0.73",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
