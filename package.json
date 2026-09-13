@@ -62,7 +62,7 @@
     "open-agent-team"
   ],
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
     "better-sqlite3": "^13.0.3",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
