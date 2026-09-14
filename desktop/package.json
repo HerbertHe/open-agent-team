@@ -1,6 +1,6 @@
 {
   "name": "me.ibert.oat-desktop",
-  "version": "2026.9.13",
+  "version": "2026.9.15",
   "private": true,
   "description": "Open Agent Team desktop control center",
   "author": "Herbert He <Herbert.He0229@gmail.com>",
@@ -75,8 +75,8 @@
       "target": [
         {
           "target": "nsis",
-            "arch": [
-              "x64"
+          "arch": [
+            "x64"
           ]
         }
       ]
