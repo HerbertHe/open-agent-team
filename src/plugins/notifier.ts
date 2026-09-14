@@ -46,7 +46,8 @@ export class Notifier {
     try {
       // 1. 获取全局配置
       const globalConfig = await loadOatConfig();
-      const channelConfig = globalConfig.channels?.[channelId];
+      const cleanChannelId = channelId.replace(/^openclaw-/, "");
+      const channelConfig = globalConfig.channels?.[channelId] || globalConfig.channels?.[cleanChannelId] || globalConfig.channels?.[`openclaw-${cleanChannelId}`];
       const accountConfig = channelConfig?.accounts?.[account];
 
       if (!accountConfig) {

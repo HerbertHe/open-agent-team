@@ -1,4 +1,12 @@
 import "./native-features.css";
+import {
+  ChannelBindingTargetEnum,
+  ChannelConnectionStatusEnum,
+  type ChannelAccountStatus,
+  type ChannelAgentTarget,
+  type ChannelPluginDescriptor,
+  type ChannelProjectBinding,
+} from "../../shared/channel-types";
 
 /**
  * Native Desktop management and insight feature modules.
@@ -254,9 +262,9 @@ export function bindAchievements(root: ParentNode, state: AchievementState, api:
 
 // ---- Plugins -------------------------------------------------------------
 
-export interface PluginSchemaProperty { title?: string; description?: string; type?: string; enum?: unknown[]; default?: unknown; }
+export interface PluginSchemaProperty { title?: string; description?: string; type?: string; enum?: unknown[]; default?: unknown; format?: string; writeOnly?: boolean; }
 export interface PluginConfigSchema { properties?: Record<string, PluginSchemaProperty>; required?: string[]; [key: string]: unknown; }
-export interface PluginManifest { id: string; name?: string; version?: string; description?: string; configSchema?: PluginConfigSchema; accounts?: string[]; bundled?: boolean; }
+export interface PluginManifest extends Omit<ChannelPluginDescriptor, "channelConfigs"> { configSchema?: PluginConfigSchema; channelConfigs: Record<string, { schema?: PluginConfigSchema; uiHints?: Record<string, { label?: string; placeholder?: string; help?: string; sensitive?: boolean }>; label?: string; description?: string }>; }
 export interface PluginState { plugins: PluginManifest[]; query: string; selectedPlugin?: string; }
 export async function loadPlugins(api: ApiClient, query = ""): Promise<PluginState> { return { plugins: await api.get<PluginManifest[]>("/api/plugins"), query }; }
 const bundled = (plugin: PluginManifest) => plugin.bundled === true || plugin.id === "openclaw-slack" || plugin.id === "openclaw-discord";
@@ -270,7 +278,7 @@ export function bindPlugins(root: ParentNode, state: PluginState, api: ApiClient
   const reload = () => loadPlugins(api, state.query).then(update).catch(fail);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   root.querySelector<HTMLButtonElement>("[data-feature-action=plugins-reload]")?.addEventListener("click", reload);
-  root.querySelector<HTMLFormElement>("[data-plugin-install]")?.addEventListener("submit", event => { event.preventDefault(); const form = event.currentTarget as HTMLFormElement; const packageName = String(new FormData(form).get("packageName") ?? "").trim(); if (packageName) api.send("/api/plugins/install", "POST", { packageName }).then(reload).catch(fail); });
+  root.querySelector<HTMLFormElement>("[data-plugin-install]")?.addEventListener("submit", event => { event.preventDefault(); const form = event.currentTarget as HTMLFormElement; const packageName = String(new FormData(form).get("packageName") ?? "").trim(); if (packageName && confirm(`Install and run ${packageName}? Channel plugins execute code in the OAT Desktop main process. Only continue if you trust the publisher and version.`)) api.send("/api/plugins/install", "POST", { packageName, trusted: true }).then(reload).catch(fail); });
   root.querySelector<HTMLInputElement>("[data-plugin-search]")?.addEventListener("input", event => {
     state.query = (event.currentTarget as HTMLInputElement).value;
     clearTimeout(searchTimer);
@@ -284,44 +292,60 @@ export function bindPlugins(root: ParentNode, state: PluginState, api: ApiClient
 // ---- Channels ------------------------------------------------------------
 
 export interface GlobalConfig { channels?: Record<string, { accounts?: Record<string, Record<string, unknown>> }> }
-export interface TeamConfig { admin?: { push_channel?: { channel: string; account: string }; [key: string]: unknown } }
-export interface ChannelState { project: string; plugins: PluginManifest[]; global: GlobalConfig; team: TeamConfig; selectedPlugin?: string; qr?: { image: string; sessionKey: string; status: "wait" | "scanned" | "confirmed" | "expired" }; }
+export interface ChannelProject { name: string; projectName?: string | null; alive?: boolean; agents?: Array<{ id: string; role: string; label: string; status: string }> }
+export interface ChannelState { plugins: PluginManifest[]; bindings: ChannelProjectBinding[]; projects: ChannelProject[]; targets: ChannelAgentTarget[]; statuses: ChannelAccountStatus[]; selectedPlugin?: string; selectedChannel?: string; qr?: { image: string; sessionKey: string; accountId: string; allowFrom: string[]; status: "wait" | "scanned" | "confirmed" | "expired" }; }
 interface ChannelLifecycle {
   generation: number;
   starting?: boolean;
   poller?: { sessionKey: string; stopped: boolean; timer?: ReturnType<typeof setTimeout>; stop(): void };
 }
 const channelLifecycles = new WeakMap<ChannelState, ChannelLifecycle>();
-const projectConfigPath = (project: string) => `/api/projects/${id(project)}/config`;
-export async function loadChannels(api: ApiClient, project: string): Promise<ChannelState> {
-  if (!project) throw new Error("Select a project before configuring channels.");
-  const [plugins, global, team] = await Promise.all([
-    api.get<PluginManifest[]>("/api/plugins"),
-    api.get<GlobalConfig>("/api/global-config"),
-    api.get<TeamConfig>(projectConfigPath(project)),
+export async function loadChannels(api: ApiClient): Promise<ChannelState> {
+  const [plugins, bindings, projects, targets, statuses] = await Promise.all([
+    api.get<PluginManifest[]>("/api/channel-plugins"),
+    api.get<ChannelProjectBinding[]>("/api/channel-bindings"),
+    api.get<ChannelProject[]>("/api/projects"),
+    api.get<ChannelAgentTarget[]>("/api/channel-agent-targets"),
+    api.get<ChannelAccountStatus[]>("/api/channel-status"),
   ]);
-  return { project, plugins, global, team, selectedPlugin: plugins[0]?.id };
+  return { plugins, bindings, projects, targets, statuses, selectedPlugin: plugins[0]?.id, selectedChannel: plugins[0]?.channels[0] };
 }
-const isWeixin = (pluginId: string) => pluginId === "openclaw-weixin" || pluginId.endsWith("weixin");
-function allChannelAccounts(state: ChannelState): Array<{ plugin: PluginManifest; account: string }> { return state.plugins.flatMap(plugin => [...new Set([...(plugin.accounts ?? []), ...Object.keys(state.global.channels?.[plugin.id]?.accounts ?? {})])].map(account => ({ plugin, account }))); }
+const isWeixin = (channelId: string) => channelId === "weixin" || channelId.endsWith("weixin");
+function allChannelAccounts(state: ChannelState): Array<{ plugin: PluginManifest; channelId: string; account: string }> {
+  return state.plugins.flatMap(plugin => plugin.channels.flatMap(channelId => [...new Set(plugin.accounts ?? [])].map(account => ({ plugin, channelId, account }))));
+}
 function schemaDefault(prop: PluginSchemaProperty): string { return typeof prop.default === "string" || typeof prop.default === "number" ? String(prop.default) : ""; }
-function schemaFields(plugin: PluginManifest | undefined): string {
-  return Object.entries(plugin?.configSchema?.properties ?? {}).map(([name, prop]) => {
-    const required = plugin?.configSchema?.required?.includes(name) ? "required" : "";
-    const label = escapeFeatureHtml(prop.title ?? name);
+const allowFromField = () => `<label>Allowed sender IDs<textarea name="allowFrom" required placeholder='["user-id"]'>[]</textarea><small>Inbound messages are accepted only from these channel-scoped sender IDs. Use ["*"] only for an intentionally public account.</small></label>`;
+function schemaFields(plugin: PluginManifest | undefined, channelId: string): string {
+  const config = plugin?.channelConfigs[channelId];
+  const properties = Object.entries(config?.schema?.properties ?? {});
+  if (!properties.length && config?.schema) return `<label>Channel configuration JSON<textarea name="__rawConfig" required placeholder="{}">{}</textarea></label>`;
+  const fields = properties.map(([name, prop]) => {
+    const hint = config?.uiHints?.[name];
+    const required = config?.schema?.required?.includes(name) ? "required" : "";
+    const label = escapeFeatureHtml(hint?.label ?? prop.title ?? name);
     const description = escapeFeatureHtml(prop.description ?? "");
     if (Array.isArray(prop.enum)) return `<label>${label}<select name="${escapeFeatureHtml(name)}" ${required} title="${description}">${prop.enum.map(value => { const option = String(value); return `<option value="${escapeFeatureHtml(option)}" ${option === schemaDefault(prop) ? "selected" : ""}>${escapeFeatureHtml(option)}</option>`; }).join("")}</select></label>`;
     if (prop.type === "boolean") return `<label class="checkbox-field"><input name="${escapeFeatureHtml(name)}" type="checkbox" ${prop.default === true ? "checked" : ""}>${label}</label>`;
-    return `<label>${label}<input name="${escapeFeatureHtml(name)}" type="${prop.type === "number" || prop.type === "integer" ? "number" : "text"}" value="${escapeFeatureHtml(schemaDefault(prop))}" ${required} placeholder="${description}"></label>`;
+    if (prop.type === "object" || prop.type === "array") return `<label>${label}<textarea name="${escapeFeatureHtml(name)}" data-json-channel-field="${escapeFeatureHtml(prop.type)}" ${required} placeholder="${description}">${escapeFeatureHtml(prop.default === undefined ? prop.type === "array" ? "[]" : "{}" : JSON.stringify(prop.default, null, 2))}</textarea></label>`;
+    const inputType = hint?.sensitive || prop.writeOnly ? "password" : prop.type === "number" || prop.type === "integer" ? "number" : "text";
+    return `<label>${label}<input name="${escapeFeatureHtml(name)}" type="${inputType}" value="${escapeFeatureHtml(schemaDefault(prop))}" ${required} placeholder="${escapeFeatureHtml(hint?.placeholder ?? prop.description ?? "")}"></label>`;
   }).join("");
+  return `${fields}${properties.some(([name]) => name === "allowFrom") ? "" : allowFromField()}`;
 }
 export function renderChannels(state: ChannelState, t: Translator): string {
   const accounts = allChannelAccounts(state);
   const selected = state.plugins.find(plugin => plugin.id === state.selectedPlugin) ?? state.plugins[0];
-  const mappedAccount = state.team.admin?.push_channel;
-  return `<section class="content desktop-feature channels-feature"><div class="section-heading"><div><span class="eyebrow">NOTIFICATIONS</span><h2>${escapeFeatureHtml(t("channels.title", "Channels"))}</h2></div><button data-feature-action="channels-reload">${escapeFeatureHtml(t("refresh", "Refresh"))}</button></div><div class="feature-grid"><article class="panel"><header class="feature-panel-heading"><h3>${escapeFeatureHtml(t("channels.configured_card_title", "Configured accounts"))}</h3><button data-channel-disable ${mappedAccount ? "" : "disabled"}>${escapeFeatureHtml(t("channels.disable_recipient", "Disable recipient"))}</button></header><p class="feature-help">${mappedAccount ? `${escapeFeatureHtml(t("channels.current_recipient", "Current recipient"))}: ${escapeFeatureHtml(`${mappedAccount.channel} / ${mappedAccount.account}`)}` : escapeFeatureHtml(t("channels.recipient_disabled", "Push recipient is disabled."))}</p><div class="table-wrap"><table><thead><tr><th>${escapeFeatureHtml(t("channels.col_plugin", "Plugin"))}</th><th>${escapeFeatureHtml(t("channels.col_account", "Account"))}</th><th>${escapeFeatureHtml(t("channels.col_status", "Recipient"))}</th><th></th></tr></thead><tbody>${accounts.map(({ plugin, account }) => { const mapped = mappedAccount?.channel === plugin.id && mappedAccount.account === account; return `<tr><td>${escapeFeatureHtml(plugin.name ?? plugin.id)}</td><td><code>${escapeFeatureHtml(account)}</code></td><td><input type="radio" name="push-channel" data-channel-map="${escapeFeatureHtml(JSON.stringify([plugin.id, account]))}" ${mapped ? "checked" : ""}></td><td><button data-channel-remove="${escapeFeatureHtml(JSON.stringify([plugin.id, account]))}">${escapeFeatureHtml(t("delete", "Remove"))}</button></td></tr>`; }).join("") || `<tr><td colspan="4" class="empty">${escapeFeatureHtml(t("channels.no_accounts", "No accounts"))}</td></tr>`}</tbody></table></div></article><article class="panel"><h3>${escapeFeatureHtml(t("plugins.add_account", "Add account"))}</h3><form data-channel-add class="form-grid"><label>${escapeFeatureHtml(t("channels.select_plugin", "Plugin"))}<select name="pluginId" data-channel-plugin>${state.plugins.map(plugin => `<option value="${escapeFeatureHtml(plugin.id)}" ${plugin.id === selected?.id ? "selected" : ""}>${escapeFeatureHtml(plugin.name ?? plugin.id)}</option>`).join("")}</select></label>${isWeixin(selected?.id ?? "") ? `<button type="button" class="primary" data-wechat-start>${escapeFeatureHtml(t("channels.wechat_scan", "Scan QR to login"))}</button>` : `${schemaFields(selected)}<button class="primary">${escapeFeatureHtml(t("save", "Save account"))}</button>`}</form>${state.qr ? `<div class="qr-login"><img src="${escapeFeatureHtml(state.qr.image)}" alt="WeChat login QR code"><p>${escapeFeatureHtml(t(`channels.wechat_${state.qr.status}`, state.qr.status))}</p>${state.qr.status === "expired" ? `<button data-wechat-start>${escapeFeatureHtml(t("channels.wechat_refresh_qr", "Refresh QR"))}</button>` : ""}</div>` : ""}</article></div></section>`;
+  const selectedChannel = selected?.channels.includes(state.selectedChannel ?? "") ? state.selectedChannel! : selected?.channels[0] ?? "";
+  const projectAdmins = state.targets.filter(target => target.target === ChannelBindingTargetEnum.ProjectAdmin);
+  const targetOptions = (binding?: ChannelProjectBinding) => {
+    const legacy = binding?.target === ChannelBindingTargetEnum.TeamAdmin ? `<option selected disabled>${escapeFeatureHtml(t("channels.legacy_team_binding", "Legacy Team binding — choose a Project Admin to migrate"))}</option>` : "";
+    const resource = `<option value="${ChannelBindingTargetEnum.ResourceSupervisor}" ${!binding || binding.target === ChannelBindingTargetEnum.ResourceSupervisor ? "selected" : ""}>${escapeFeatureHtml(t("channels.resource_supervisor", "Agent Resource Supervisor (default)"))}</option>`;
+    const admins = projectAdmins.map(target => { const value = `agent:${JSON.stringify([target.target, target.projectName, target.agentId])}`; const selected = binding?.projectName === target.projectName && binding.targetAgentId === target.agentId; return `<option value="${escapeFeatureHtml(value)}" ${selected ? "selected" : ""}>${escapeFeatureHtml(`${target.projectLabel} / ${target.label}${target.online ? "" : " (offline)"}`)}</option>`; }).join("");
+    return `${legacy}${resource}${admins}`;
+  };
+  return `<section class="content desktop-feature channels-feature"><div class="section-heading"><div><span class="eyebrow">CHANNEL CONNECTIONS</span><h2>${escapeFeatureHtml(t("channels.title", "Channels"))}</h2><p class="feature-help">${escapeFeatureHtml(t("channels.default_route", "Unassigned accounts route to the Agent Resource Supervisor."))}</p></div><button data-feature-action="channels-reload">${escapeFeatureHtml(t("refresh", "Refresh"))}</button></div><div class="feature-grid"><article class="panel"><h3>${escapeFeatureHtml(t("channels.configured_card_title", "Configured accounts"))}</h3><div class="table-wrap"><table><thead><tr><th>${escapeFeatureHtml(t("channels.col_plugin", "Channel"))}</th><th>${escapeFeatureHtml(t("channels.col_account", "Account"))}</th><th>${escapeFeatureHtml(t("channels.connection", "Connection"))}</th><th>${escapeFeatureHtml(t("channels.col_status", "Assigned agent"))}</th><th></th></tr></thead><tbody>${accounts.map(({ plugin, channelId, account }) => { const binding = state.bindings.find(item => item.channelId === channelId && item.accountId === account && item.enabled); const status = state.statuses.find(item => item.channelId === channelId && item.accountId === account); const stateValue = status?.status ?? ChannelConnectionStatusEnum.NotConfigured; return `<tr><td>${escapeFeatureHtml(plugin.channelConfigs[channelId]?.label ?? plugin.name ?? channelId)}</td><td><code>${escapeFeatureHtml(account)}</code></td><td><span class="tag channel-status-${escapeFeatureHtml(stateValue)}" title="${escapeFeatureHtml(status?.error ?? "")}">${escapeFeatureHtml(t(`channels.status_${stateValue}`, stateValue))}</span></td><td><select data-channel-binding="${escapeFeatureHtml(JSON.stringify([channelId, account]))}">${targetOptions(binding)}</select></td><td><button data-channel-remove="${escapeFeatureHtml(JSON.stringify([channelId, account]))}">${escapeFeatureHtml(t("delete", "Remove"))}</button></td></tr>`; }).join("") || `<tr><td colspan="5" class="empty">${escapeFeatureHtml(t("channels.no_accounts", "No accounts"))}</td></tr>`}</tbody></table></div></article><article class="panel"><h3>${escapeFeatureHtml(t("plugins.add_account", "Add account"))}</h3><form data-channel-add class="form-grid"><label>${escapeFeatureHtml(t("channels.select_plugin", "Plugin"))}<select name="pluginId" data-channel-plugin>${state.plugins.map(plugin => `<option value="${escapeFeatureHtml(plugin.id)}" ${plugin.id === selected?.id ? "selected" : ""}>${escapeFeatureHtml(plugin.name ?? plugin.id)}</option>`).join("")}</select></label><label>${escapeFeatureHtml(t("channels.channel", "Channel"))}<select name="channelId" data-channel-id>${(selected?.channels ?? []).map(channelId => `<option value="${escapeFeatureHtml(channelId)}">${escapeFeatureHtml(selected?.channelConfigs[channelId]?.label ?? channelId)}</option>`).join("")}</select></label><label>${escapeFeatureHtml(t("channels.account_id", "Account ID"))}<input name="accountId" required value="default"></label>${isWeixin(selectedChannel) ? `${allowFromField()}<button type="button" class="primary" data-wechat-start>${escapeFeatureHtml(t("channels.wechat_scan", "Scan QR to login"))}</button>` : `${schemaFields(selected, selectedChannel)}<button class="primary">${escapeFeatureHtml(t("save", "Save account"))}</button>`}</form>${state.qr ? `<div class="qr-login"><img src="${escapeFeatureHtml(state.qr.image)}" alt="WeChat login QR code"><p>${escapeFeatureHtml(t(`channels.wechat_${state.qr.status}`, state.qr.status))}</p></div>` : ""}</article></div></section>`;
 }
-function accountId(pluginId: string): string { const base = pluginId.replace(/^openclaw-/, ""); return `${base}-${crypto.randomUUID?.().split("-")[0] ?? Math.random().toString(36).slice(2, 10)}`; }
 function normalizeQrImage(value: string): string {
   // A channel is allowed to return an inline QR image, raw base64, or HTTPS.
   // Do not inject arbitrary URL schemes into Electron's renderer.
@@ -342,11 +366,11 @@ export function bindChannels(root: ParentNode, state: ChannelState, controlApi: 
     stopPoller();
     const pending = state.qr && state.qr.status !== "confirmed" && state.qr.status !== "expired";
     if (clearQr) state.qr = undefined;
-    if (pending) await channelApi.send("/api/channels/weixin/login-cancel", "POST").catch(() => undefined);
+    if (pending) await channelApi.send("/api/channels/weixin/login-cancel", "POST", {}).catch(() => undefined);
   };
   const reload = async () => {
     await cancelLogin();
-    try { update(await loadChannels(controlApi, state.project)); }
+    try { update(await loadChannels(controlApi)); }
     catch (error) { fail(error); }
   };
   const ensurePolling = (sessionKey: string, generation = lifecycle.generation): void => {
@@ -367,7 +391,7 @@ export function bindChannels(root: ParentNode, state: ChannelState, controlApi: 
     const poll = async (): Promise<void> => {
       if (poller.stopped || lifecycle.generation !== generation || state.qr?.sessionKey !== sessionKey) return;
       try {
-        const result = await channelApi.send<{ status?: string; connected?: boolean }>("/api/channels/weixin/login-wait", "POST", { sessionKey });
+        const result = await channelApi.send<{ status?: string; connected?: boolean }>("/api/channels/weixin/login-wait", "POST", { sessionKey, accountId: state.qr.accountId, allowFrom: state.qr.allowFrom });
         if (poller.stopped || lifecycle.generation !== generation || state.qr?.sessionKey !== sessionKey) return;
         const confirmed = result.connected || ["confirmed", "confirmed_redirect", "binded_redirect"].includes(result.status ?? "");
         state.qr.status = confirmed ? "confirmed" : result.status === "scanned" || result.status === "expired" ? result.status : "wait";
@@ -387,14 +411,17 @@ export function bindChannels(root: ParentNode, state: ChannelState, controlApi: 
     lifecycle.generation++;
     const generation = lifecycle.generation;
     stopPoller();
-    if (hadPendingLogin) await channelApi.send("/api/channels/weixin/login-cancel", "POST").catch(() => undefined);
+    if (hadPendingLogin) await channelApi.send("/api/channels/weixin/login-cancel", "POST", {}).catch(() => undefined);
     if (lifecycle.generation !== generation) { lifecycle.starting = false; return; }
     try {
-      const result = await channelApi.send<{ qrcodeUrl?: string; qrDataUrl?: string; sessionKey?: string }>("/api/channels/weixin/login-start", "POST", {});
-      if (lifecycle.generation !== generation) { await channelApi.send("/api/channels/weixin/login-cancel", "POST").catch(() => undefined); return; }
+      const accountId = root.querySelector<HTMLInputElement>("[data-channel-add] [name=accountId]")?.value.trim() || "default";
+      const allowFrom = JSON.parse(root.querySelector<HTMLTextAreaElement>("[data-channel-add] [name=allowFrom]")?.value || "[]") as string[];
+      if (!Array.isArray(allowFrom) || !allowFrom.every(value => typeof value === "string") || !allowFrom.length) throw new Error("At least one allowed sender ID is required.");
+      const result = await channelApi.send<{ qrcodeUrl?: string; qrDataUrl?: string; sessionKey?: string }>("/api/channels/weixin/login-start", "POST", { accountId, allowFrom });
+      if (lifecycle.generation !== generation) { await channelApi.send("/api/channels/weixin/login-cancel", "POST", {}).catch(() => undefined); return; }
       const image = result.qrcodeUrl ?? result.qrDataUrl;
       if (!image || !result.sessionKey) throw new Error("The local WeChat plugin did not return a QR login session.");
-      state.qr = { image: normalizeQrImage(image), sessionKey: result.sessionKey, status: "wait" };
+      state.qr = { image: normalizeQrImage(image), sessionKey: result.sessionKey, accountId, allowFrom, status: "wait" };
       ensurePolling(result.sessionKey, generation);
       update(state);
     } catch (error) {
@@ -402,54 +429,62 @@ export function bindChannels(root: ParentNode, state: ChannelState, controlApi: 
         lifecycle.generation++;
         stopPoller();
         state.qr = undefined;
-        await channelApi.send("/api/channels/weixin/login-cancel", "POST").catch(() => undefined);
+        await channelApi.send("/api/channels/weixin/login-cancel", "POST", {}).catch(() => undefined);
         fail(error);
       }
     } finally { lifecycle.starting = false; }
   };
   root.querySelector<HTMLButtonElement>("[data-feature-action=channels-reload]")?.addEventListener("click", () => { void reload(); });
-  root.querySelector<HTMLSelectElement>("[data-channel-plugin]")?.addEventListener("change", event => { state.selectedPlugin = (event.currentTarget as HTMLSelectElement).value; void cancelLogin().then(() => update(state)); });
+  root.querySelector<HTMLSelectElement>("[data-channel-plugin]")?.addEventListener("change", event => { state.selectedPlugin = (event.currentTarget as HTMLSelectElement).value; state.selectedChannel = state.plugins.find(item => item.id === state.selectedPlugin)?.channels[0]; void cancelLogin().then(() => update(state)); });
+  root.querySelector<HTMLSelectElement>("[data-channel-id]")?.addEventListener("change", event => { state.selectedChannel = (event.currentTarget as HTMLSelectElement).value; void cancelLogin().then(() => update(state)); });
   root.querySelectorAll<HTMLButtonElement>("[data-wechat-start]").forEach(button => button.addEventListener("click", startQr));
   root.querySelector<HTMLFormElement>("[data-channel-add]")?.addEventListener("submit", event => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget as HTMLFormElement);
-    const pluginId = String(form.get("pluginId"));
-    const plugin = state.plugins.find(item => item.id === pluginId);
-    if (!plugin || isWeixin(pluginId)) return;
-    const credentials: Record<string, unknown> = {};
-    for (const [key, schema] of Object.entries(plugin.configSchema?.properties ?? {})) {
-      if (schema.type === "boolean") credentials[key] = Array.isArray(schema.enum) ? String(form.get(key)) === "true" : form.has(key);
-      else if (schema.type === "number" || schema.type === "integer") {
-        const value = form.get(key);
-        if (value !== null && String(value).trim() !== "") credentials[key] = Number(value);
-      } else {
-        const value = form.get(key);
-        if (value !== null) credentials[key] = value;
+    try {
+      const form = new FormData(event.currentTarget as HTMLFormElement);
+      const pluginId = String(form.get("pluginId"));
+      const channelId = String(form.get("channelId"));
+      const accountId = String(form.get("accountId")).trim();
+      const plugin = state.plugins.find(item => item.id === pluginId);
+      if (!plugin || !channelId || !accountId || isWeixin(channelId)) return;
+      const credentials: Record<string, unknown> = {};
+      const rawConfig = form.get("__rawConfig");
+      if (typeof rawConfig === "string" && rawConfig.trim()) Object.assign(credentials, JSON.parse(rawConfig));
+      for (const [key, schema] of Object.entries(plugin.channelConfigs[channelId]?.schema?.properties ?? {})) {
+        if (schema.type === "boolean") credentials[key] = Array.isArray(schema.enum) ? String(form.get(key)) === "true" : form.has(key);
+        else if (schema.type === "object" || schema.type === "array") {
+          const value = String(form.get(key) ?? "").trim();
+          if (value) credentials[key] = JSON.parse(value);
+        }
+        else if (schema.type === "number" || schema.type === "integer") {
+          const value = form.get(key);
+          if (value !== null && String(value).trim() !== "") credentials[key] = Number(value);
+        } else {
+          const value = form.get(key);
+          if (value !== null) credentials[key] = value;
+        }
       }
+      if (!("allowFrom" in credentials)) {
+        const allowFrom = JSON.parse(String(form.get("allowFrom") ?? "[]"));
+        if (!Array.isArray(allowFrom) || !allowFrom.every(value => typeof value === "string") || !allowFrom.length) throw new Error("At least one allowed sender ID is required.");
+        credentials.allowFrom = allowFrom;
+      }
+      controlApi.send("/api/channels/accounts", "POST", { channelId, accountId, config: credentials }).then(reload).catch(fail);
+    } catch (error) {
+      fail(error);
     }
-    const next: GlobalConfig = structuredClone(state.global);
-    next.channels ??= {}; next.channels[pluginId] ??= { accounts: {} }; next.channels[pluginId].accounts ??= {};
-    next.channels[pluginId].accounts[accountId(pluginId)] = credentials;
-    controlApi.send("/api/global-config", "PUT", { channels: next.channels }).then(reload).catch(fail);
   });
-  const updateRecipient = async (pushChannel?: { channel: string; account: string }) => {
-    const path = projectConfigPath(state.project);
-    const next = structuredClone(await controlApi.get<TeamConfig>(path));
-    if (pushChannel) { next.admin ??= {}; next.admin.push_channel = pushChannel; }
-    else if (next.admin?.push_channel) delete next.admin.push_channel;
-    await controlApi.send(path, "PUT", next);
-    reload();
-  };
-  root.querySelector<HTMLButtonElement>("[data-channel-disable]")?.addEventListener("click", () => { if (state.team.admin?.push_channel) updateRecipient().catch(fail); });
-  root.querySelectorAll<HTMLInputElement>("[data-channel-map]").forEach(input => input.addEventListener("change", () => { const [channel, account] = JSON.parse(input.dataset.channelMap ?? "[]") as string[]; if (channel && account) updateRecipient({ channel, account }).catch(fail); }));
-  const removeAccount = async (channelId: string, account: string) => {
-    const path = projectConfigPath(state.project);
-    const team = structuredClone(await controlApi.get<TeamConfig>(path));
-    if (team.admin?.push_channel?.channel === channelId && team.admin.push_channel.account === account) {
-      delete team.admin.push_channel;
-      await controlApi.send(path, "PUT", team);
+  root.querySelectorAll<HTMLSelectElement>("[data-channel-binding]").forEach(select => select.addEventListener("change", () => {
+    const [channelId, accountId] = JSON.parse(select.dataset.channelBinding ?? "[]") as string[];
+    const bindings = state.bindings.filter(item => item.channelId !== channelId || item.accountId !== accountId);
+    if (select.value.startsWith("agent:")) {
+      const [target, projectName, targetAgentId] = JSON.parse(select.value.slice("agent:".length)) as [ChannelBindingTargetEnum, string, string];
+      bindings.push({ id: crypto.randomUUID(), channelId, accountId, target, projectName, targetAgentId, enabled: true });
     }
-    await controlApi.send("/api/global-config/remove-account", "POST", { channelId, accountId: account });
+    controlApi.send("/api/channel-bindings", "PUT", { bindings }).then(reload).catch(fail);
+  }));
+  const removeAccount = async (channelId: string, account: string) => {
+    await controlApi.send(`/api/channels/${id(channelId)}/accounts/${id(account)}`, "DELETE");
     await reload();
   };
   root.querySelectorAll<HTMLButtonElement>("[data-channel-remove]").forEach(button => button.addEventListener("click", () => { const [channelId, account] = JSON.parse(button.dataset.channelRemove ?? "[]") as string[]; if (channelId && account && confirm(`${t("delete", "Remove")} ${account}?`)) removeAccount(channelId, account).catch(fail); }));

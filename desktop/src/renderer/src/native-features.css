@@ -78,4 +78,9 @@
 .tag { display:inline-block; color:var(--primary-color); font-size:11px; text-transform:uppercase; }
 .qr-login { display:grid; place-items:center; gap:10px; margin-top:16px; text-align:center; }
 .qr-login img { width:220px; height:220px; object-fit:contain; padding:8px; background:#fff; border-radius:10px; }
+.channels-feature [class*="channel-status-"] { white-space: nowrap; }
+.channels-feature .channel-status-connected { background:#dcfce7; color:#166534; }
+.channels-feature .channel-status-configured { background:#e0f2fe; color:#075985; }
+.channels-feature .channel-status-degraded { background:#fef3c7; color:#92400e; }
+.channels-feature .channel-status-error { background:#fee2e2; color:#991b1b; }
 @media (max-width: 760px) { .feature-grid, .achievement-grid { grid-template-columns:1fr; } .usage-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } .usage-donut-layout { grid-template-columns:1fr; } }

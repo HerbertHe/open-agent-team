@@ -6,6 +6,7 @@ test('Resource Manager exposes read and proposal tools only', () => {
   assert.deepEqual(RESOURCE_MANAGER_TOOL_NAMES, [
     ResourceManagerToolNameEnum.ListProjectResources,
     ResourceManagerToolNameEnum.DraftProjectConfiguration,
+    ResourceManagerToolNameEnum.SearchProjectMemory,
   ]);
   for (const forbidden of ['start_project', 'restart_project', 'start_docker', 'restart_docker', 'restart_agent', 'bash']) {
     assert.equal(RESOURCE_MANAGER_TOOL_NAMES.includes(forbidden as ResourceManagerToolNameEnum), false);

@@ -11,6 +11,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.84.2
         version: 0.84.2(ws@8.21.3)(zod@4.4.3)
+      '@zvec/zvec':
+        specifier: 0.7.0
+        version: 0.7.0
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -66,6 +69,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: ^0.84.2
         version: 0.84.2(ws@8.21.3)(zod@4.4.3)
+      '@zvec/zvec':
+        specifier: 0.7.0
+        version: 0.7.0
       ai:
         specifier: ^7.0.73
         version: 7.0.73(zod@4.4.3)
@@ -81,6 +87,25 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    optionalDependencies:
+      '@zvec/bindings-darwin-arm64':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@zvec/bindings-linux-arm64':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@zvec/bindings-linux-arm64-musl':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@zvec/bindings-linux-x64':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@zvec/bindings-linux-x64-musl':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@zvec/bindings-win32-x64':
+        specifier: 0.7.0
+        version: 0.7.0
     devDependencies:
       '@iconify-json/lucide':
         specifier: ^1.2.124
@@ -2113,6 +2138,39 @@ packages:
     resolution: {integrity: sha512-T4EDRUBVZYRldYApjEJiU0e1stYWaRAX7CuSnKzrpwdZKo53zGV8/pqfzV6FfwNl9YThD2OumQYvqtvjvgG7aQ==}
     engines: {node: '>=10.0.0'}
     deprecated: this version has critical issues, please update to the latest version
+
+  '@zvec/bindings-darwin-arm64@0.7.0':
+    resolution: {integrity: sha512-G7L6cAQdcEfSUJRpC6HuKP10SjyOiYY1Tu+9aZ436zUXH78sWDUzci2iHkuYkO0UiXiwABmkMxWmP1rXr4AFqA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@zvec/bindings-linux-arm64-musl@0.7.0':
+    resolution: {integrity: sha512-tgxDQGOkBEjz9ANw4Y74pDCXLX6wOxziYHe+zbIRGKPDgIqVSdUxhwz3z5VOFWzCKzyCeiboA6XSPhuLFlMbtQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@zvec/bindings-linux-arm64@0.7.0':
+    resolution: {integrity: sha512-gNDQzskC+SDv57ok7Sbw+6AgjvFfGJ1WlGoeXPNyZUZZSMsPmJsP67NumRHiSPAONPz1Hcr19chaV+5Sy3VWEw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@zvec/bindings-linux-x64-musl@0.7.0':
+    resolution: {integrity: sha512-zJeQqWTpPcFY7ICikh+MqsxBmpPz6L2txEDdxb139+Y5JAY6BT13iin8AdyQ95YM8ajFWxKKRLr5XIG2VgmDZw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@zvec/bindings-linux-x64@0.7.0':
+    resolution: {integrity: sha512-L+N/J5vPm1RHgvT6yNpc5nSEk0j8PcU0wv7y4P5sfKEAVvviQserIrb6m9r4JdEPDRlvuqjvp0/r/grsfMpkOQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@zvec/bindings-win32-x64@0.7.0':
+    resolution: {integrity: sha512-++praGBXk/mD32U5+8Vsvhzksvp8plidmOA1zFi1MNzNZPxPLcEN38Di68qPZkaY3NWEM8VyvVZlO/BOG/FwXQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@zvec/zvec@0.7.0':
+    resolution: {integrity: sha512-MT/M1CMnQ0k1w/Qh8iiCl8vXawonN0QwOr5dVq+92SMa6hMArHBVs93qIw34X772mTqFevYKD79FEPKjfqMWmA==}
 
   abbrev@4.0.0:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
@@ -6755,6 +6813,35 @@ snapshots:
   '@workflow/serde@4.1.0': {}
 
   '@xmldom/xmldom@0.8.14': {}
+
+  '@zvec/bindings-darwin-arm64@0.7.0':
+    optional: true
+
+  '@zvec/bindings-linux-arm64-musl@0.7.0':
+    optional: true
+
+  '@zvec/bindings-linux-arm64@0.7.0':
+    optional: true
+
+  '@zvec/bindings-linux-x64-musl@0.7.0':
+    optional: true
+
+  '@zvec/bindings-linux-x64@0.7.0':
+    optional: true
+
+  '@zvec/bindings-win32-x64@0.7.0':
+    optional: true
+
+  '@zvec/zvec@0.7.0':
+    dependencies:
+      detect-libc: 2.1.2
+    optionalDependencies:
+      '@zvec/bindings-darwin-arm64': 0.7.0
+      '@zvec/bindings-linux-arm64': 0.7.0
+      '@zvec/bindings-linux-arm64-musl': 0.7.0
+      '@zvec/bindings-linux-x64': 0.7.0
+      '@zvec/bindings-linux-x64-musl': 0.7.0
+      '@zvec/bindings-win32-x64': 0.7.0
 
   abbrev@4.0.0: {}
 

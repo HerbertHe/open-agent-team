@@ -167,6 +167,8 @@ Orchestrator 在 `TaskManager.dispatchWorkerTasks()` 中处理：
 
 ### 3.3 合并与回报：worker->leader->admin
 
+汇报严格按直接管理关系逐级上送：Worker 的完成报告只进入所属 Leader 的任务；Leader 审查、集成并形成汇总后，才将 Leader 报告送入 Admin 根任务；面向操作员的最终答复只能由 Admin 生成。下游原始报告可作为折叠审计链查看，但不得直接冒充 Admin 最终交付。
+
 当 worker 调用 `POST /tool/notify_complete`：
 
 1. `TaskManager.handleWorkerComplete()`：
@@ -267,7 +269,7 @@ OAT Desktop 通过本地控制面 IPC 与 Orchestrator REST/SSE 接口提供管�
 - **项目总览**：项目列表、运行状态、重启和删除操作
 - **项目状态**：通过 SSE 实时接收 ObservabilityHub 事件、Agent 拓扑图、进度汇报、向 Admin 下发指令
 - **项目配置**：在线编辑 `team.json`，左侧表单 + 右侧 Shiki 语法高亮 JSON 预览，保存后触发项目自动重启
-- **设置**：全局设置管理（通用配置、模型服务商列表、模型列表管理）
+- **全局设置**：通过子菜单统一管理常规偏好、全局模型、Channel 账号连接与 Project Admin 分配、日志保留和清理；Channel 连接页不负责搜索或安装插件。
 
 Desktop 支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接发现并管理多个 Orchestrator 实例。
 

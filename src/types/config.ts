@@ -17,7 +17,44 @@ export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 export interface MemoryConfig {
   enabled: boolean;
   roles: Array<"admin" | "leader">;
+  /** Explicit grants allowing selected Leaders to read project-scoped memory. */
+  access?: { leaderProjectScopeTeams: string[] };
   database?: string;
+  /** Global embedding profile reference. Undefined means dense vectors are disabled. */
+  embeddingRef?: string;
+  retrieval: {
+    backend: "lexical" | "zvec_fts" | "zvec_hybrid";
+    fallback: "lexical";
+    shadow: boolean;
+    /** Derived from the global feature flag and exact project allowlist. */
+    productionEnabled: boolean;
+    candidateLimit: number;
+    maxResults: number;
+    maxPromptTokens: number;
+    timeoutMs: number;
+    circuitBreakerFailureThreshold: number;
+    circuitBreakerCooldownSeconds: number;
+  };
+  zvec: {
+    path: string;
+    index: "flat" | "hnsw";
+    metric: "cosine";
+    readOnlyFallback: boolean;
+    batchSize: number;
+    maxAttempts: number;
+    optimizePendingThreshold: number;
+  };
+  extraction: {
+    enabled: boolean;
+    /** Resolved provider/model identifier. Undefined keeps legacy deterministic consolidation. */
+    model?: string;
+    version: string;
+    timeoutMs: number;
+    maxInputChars: number;
+    maxOutputTokens: number;
+    maxFactsPerEvent: number;
+    maxAttempts: number;
+  };
   l1: {
     maxItems: number;
     completedTaskTtlHours: number;
@@ -74,7 +111,11 @@ export interface TeamFileConfig {
   /** 全局模型供应商接入配置（推荐入口） */
   providers?: TeamFileProvidersConfig;
   /** Admin/Leader persistent memory and idle consolidation. */
-  memory?: Partial<MemoryConfig> & {
+  memory?: Omit<Partial<MemoryConfig>, "embeddingRef" | "retrieval" | "zvec" | "extraction"> & {
+    embeddingRef?: string | null;
+    retrieval?: Partial<Omit<MemoryConfig["retrieval"], "productionEnabled">>;
+    zvec?: Partial<MemoryConfig["zvec"]>;
+    extraction?: Partial<MemoryConfig["extraction"]>;
     l1?: Partial<MemoryConfig["l1"]>;
     l2?: Partial<MemoryConfig["l2"]>;
     l3?: Partial<MemoryConfig["l3"]>;

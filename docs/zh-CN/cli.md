@@ -158,6 +158,19 @@ oat plugins install <packageName>
 **参数：**
 - `packageName`：插件的 NPM 包名（例如 `@tencent-weixin/openclaw-weixin`）。
 
+## 记忆备份与恢复
+
+```bash
+oat memory backup [destination] --config ./team.json
+oat memory restore <backup-directory> --config ./team.json --confirm <project-id>
+```
+
+- `backup` 使用 SQLite 在线备份生成一致快照、完整性检查和 SHA-256 manifest；Zvec 是派生索引，不进入备份。
+- `restore` 要求 Project 已停止且 `--confirm` 与配置中的 Project ID 完全相同；当前数据库和 Zvec 目录会带时间戳保留/隔离。
+- 恢复后先以 lexical 启动，再到 Desktop「全局设置 → 记忆管理」重建并激活 collection。
+
+完整流程见 [M15 记忆系统发布评审与运维手册](./memory-release-m15.md)。
+
 ---
 
 ## `oat plugins uninstall`

@@ -21,7 +21,7 @@ pnpm --filter desktop lint
 pnpm --filter desktop package
 ```
 
-`package` creates a platform-specific distributable in `desktop/release/`. The build configuration targets macOS `arm64` (DMG) and Windows `ia32` / x86 (NSIS); run it on the target OS for its native installer format.
+`package` creates a platform-specific distributable in `desktop/release/`. Zvec-enabled builds target macOS `arm64` (DMG), Windows `x64` (NSIS), and Linux `x64`/`arm64` (AppImage); run them on the matching target OS and execute `scripts/run-packaged-zvec-smoke.mjs`. macOS x64 and Windows ia32 do not have supported Zvec 0.7.0 bindings and are not Zvec release targets.
 
 ## Security model
 

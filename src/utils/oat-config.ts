@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { ChannelProjectBinding } from "../types/channels";
 
 export interface OatGlobalConfig {
   language?: string;
@@ -8,12 +9,26 @@ export interface OatGlobalConfig {
   resource_agent?: {
     model?: string;
   };
+  memoryDefaults?: {
+    embeddingProfile?: string;
+  };
+  memoryRetrieval?: {
+    enabled?: boolean;
+    projectAllowlist?: string[];
+  };
   channels?: Record<
     string,
     {
       accounts: Record<string, Record<string, any>>;
     }
   >;
+  channelBindings?: ChannelProjectBinding[];
+}
+
+export function isMemoryRetrievalRolloutEnabled(config: OatGlobalConfig, projectId: string): boolean {
+  if (config.memoryRetrieval?.enabled !== true || !projectId.trim()) return false;
+  const allowlist = config.memoryRetrieval.projectAllowlist;
+  return Array.isArray(allowlist) && allowlist.some((entry) => typeof entry === "string" && entry === projectId);
 }
 
 const OAT_CONFIG_DIR = path.join(os.homedir(), ".oat");

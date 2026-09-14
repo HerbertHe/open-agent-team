@@ -39,7 +39,6 @@ import { normalizeDeepSeekReplaySignatures, type DeepSeekReplayApi } from "./dee
 
 let agentSession: { prompt: (t: string) => Promise<void>; dispose: () => void } | null = null;
 let stopping = false;
-let fatalErrorReported = false;
 /** 防止父进程重复发送 "start" 导致 session 被覆盖或并发初始化 */
 let startReceived = false;
 
@@ -85,21 +84,6 @@ function isDeepSeekThinkingModel(modelId: string): boolean {
     /(?:^|[-_/])r1(?:[-_/]|$)/.test(normalized) ||
     /deepseek[-_/]?v(?:3(?:\.\d+)?|4)/.test(normalized)
   );
-}
-
-function terminalAgentError(event: Record<string, unknown>): string | undefined {
-  if (event.type !== "agent_end" || event.willRetry !== false || !Array.isArray(event.messages)) return undefined;
-  for (let index = event.messages.length - 1; index >= 0; index -= 1) {
-    const message = event.messages[index];
-    if (!message || typeof message !== "object") continue;
-    const assistant = message as { role?: unknown; stopReason?: unknown; errorMessage?: unknown };
-    if (assistant.role !== "assistant") continue;
-    if (assistant.stopReason !== "error") return undefined;
-    return typeof assistant.errorMessage === "string" && assistant.errorMessage.trim()
-      ? assistant.errorMessage
-      : "Agent session ended with an unrecoverable model error";
-  }
-  return undefined;
 }
 
 // ─── Stub 工具构建 ───────────────────────────────────────────────────────────
@@ -281,25 +265,17 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     agentSession = session;
 
     session.subscribe((event: Record<string, unknown>) => {
+      // dispose() may emit terminal SDK events while the process is shutting
+      // down. They do not describe a task outcome and must not fail work.
+      if (stopping) return;
       if (deepSeekReplayApi) normalizeDeepSeekReplaySignatures(event, deepSeekReplayApi);
-      send({ type: "agent_event", event, role: spec.role });
-
-      // 检测 SDK 级别的致命错误事件：上报后立即退出
-      // 必须退出以确保父进程的崩溃状态与子进程实际状态一致；
-      // 若不退出，父进程已将该 Agent 标记为崩溃，但子进程仍能接收后续 prompt，
-      // 导致任务重复分配或崩溃通知去重失效。
-      // 注意：stopping = true 时跳过，避免 session.dispose() 内部触发 error 事件导致
-      // 子进程以 code=1 退出，从而被父进程误判为崩溃（应由 stop 流程以 code=0 正常退出）。
-      const ev = event as { type?: string; error?: unknown };
-      const settledError = terminalAgentError(event);
-      if (!stopping && !fatalErrorReported && ((ev.type === "error" && ev.error !== undefined) || settledError)) {
-        fatalErrorReported = true;
-        const errMsg = settledError ?? (ev.error instanceof Error ? ev.error.message : String(ev.error));
-        send({ type: "agent_error", error: errMsg });
-        // Let the IPC message flush before exit. The parent then marks the
-        // running workflow failed through its normal crash path.
-        setImmediate(() => process.exit(1));
-      }
+      const serializedEvent = event.type === "error" && event.error instanceof Error
+        ? { ...event, error: event.error.message }
+        : event;
+      send({ type: "agent_event", event: serializedEvent, role: spec.role });
+      // Model/provider failures are execution outcomes, not process crashes.
+      // Keep the session process alive so a later task can reuse it. Startup
+      // failures and uncaught process errors still use agent_error below.
     });
 
     send({ type: "ready" });
@@ -336,9 +312,14 @@ function handleMessage(rawMsg: unknown): void {
         if (stopping || !agentSession) return;
         return agentSession.prompt(text).catch((err: unknown) => {
           const errMsg = err instanceof Error ? err.message : String(err);
-          send({ type: "agent_error", error: `prompt() failed: ${errMsg}` });
-          // 状态不可恢复：退出子进程，让父进程通过 exit 事件触发崩溃通知链
-          process.exit(1);
+          send({
+            type: "agent_event",
+            event: {
+              type: "agent_end",
+              willRetry: false,
+              messages: [{ role: "assistant", stopReason: "error", errorMessage: `prompt() failed: ${errMsg}` }],
+            },
+          });
         });
       });
     }

@@ -62,6 +62,31 @@ Object.assign(en, { 'memory.open': 'View Agent memory', 'memory.title': 'Agent m
 Object.assign(zh, { 'memory.open': '查看 Agent 记忆', 'memory.title': 'Agent 记忆', 'memory.subtitle': '查看可追溯来源的短期、长期和深层记忆。', 'memory.l1': '短期记忆', 'memory.l2': '长期记忆', 'memory.l3': '深层记忆', 'memory.pending': '待沉淀观察', 'memory.agent': '记忆归属 Agent', 'memory.lastActivity': '最近活动', 'memory.lastDream': '最近做梦', 'memory.dreamResult': '沉淀结果', 'memory.refresh': '刷新记忆', 'memory.dream': '立即沉淀', 'memory.dreaming': '正在沉淀…', 'memory.busy': '项目存在活动任务，记忆沉淀将在全部任务空闲后进行。', 'memory.startProject': '启动项目后可查看持久化的 Agent 记忆。', 'memory.empty': '该层级尚未形成记忆。', 'memory.promote': '晋升为 L3', 'memory.forget': '遗忘', 'memory.forgetConfirm': '遗忘这条记忆吗？之后将不再检索或注入。', 'memory.confidence': '置信度', 'memory.salience': '重要度', 'memory.evidence': '证据', 'memory.sources': '来源' });
 Object.assign(fr, { 'memory.open': 'Voir la mémoire Agent', 'memory.title': 'Mémoire Agent', 'memory.subtitle': 'Inspecter la mémoire de travail, à long terme et profonde avec ses preuves.', 'memory.l1': 'Mémoire de travail', 'memory.l2': 'Mémoire à long terme', 'memory.l3': 'Mémoire profonde', 'memory.pending': 'Observations en attente', 'memory.agent': 'Agent propriétaire', 'memory.lastActivity': 'Dernière activité', 'memory.lastDream': 'Dernière consolidation', 'memory.dreamResult': 'Résultat', 'memory.refresh': 'Actualiser', 'memory.dream': 'Consolider', 'memory.dreaming': 'Consolidation…', 'memory.busy': 'La consolidation attend que toutes les tâches soient inactives.', 'memory.startProject': 'Démarrez le projet pour voir la mémoire persistante.', 'memory.empty': 'Aucune mémoire à ce niveau.', 'memory.promote': 'Promouvoir en L3', 'memory.forget': 'Oublier', 'memory.forgetConfirm': 'Oublier cette mémoire ?', 'memory.confidence': 'Confiance', 'memory.salience': 'Importance', 'memory.evidence': 'Preuves', 'memory.sources': 'Sources' });
 Object.assign(ja, { 'memory.open': 'Agent メモリを表示', 'memory.title': 'Agent メモリ', 'memory.subtitle': '根拠を追跡できる作業・長期・深層メモリを確認します。', 'memory.l1': '作業メモリ', 'memory.l2': '長期メモリ', 'memory.l3': '深層メモリ', 'memory.pending': '未整理の観察', 'memory.agent': 'メモリ所有 Agent', 'memory.lastActivity': '最終活動', 'memory.lastDream': '最終整理', 'memory.dreamResult': '整理結果', 'memory.refresh': '更新', 'memory.dream': '今すぐ整理', 'memory.dreaming': '整理中…', 'memory.busy': 'すべてのタスクが待機状態になるまで整理を待ちます。', 'memory.startProject': 'プロジェクトを開始すると永続メモリを確認できます。', 'memory.empty': 'このレベルのメモリはありません。', 'memory.promote': 'L3 に昇格', 'memory.forget': '忘却', 'memory.forgetConfirm': 'このメモリを忘却しますか？', 'memory.confidence': '信頼度', 'memory.salience': '重要度', 'memory.evidence': '根拠', 'memory.sources': '出典' });
+Object.assign(en, { 'memory.status': 'Governance status', 'memory.statusActive': 'Active', 'memory.statusCandidate': 'Candidates', 'memory.statusDisputed': 'Disputed', 'memory.statusSuperseded': 'History', 'memory.confirm': 'Confirm current', 'memory.conflict': 'Conflict', 'memory.independentEvidence': 'Independent evidence' });
+Object.assign(zh, { 'memory.status': '治理状态', 'memory.statusActive': '当前记忆', 'memory.statusCandidate': '候选记忆', 'memory.statusDisputed': '冲突待确认', 'memory.statusSuperseded': '历史版本', 'memory.confirm': '确认为当前事实', 'memory.conflict': '存在冲突', 'memory.independentEvidence': '独立证据' });
+Object.assign(fr, { 'memory.status': 'Statut de gouvernance', 'memory.statusActive': 'Actif', 'memory.statusCandidate': 'Candidats', 'memory.statusDisputed': 'Contesté', 'memory.statusSuperseded': 'Historique', 'memory.confirm': 'Confirmer', 'memory.conflict': 'Conflit', 'memory.independentEvidence': 'Preuves indépendantes' });
+Object.assign(ja, { 'memory.status': 'ガバナンス状態', 'memory.statusActive': '有効', 'memory.statusCandidate': '候補', 'memory.statusDisputed': '競合', 'memory.statusSuperseded': '履歴', 'memory.confirm': '現在の事実として確認', 'memory.conflict': '競合あり', 'memory.independentEvidence': '独立した根拠' });
+const memoryOpsEn = {
+  'settings.memoryMenu': 'Memory', 'settings.memoryMenuHint': 'Indexes, governance and audit',
+  'memoryOps.title': 'Memory operations', 'memoryOps.subtitle': 'Inspect and safely operate project memory without exposing vectors or credentials.', 'memoryOps.project': 'Project', 'memoryOps.startProject': 'Start this project to inspect and operate its memory service.',
+  'memoryOps.health': 'Health', 'memoryOps.health.disabled': 'Disabled', 'memoryOps.health.lexical': 'Lexical only', 'memoryOps.health.healthy': 'Healthy', 'memoryOps.health.degraded': 'Degraded', 'memoryOps.health.rebuilding': 'Rebuilding', 'memoryOps.health.error': 'Error', 'memoryOps.activeRevision': 'Active collection', 'memoryOps.sync': 'Sync queue', 'memoryOps.pendingDead': 'pending / dead letter', 'memoryOps.memoryCount': 'Memory items', 'memoryOps.noEmbedding': 'No embedding profile', 'memoryOps.attention': 'Needs attention',
+  'memoryOps.rebuild': 'Index lifecycle', 'memoryOps.rebuildHint': 'A rebuild creates a separate collection. Activation and rollback switch the pointer only after validation.', 'memoryOps.buildNew': 'Build new collection', 'memoryOps.scheduling': 'Scheduling…', 'memoryOps.target': 'Target revision', 'memoryOps.profile': 'Embedding profile', 'memoryOps.embeddingCost': 'Embedding estimate', 'memoryOps.peakDisk': 'Estimated peak', 'memoryOps.availableDisk': 'Available disk', 'memoryOps.profileImpact': 'Profile used by', 'memoryOps.globalDefault': 'global default',
+  'memoryOps.collections': 'Collections', 'memoryOps.collectionsHint': 'Per-revision identity and synchronization state. Profile identity fields are immutable.', 'memoryOps.revision': 'Revision', 'memoryOps.state': 'State', 'memoryOps.completeness': 'Complete', 'memoryOps.queue': 'Queue', 'memoryOps.disk': 'Disk', 'memoryOps.actions': 'Actions', 'memoryOps.noCollections': 'No Zvec collection has been built.',
+  'memoryOps.pause': 'Pause', 'memoryOps.resume': 'Retry / resume', 'memoryOps.activate': 'Activate', 'memoryOps.rollback': 'Rollback', 'memoryOps.rebuildConfirm': 'Build a new collection using the configured immutable embedding profile?', 'memoryOps.resumeConfirm': 'Retry pending and dead-letter writes? This may call the embedding provider.', 'memoryOps.activateConfirm': 'Validate and activate this collection?', 'memoryOps.rollbackConfirm': 'Roll back to this retained collection after catch-up and validation?', 'memoryOps.pauseConfirm': 'Pause this rebuild?',
+  'memoryOps.governance': 'Fact governance', 'memoryOps.governanceHint': 'Candidates and disputed facts require an explicit human decision.', 'memoryOps.noGovernance': 'No candidate or disputed facts need review.', 'memoryOps.confirmFactConfirm': 'Confirm this candidate as the current fact? Conflicting current facts may be superseded.',
+  'memoryOps.retrievalTrace': 'Retrieval traces', 'memoryOps.traceHint': 'Backend, latency, selected count and fallback reason; prompts and vectors are not shown.', 'memoryOps.accessAudit': 'Access audit', 'memoryOps.auditHint': 'Recent allowed and denied memory actions with redacted reasons.',
+};
+Object.assign(en, memoryOpsEn); Object.assign(fr, memoryOpsEn); Object.assign(ja, memoryOpsEn);
+Object.assign(zh, {
+  'settings.memoryMenu': '记忆管理', 'settings.memoryMenuHint': '索引、治理与审计',
+  'memoryOps.title': '记忆管理', 'memoryOps.subtitle': '查看并安全管理各项目记忆，不展示向量或密钥。', 'memoryOps.project': '项目', 'memoryOps.startProject': '请先启动该项目，再查看和管理其记忆服务。',
+  'memoryOps.health': '健康状态', 'memoryOps.health.disabled': '已关闭', 'memoryOps.health.lexical': '仅关键词检索', 'memoryOps.health.healthy': '健康', 'memoryOps.health.degraded': '降级', 'memoryOps.health.rebuilding': '重建中', 'memoryOps.health.error': '异常', 'memoryOps.activeRevision': '当前索引版本', 'memoryOps.sync': '同步队列', 'memoryOps.pendingDead': '待处理 / 死信', 'memoryOps.memoryCount': '记忆条目', 'memoryOps.noEmbedding': '未配置 Embedding', 'memoryOps.attention': '需要关注',
+  'memoryOps.rebuild': '索引生命周期', 'memoryOps.rebuildHint': '重建会创建独立 Collection；只有验证通过后才切换，旧版本保留用于回滚。', 'memoryOps.buildNew': '构建新索引', 'memoryOps.scheduling': '正在调度…', 'memoryOps.target': '目标版本', 'memoryOps.profile': 'Embedding Profile', 'memoryOps.embeddingCost': 'Embedding 估算', 'memoryOps.peakDisk': '预计峰值空间', 'memoryOps.availableDisk': '可用空间', 'memoryOps.profileImpact': 'Profile 影响项目', 'memoryOps.globalDefault': '全局默认',
+  'memoryOps.collections': 'Collection 版本', 'memoryOps.collectionsHint': '按版本展示不可变身份与同步状态。已引用的 Profile 不允许原地修改。', 'memoryOps.revision': '版本', 'memoryOps.state': '状态', 'memoryOps.completeness': '完整度', 'memoryOps.queue': '队列', 'memoryOps.disk': '占用', 'memoryOps.actions': '操作', 'memoryOps.noCollections': '尚未构建 Zvec Collection。',
+  'memoryOps.pause': '暂停', 'memoryOps.resume': '重试/继续', 'memoryOps.activate': '启用', 'memoryOps.rollback': '回滚', 'memoryOps.rebuildConfirm': '使用当前不可变 Embedding Profile 构建新 Collection？', 'memoryOps.resumeConfirm': '重试待处理和死信任务？这可能调用 Embedding 服务并产生费用。', 'memoryOps.activateConfirm': '验证并启用该 Collection？', 'memoryOps.rollbackConfirm': '追赶并验证后回滚到该保留版本？', 'memoryOps.pauseConfirm': '暂停本次重建？',
+  'memoryOps.governance': '事实治理', 'memoryOps.governanceHint': '候选和冲突事实必须由用户明确确认。', 'memoryOps.noGovernance': '当前没有待确认候选或冲突事实。', 'memoryOps.confirmFactConfirm': '将该候选确认为当前事实？冲突的当前事实可能被标记为历史版本。',
+  'memoryOps.retrievalTrace': '检索轨迹', 'memoryOps.traceHint': '展示后端、耗时、命中数和降级原因，不展示提示词或向量。', 'memoryOps.accessAudit': '访问审计', 'memoryOps.auditHint': '展示近期允许/拒绝的记忆操作及脱敏原因。',
+});
 Object.assign(en, { 'logs.open': 'Log maintenance', 'logs.title': 'Log maintenance', 'logs.subtitle': 'Review and clean disposable runtime diagnostics for the current project.', 'logs.scan': 'Scan Agent logs', 'logs.scanning': 'Scanning…', 'logs.boundaryTitle': 'Logs and memory are separate', 'logs.boundaryText': 'This page manages only runtime diagnostic files. Cleanup never changes Agent knowledge or task records.', 'logs.scopeRuntime': 'Runtime logs: disposable diagnostic .jsonl files', 'logs.scopeMemory': 'Short-term and persistent memory: preserved', 'logs.scopeTask': 'Task snapshots and delivery reports: preserved', 'logs.retentionTitle': 'Automatic cleanup', 'logs.retentionText': 'Logs older than this retention period are removed automatically when OAT starts; you can also clean them now.', 'logs.retentionDays': 'Keep logs for days', 'logs.retentionInvalid': 'Retention must be a whole number from 1 to 365.', 'logs.save': 'Save retention', 'logs.saving': 'Saving…', 'logs.startProject': 'Start the current project before scanning its Agent logs.', 'logs.readyToScan': 'Ready to scan', 'logs.readyToScanText': 'Scan to see each Agent workspace’s log files and storage use.', 'logs.agentFolders': 'Agent workspaces', 'logs.files': 'Log files', 'logs.totalSize': 'Total size', 'logs.agentBreakdown': 'Agent log breakdown', 'logs.agentBreakdownText': 'Largest log sets appear first.', 'logs.cleanupNow': 'Clean expired logs', 'logs.cleaning': 'Cleaning…', 'logs.cleanupConfirm': 'Delete runtime log files older than {days} days? Memory, task snapshots, and delivery reports will not be affected.', 'logs.cleaned': 'Removed {count} expired log file(s).', 'logs.agent': 'Agent', 'logs.latest': 'Latest write', 'logs.none': 'No Agent runtime log files were found.' });
 Object.assign(zh, { 'logs.open': '日志维护', 'logs.title': '日志清理', 'logs.subtitle': '扫描并清理当前项目中可安全删除的 Agent 运行日志。', 'logs.scan': '扫描团队日志', 'logs.scanning': '扫描中…', 'logs.boundaryTitle': '日志与记忆相互独立', 'logs.boundaryText': '此页面仅管理运行诊断日志。清理不会改变 Agent 的知识、短期记忆或任务记录。', 'logs.scopeRuntime': '运行日志：可清理的诊断 .jsonl 文件', 'logs.scopeMemory': '短期记忆及持久记忆：不会删除', 'logs.scopeTask': '任务快照与交付汇报：不会删除', 'logs.retentionTitle': '自动清理', 'logs.retentionText': 'OAT 启动时会自动删除超过保留期的日志；也可以在下方立即执行清理。', 'logs.retentionDays': '日志保留天数', 'logs.retentionInvalid': '保留天数必须是 1 到 365 之间的整数。', 'logs.save': '保存保留期', 'logs.saving': '保存中…', 'logs.startProject': '请先启动当前项目，再扫描团队 Agent 日志。', 'logs.readyToScan': '准备就绪', 'logs.readyToScanText': '点击“扫描团队日志”查看每个 Agent 工作区的日志文件与占用空间。', 'logs.agentFolders': 'Agent 工作区', 'logs.files': '日志文件', 'logs.totalSize': '总占用', 'logs.agentBreakdown': '按 Agent 查看日志', 'logs.agentBreakdownText': '按占用空间从大到小排列。', 'logs.cleanupNow': '清理过期日志', 'logs.cleaning': '清理中…', 'logs.cleanupConfirm': '删除超过 {days} 天的运行日志吗？短期记忆、任务快照和交付汇报不会受到影响。', 'logs.cleaned': '已清理 {count} 个过期日志文件。', 'logs.agent': 'Agent', 'logs.latest': '最近写入', 'logs.none': '未发现 Agent 运行日志文件。' });
 Object.assign(fr, { 'resource.agent': 'Responsable des ressources Agent' });
@@ -90,6 +115,54 @@ Object.assign(en, { 'chat.workerReport': 'Worker completion report', 'chat.leade
 Object.assign(zh, { 'chat.workerReport': 'Worker 完成汇报', 'chat.leaderReport': 'Leader 完成汇报', 'chat.workerReportDefault': '实现已完成，并已提交给 Leader 审查。', 'chat.leaderReportDefault': 'Worker 交付已完成审查与集成，发布提案已提交给 Admin 审批。', 'chat.reviewRequest': '审查请求', 'chat.releaseProposal': '发布提案', 'chat.deliveryBranch': '交付分支', 'chat.changedFiles': '变更文件', 'chat.testResults': '测试结果', 'chat.artifacts': '交付产物' });
 Object.assign(fr, { 'chat.workerReport': 'Rapport final du Worker', 'chat.leaderReport': 'Rapport final du Leader', 'chat.reviewRequest': 'Demande de revue', 'chat.releaseProposal': 'Proposition de livraison', 'chat.deliveryBranch': 'Branche de livraison', 'chat.changedFiles': 'Fichiers modifiés', 'chat.testResults': 'Résultats des tests' });
 Object.assign(ja, { 'chat.workerReport': 'Worker 完了レポート', 'chat.leaderReport': 'Leader 完了レポート', 'chat.reviewRequest': 'レビュー依頼', 'chat.releaseProposal': 'リリース提案', 'chat.deliveryBranch': '配信ブランチ', 'chat.changedFiles': '変更ファイル', 'chat.testResults': 'テスト結果' });
+Object.assign(en, { 'chat.internalReportChain': 'Internal reporting chain', 'chat.handoffs': 'handoffs', 'chat.deliveryEvidence': 'Delivery evidence', 'chat.adminRole': 'Admin', 'chat.leaderRole': 'Leader', 'chat.userRole': 'You', 'chat.adminFinalReport': 'Final report' });
+Object.assign(zh, { 'chat.internalReportChain': '内部汇报链', 'chat.handoffs': '次交接', 'chat.deliveryEvidence': '交付依据', 'chat.adminRole': 'Admin', 'chat.leaderRole': 'Leader', 'chat.userRole': '用户', 'chat.adminFinalReport': '最终汇报' });
+Object.assign(fr, { 'chat.internalReportChain': 'Chaîne de rapport interne', 'chat.handoffs': 'transmissions', 'chat.deliveryEvidence': 'Preuves de livraison', 'chat.adminRole': 'Admin', 'chat.leaderRole': 'Leader', 'chat.userRole': 'Vous', 'chat.adminFinalReport': 'Rapport final' });
+Object.assign(ja, { 'chat.internalReportChain': '内部レポート経路', 'chat.handoffs': '件の引き継ぎ', 'chat.deliveryEvidence': 'デリバリー根拠', 'chat.adminRole': 'Admin', 'chat.leaderRole': 'Leader', 'chat.userRole': 'ユーザー', 'chat.adminFinalReport': '最終レポート' });
+Object.assign(en, {
+  'channels.title': 'Channels', 'channels.default_route': 'New accounts are connected to the Agent Resource Supervisor by default. Assign an account to a Project Admin when it should accept work for that project.',
+  'channels.configured_card_title': 'Connected accounts', 'channels.col_plugin': 'Channel', 'channels.col_account': 'Account', 'channels.connection': 'Connection', 'channels.col_status': 'Assigned agent', 'channels.no_accounts': 'No Channel accounts configured yet.',
+  'channels.select_plugin': 'Plugin', 'channels.channel': 'Channel type', 'channels.account_id': 'Account ID', 'channels.resource_supervisor': 'Agent Resource Supervisor (default)', 'channels.legacy_team_binding': 'Legacy Team binding — choose a Project Admin to migrate',
+  'channels.status_not_configured': 'Not configured', 'channels.status_configured': 'Configured', 'channels.status_connected': 'Connected', 'channels.status_degraded': 'Degraded', 'channels.status_error': 'Error',
+  'channels.wechat_scan': 'Scan QR to connect', 'plugins.add_account': 'Connect Channel account', 'plugins.install': 'Install plugin', 'plugins.install_placeholder': 'OpenClaw-compatible npm Channel plugin', 'refresh': 'Refresh', 'save': 'Save account', 'delete': 'Remove',
+});
+Object.assign(zh, {
+  'channels.title': 'Channel 配置', 'channels.default_route': '新账号默认关联智能体资源主管；需要接收某个项目任务时，可将账号分配给该 Project 的 Admin。',
+  'channels.configured_card_title': '已连接账号', 'channels.col_plugin': 'Channel', 'channels.col_account': '账号', 'channels.connection': '连接状态', 'channels.col_status': '分配对象', 'channels.no_accounts': '尚未配置 Channel 账号。',
+  'channels.select_plugin': '插件', 'channels.channel': 'Channel 类型', 'channels.account_id': '账号 ID', 'channels.resource_supervisor': '智能体资源主管（默认）', 'channels.legacy_team_binding': '旧版 Team 绑定——请选择 Project Admin 完成迁移',
+  'channels.status_not_configured': '未配置', 'channels.status_configured': '已配置', 'channels.status_connected': '已连接', 'channels.status_degraded': '连接异常', 'channels.status_error': '错误',
+  'channels.wechat_scan': '扫码连接', 'plugins.add_account': '连接 Channel 账号', 'plugins.install': '安装插件', 'plugins.install_placeholder': '兼容 OpenClaw 的 npm Channel 插件', 'refresh': '刷新', 'save': '保存账号', 'delete': '移除',
+});
+Object.assign(en, {
+  'settings.globalTitle': 'Global settings', 'settings.globalSubtitle': 'Desktop-wide configuration shared by every project.',
+  'settings.generalMenu': 'General', 'settings.generalMenuHint': 'Appearance and global configuration',
+  'settings.modelsMenu': 'Global models', 'settings.modelsMenuHint': 'Providers and model aliases',
+  'settings.channelsMenu': 'Channel connections', 'settings.channelsMenuHint': 'Accounts and Project Admin routing',
+  'settings.logsMenu': 'Log settings', 'settings.logsMenuHint': 'Retention, scanning and cleanup',
+  'settings.modelsTitle': 'Global models',
+});
+Object.assign(zh, {
+  'settings.globalTitle': '全局设置', 'settings.globalSubtitle': '由所有 Project 共享的 Desktop 全局配置。',
+  'settings.generalMenu': '常规设置', 'settings.generalMenuHint': '外观与全局配置',
+  'settings.modelsMenu': '全局模型', 'settings.modelsMenuHint': 'Provider 与模型别名',
+  'settings.channelsMenu': '通道连接', 'settings.channelsMenuHint': '账号连接与 Project Admin 分配',
+  'settings.logsMenu': '日志设置', 'settings.logsMenuHint': '保留周期、扫描与清理',
+  'settings.modelsTitle': '全局模型',
+});
+Object.assign(en, {
+  'management.memoryBackend': 'Memory retrieval', 'management.embeddingProfile': 'Embedding profile', 'management.inheritEmbedding': 'Inherit global default / disabled', 'management.embeddingProfileHint': 'Hybrid retrieval requires a global profile; Zvec derives its vector schema from this reference.',
+  'management.memoryShadow': 'Shadow only', 'management.memoryShadowHint': 'Evaluate Zvec without changing the prompt.', 'management.memoryTimeout': 'Retrieval timeout (ms)', 'management.memoryFailureThreshold': 'Circuit failure threshold', 'management.memoryCooldown': 'Circuit cooldown (seconds)',
+  'settings.embeddingProfiles': 'Embedding profiles', 'settings.embeddingProfilesHint': 'Profiles are shared globally. Increment the revision when a provider changes the model behind the same deployment name.', 'settings.profileName': 'Profile name', 'settings.embeddingModel': 'Embedding model', 'settings.dimensions': 'Dimensions', 'settings.normalization': 'Normalization', 'settings.embeddingRevision': 'Model revision', 'settings.saveProfile': 'Save profile', 'settings.noEmbeddingProfiles': 'No embedding profiles configured.', 'settings.defaultEmbedding': 'Global default profile', 'settings.noDefaultEmbedding': 'Disabled by default', 'settings.saveDefault': 'Save default', 'settings.invalidEmbeddingProfile': 'Complete the profile with a valid provider, model, dimension and revision.', 'settings.embeddingProfileSaved': 'Embedding profile saved.', 'settings.embeddingProfileRemoved': 'Embedding profile removed.', 'settings.removeEmbeddingConfirm': 'Remove embedding profile', 'settings.defaultEmbeddingSaved': 'Global default embedding profile saved.',
+  'settings.memoryRollout': 'Memory retrieval rollout', 'settings.memoryRolloutHint': 'Active Zvec retrieval requires this global switch and an exact Project allowlist match.', 'settings.enableMemoryRollout': 'Enable controlled active retrieval', 'settings.memoryRolloutRestart': 'Restart an affected Project after changing this policy.', 'settings.saveMemoryRollout': 'Save rollout policy', 'settings.memoryRolloutSaved': 'Memory rollout policy saved.', 'settings.noRolloutProjects': 'No registered Projects are available.',
+});
+Object.assign(zh, {
+  'management.memoryBackend': '记忆检索模式', 'management.embeddingProfile': 'Embedding 配置', 'management.inheritEmbedding': '继承全局默认 / 未配置', 'management.embeddingProfileHint': '混合检索必须引用全局配置；Zvec 的向量 Schema 从此引用派生。',
+  'management.memoryShadow': '仅影子评测', 'management.memoryShadowHint': '执行 Zvec 检索，但不改变 Prompt。', 'management.memoryTimeout': '检索超时（毫秒）', 'management.memoryFailureThreshold': '熔断失败阈值', 'management.memoryCooldown': '熔断冷却（秒）',
+  'settings.embeddingProfiles': 'Embedding 配置', 'settings.embeddingProfilesHint': '配置由所有 Project 共享；服务商在同一部署名后更换模型时必须递增模型版本。', 'settings.profileName': '配置名称', 'settings.embeddingModel': 'Embedding 模型', 'settings.dimensions': '向量维度', 'settings.normalization': '归一化', 'settings.embeddingRevision': '模型版本', 'settings.saveProfile': '保存配置', 'settings.noEmbeddingProfiles': '尚未配置 Embedding 模型。', 'settings.defaultEmbedding': '全局默认配置', 'settings.noDefaultEmbedding': '默认不启用', 'settings.saveDefault': '保存默认值', 'settings.invalidEmbeddingProfile': '请填写有效的 Provider、模型、向量维度和模型版本。', 'settings.embeddingProfileSaved': 'Embedding 配置已保存。', 'settings.embeddingProfileRemoved': 'Embedding 配置已移除。', 'settings.removeEmbeddingConfirm': '移除 Embedding 配置', 'settings.defaultEmbeddingSaved': '全局默认 Embedding 已保存。',
+  'settings.memoryRollout': '记忆检索灰度放量', 'settings.memoryRolloutHint': '正式 Zvec 检索必须同时开启全局开关并精确加入 Project 白名单。', 'settings.enableMemoryRollout': '开启受控正式检索', 'settings.memoryRolloutRestart': '策略变更后需要重启受影响的 Project。', 'settings.saveMemoryRollout': '保存放量策略', 'settings.memoryRolloutSaved': '记忆放量策略已保存。', 'settings.noRolloutProjects': '当前没有已注册的 Project。',
+});
+Object.assign(en, { 'memory.retrieval': 'Retrieval status', 'memory.retrievalMode': 'Mode', 'memory.effectiveBackend': 'Effective backend', 'memory.circuit': 'Circuit', 'memory.fallbacks': 'Fallbacks', 'memory.lastFallback': 'Last fallback' });
+Object.assign(zh, { 'memory.retrieval': '检索状态', 'memory.retrievalMode': '运行模式', 'memory.effectiveBackend': '当前后端', 'memory.circuit': '熔断器', 'memory.fallbacks': '回退次数', 'memory.lastFallback': '最近回退原因' });
 Object.assign(en, { 'ops.agentOnline': 'Started' });
 Object.assign(zh, { 'ops.agentOnline': '已启动' });
 Object.assign(fr, { 'ops.agentOnline': 'Démarré' });
@@ -113,6 +186,118 @@ Object.assign(zh, {
   'restart.running': '正在重启项目团队…',
   'restart.confirm': '确定重启项目的 Admin、Leader 和 Worker 吗？存在活动任务时不允许重启，且不会自动启动 Docker Engine。',
   'restart.success': '项目团队已重启。',
+});
+Object.assign(en, {
+  'hive.modeLabel': 'Desktop presentation mode',
+  'hive.modeClassic': 'Classic',
+  'hive.modeHive': 'Hive',
+  'hive.apiary': 'OAT Apiary',
+  'hive.hives': 'Project hives',
+  'hive.hive': 'Hive',
+  'hive.zone': 'Hive zone',
+  'hive.roleChief': 'Hive Chief',
+  'hive.roleLeader': 'Lead Worker Bee',
+  'hive.roleWorker': 'Worker Bee',
+  'hive.roleSteward': 'Apiary Steward',
+  'hive.roleContractor': 'Contract Worker Bee',
+  'hive.liveEyebrow': 'LIVE ORGANIZATION',
+  'hive.liveTitle': 'Hive activity',
+  'hive.liveSubtitle': 'A living view of project and agent activity. Select a bee to follow its current state.',
+  'hive.openWorkbench': 'Open workbench',
+  'hive.agents': 'agents',
+  'hive.attention': 'attention',
+  'hive.tasksComplete': 'tasks complete',
+  'hive.noAgents': 'No agents are registered in this hive.',
+  'hive.state.online': 'Online',
+  'hive.state.busy': 'Working',
+  'hive.state.queued': 'Queued',
+  'hive.state.idle': 'Standing by',
+  'hive.state.failed': 'Needs attention',
+  'hive.state.offline': 'Offline',
+});
+Object.assign(zh, {
+  'hive.modeLabel': 'Desktop 展示模式',
+  'hive.modeClassic': '经典',
+  'hive.modeHive': '蜂巢',
+  'hive.apiary': 'OAT 蜂场',
+  'hive.hives': '项目蜂巢',
+  'hive.hive': '蜂巢',
+  'hive.zone': '蜂区',
+  'hive.roleChief': '蜂巢首领',
+  'hive.roleLeader': '领队工蜂',
+  'hive.roleWorker': '工蜂',
+  'hive.roleSteward': '蜂场总管',
+  'hive.roleContractor': '外援工蜂',
+  'hive.liveEyebrow': '实时组织状态',
+  'hive.liveTitle': '蜂巢动态',
+  'hive.liveSubtitle': '以动画呈现项目与智能体的实时活动，选择工蜂可跟踪其当前状态。',
+  'hive.openWorkbench': '打开工作台',
+  'hive.agents': '名智能体',
+  'hive.attention': '项需关注',
+  'hive.tasksComplete': '项任务完成',
+  'hive.noAgents': '该蜂巢暂未注册智能体。',
+  'hive.state.online': '在线',
+  'hive.state.busy': '工作中',
+  'hive.state.queued': '排队中',
+  'hive.state.idle': '待命',
+  'hive.state.failed': '需要关注',
+  'hive.state.offline': '离线',
+});
+Object.assign(fr, {
+  'hive.modeLabel': 'Mode de présentation Desktop',
+  'hive.modeClassic': 'Classique',
+  'hive.modeHive': 'Ruche',
+  'hive.apiary': 'Rucher OAT',
+  'hive.hives': 'Ruches des projets',
+  'hive.hive': 'Ruche',
+  'hive.zone': 'Zone de ruche',
+  'hive.roleChief': 'Chef de ruche',
+  'hive.roleLeader': 'Abeille cheffe',
+  'hive.roleWorker': 'Abeille ouvrière',
+  'hive.roleSteward': 'Responsable du rucher',
+  'hive.roleContractor': 'Abeille externe',
+  'hive.liveEyebrow': 'ORGANISATION EN DIRECT',
+  'hive.liveTitle': 'Activité de la ruche',
+  'hive.liveSubtitle': 'Vue animée de l’activité des projets et des agents.',
+  'hive.openWorkbench': 'Ouvrir l’espace de travail',
+  'hive.agents': 'agents',
+  'hive.attention': 'à surveiller',
+  'hive.tasksComplete': 'tâches terminées',
+  'hive.noAgents': 'Aucun agent enregistré dans cette ruche.',
+  'hive.state.online': 'En ligne',
+  'hive.state.busy': 'En cours',
+  'hive.state.queued': 'En attente',
+  'hive.state.idle': 'Disponible',
+  'hive.state.failed': 'Attention requise',
+  'hive.state.offline': 'Hors ligne',
+});
+Object.assign(ja, {
+  'hive.modeLabel': 'Desktop 表示モード',
+  'hive.modeClassic': 'クラシック',
+  'hive.modeHive': 'ハイブ',
+  'hive.apiary': 'OAT 養蜂場',
+  'hive.hives': 'プロジェクト・ハイブ',
+  'hive.hive': 'ハイブ',
+  'hive.zone': 'ハイブ・ゾーン',
+  'hive.roleChief': 'ハイブ・チーフ',
+  'hive.roleLeader': 'リード・ワーカービー',
+  'hive.roleWorker': 'ワーカービー',
+  'hive.roleSteward': '養蜂場スチュワード',
+  'hive.roleContractor': '外部ワーカービー',
+  'hive.liveEyebrow': 'ライブ組織ステータス',
+  'hive.liveTitle': 'ハイブ・アクティビティ',
+  'hive.liveSubtitle': 'プロジェクトとエージェントの活動をアニメーションで表示します。',
+  'hive.openWorkbench': 'ワークベンチを開く',
+  'hive.agents': 'エージェント',
+  'hive.attention': '要確認',
+  'hive.tasksComplete': '完了タスク',
+  'hive.noAgents': 'このハイブにはエージェントが登録されていません。',
+  'hive.state.online': 'オンライン',
+  'hive.state.busy': '作業中',
+  'hive.state.queued': '待機中',
+  'hive.state.idle': 'スタンバイ',
+  'hive.state.failed': '要確認',
+  'hive.state.offline': 'オフライン',
 });
 const dictionaries: Record<Language, Dictionary> = { 'zh-CN': zh, en, fr, ja };
 

@@ -18,6 +18,8 @@ import { cleanupAgentLogs } from "./utils/log-cleanup";
 import { getLogRetentionDays } from "./utils/oat-config";
 import net from "node:net";
 import { runResourcesInterview } from "./resources/agent";
+import { createMemoryBackup, restoreMemoryBackup } from "./memory/memory-backup";
+import type { ResolvedConfig } from "./types";
 
 async function ensureDir(p: string): Promise<void> {
   await fs.mkdir(p, { recursive: true });
@@ -30,6 +32,26 @@ async function fileExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function memoryPaths(config: ResolvedConfig): { databasePath: string; zvecRoot: string } {
+  const stateDir = config.runtime.persistence.state_dir;
+  const databasePath = config.memory.database
+    ? (path.isAbsolute(config.memory.database) ? config.memory.database : path.resolve(stateDir, config.memory.database))
+    : path.join(stateDir, "memory", "memory.db");
+  const zvecRoot = path.isAbsolute(config.memory.zvec.path)
+    ? config.memory.zvec.path
+    : path.resolve(stateDir, config.memory.zvec.path);
+  return { databasePath, zvecRoot };
+}
+
+async function projectServiceStopped(stateDir: string): Promise<boolean> {
+  try {
+    const state = JSON.parse(await fs.readFile(path.join(stateDir, "orchestrator.json"), "utf8")) as { pid?: unknown };
+    if (typeof state.pid !== "number") return true;
+    try { process.kill(state.pid, 0); return false; }
+    catch (error) { return (error as NodeJS.ErrnoException).code !== "EPERM"; }
+  } catch { return true; }
 }
 
 const DEFAULT_PORT = 8787;
@@ -496,6 +518,51 @@ async function main() {
         totalAgents: inspections.length,
         shownAgents: shown.length,
         items: shown,
+      });
+    });
+
+  program
+    .command("memory")
+    .description("Back up or restore the authoritative project memory database")
+    .action(() => logger.error("Usage: oat memory backup|restore"));
+
+  const memoryCmd = program.commands.find((command) => command.name() === "memory")!;
+  memoryCmd
+    .command("backup")
+    .argument("[destination]", "backup directory")
+    .option("--config <path>", "team.json path")
+    .description("Create a checksummed SQLite memory backup; Zvec is rebuilt after restore")
+    .action(async (destination: string | undefined, options: { config?: string }) => {
+      const configPath = await resolveTeamJsonPath(options.config?.trim() || undefined);
+      const config = await loadConfig(configPath);
+      const { databasePath } = memoryPaths(config);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const target = path.resolve(destination ?? `${config.project.name}-memory-backup-${stamp}`);
+      const manifest = await createMemoryBackup({ projectId: config.project.name, databasePath, destinationDirectory: target });
+      logger.success(`Memory backup created at ${target}.`, { projectId: config.project.name, sha256: manifest.databaseSha256 });
+    });
+
+  memoryCmd
+    .command("restore")
+    .argument("<backup>", "backup directory")
+    .requiredOption("--confirm <projectId>", "exact project ID confirmation")
+    .option("--config <path>", "team.json path")
+    .description("Restore SQLite memory while the project is stopped and quarantine derived Zvec data")
+    .action(async (backup: string, options: { config?: string; confirm: string }) => {
+      const configPath = await resolveTeamJsonPath(options.config?.trim() || undefined);
+      const config = await loadConfig(configPath);
+      const { databasePath, zvecRoot } = memoryPaths(config);
+      const result = await restoreMemoryBackup({
+        projectId: config.project.name,
+        backupDirectory: backup,
+        databasePath,
+        zvecRoot,
+        serviceStopped: await projectServiceStopped(config.runtime.persistence.state_dir),
+        confirmProjectId: options.confirm,
+      });
+      logger.success(`Memory restored for ${config.project.name}; rebuild and activate its Zvec collection before enabling active retrieval.`, {
+        preservedDatabasePath: result.preservedDatabasePath,
+        quarantinedZvecPath: result.quarantinedZvecPath,
       });
     });
 

@@ -15,6 +15,7 @@ import { rewriteModelProviderByCompatibleType } from "../utils/model-utils";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { PiSessionProvider } from "../sandbox/local-process";
 import { DockerSessionProvider } from "../sandbox/docker-process";
 import { assertRuntimeTransition } from "../config/runtime-policy";
@@ -27,7 +28,10 @@ import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
 import { UsageTracker } from "./usage-tracker";
 import { MemoryService } from "../memory/memory-service";
+import { resolveMemoryExtractor } from "../memory/memory-extractor";
+import { parseGlobalModelCatalog } from "../models/global-models";
 import type { MemoryLevel, MemoryStatus } from "../memory/types";
+import { MemoryAccessDeniedError, projectResourceManagerActor } from "../memory/memory-policy";
 import { logger } from "../utils/logger";
 import { t } from "../i18n/i18n";
 import { loadOatConfig, saveOatConfig } from "../utils/oat-config";
@@ -111,6 +115,7 @@ export class Orchestrator {
   private readonly memoryService: MemoryService;
   private readonly port: number;
   private readonly goal: string;
+  private readonly memoryFederationToken = randomUUID();
   private logCleanupTimer?: NodeJS.Timeout;
 
   constructor(
@@ -134,7 +139,9 @@ export class Orchestrator {
     }
 
     this.observabilityHub = new ObservabilityHub();
-    this.memoryService = new MemoryService(config.project.name, this.stateDir, config.memory, this.observabilityHub);
+    this.memoryService = new MemoryService(config.project.name, this.stateDir, config.memory, this.observabilityHub, {
+      extractor: resolveMemoryExtractor(config.memory.extraction, config.providers),
+    });
     this.usageTracker = new UsageTracker(config.project.name, (agentId, role) => {
       let rawModel = "unknown";
       if (role === AgentRoleEnum.Admin) rawModel = config.admin.model || "unknown";
@@ -221,7 +228,7 @@ export class Orchestrator {
       try {
         const level = typeof req.query.level === "string" && ["L1", "L2", "L3"].includes(req.query.level)
           ? req.query.level as MemoryLevel : undefined;
-        const status = typeof req.query.status === "string" && ["active", "superseded", "disputed", "forgotten"].includes(req.query.status)
+        const status = typeof req.query.status === "string" && ["candidate", "active", "superseded", "disputed", "forgotten"].includes(req.query.status)
           ? req.query.status as MemoryStatus : undefined;
         const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
         res.json(this.memoryService.list({
@@ -231,6 +238,64 @@ export class Orchestrator {
           limit: Number.isFinite(limit) ? limit : undefined,
         }));
       } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.get("/memory/access-audits", (req, res) => {
+      try {
+        const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : 100;
+        res.json(this.memoryService.accessAudits(Number.isFinite(limit) ? limit : 100));
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.get("/memory/operations", async (_req, res) => {
+      try { res.json(await this.memoryService.operationalSnapshot()); }
+      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.get("/memory/index/estimate", async (_req, res) => {
+      try { res.json(await this.memoryService.estimateIndexRebuild()); }
+      catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/index/rebuild", async (req, res) => {
+      try {
+        if (req.body?.confirm !== true) { res.status(400).json({ error: "Explicit rebuild confirmation is required." }); return; }
+        const { estimate } = await this.memoryService.estimateIndexRebuild();
+        if (!estimate.diskSufficient) { res.status(409).json({ error: "Insufficient disk space for the conservative rebuild estimate.", estimate }); return; }
+        res.status(202).json(await this.memoryService.startIndexRebuild());
+      } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/index/:revision/:operation", async (req, res) => {
+      const revision = req.params.revision;
+      const operation = req.params.operation;
+      if (!/^[a-f0-9]{16}$/.test(revision)) { res.status(400).json({ error: "Invalid collection revision." }); return; }
+      try {
+        if (operation === "pause") { res.json(this.memoryService.pauseIndexRebuild(revision)); return; }
+        if (!["resume", "activate", "rollback"].includes(operation)) { res.status(404).json({ error: "Unknown memory index operation." }); return; }
+        if (req.body?.confirm !== true) { res.status(400).json({ error: "Explicit operation confirmation is required." }); return; }
+        const job = operation === "resume" ? await this.memoryService.resumeIndexRebuild(revision)
+          : operation === "activate" ? await this.memoryService.activateIndex(revision)
+            : await this.memoryService.rollbackIndex(revision);
+        res.status(202).json(job);
+      } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/federated-search", async (req, res) => {
+      const actor = projectResourceManagerActor([this.config.project.name]);
+      try {
+        if (req.header("x-oat-memory-federation-token") !== this.memoryFederationToken) {
+          this.memoryService.auditDenied(actor, "federated_search", "invalid_federation_capability");
+          res.status(403).json({ error: "Federated memory capability is required." });
+          return;
+        }
+        const query = typeof req.body?.query === "string" ? req.body.query.trim() : "";
+        if (!query) { res.status(400).json({ error: "A non-empty memory query is required." }); return; }
+        const limit = Number(req.body?.limit);
+        res.json({ projectId: this.config.project.name, memories: await this.memoryService.searchForActor(actor, query, Number.isFinite(limit) ? limit : undefined) });
+      } catch (error) {
+        res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
     });
 
     this.app.post("/memory/dream", async (_req, res) => {
@@ -243,7 +308,7 @@ export class Orchestrator {
         const ok = this.memoryService.forget(req.params.id);
         if (!ok) { res.status(404).json({ error: "Memory not found" }); return; }
         res.json({ ok: true });
-      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) { res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) }); }
     });
 
     this.app.post("/memory/:id/promote", (req, res) => {
@@ -251,7 +316,16 @@ export class Orchestrator {
         const memory = this.memoryService.promote(req.params.id);
         if (!memory) { res.status(404).json({ error: "L2 memory not found" }); return; }
         res.json(memory);
-      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) { res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/:id/confirm", (req, res) => {
+      try {
+        const confirmedBy = typeof req.body?.confirmedBy === "string" && req.body.confirmedBy.trim() ? req.body.confirmedBy.trim() : "user";
+        const memory = this.memoryService.confirmCandidate(req.params.id, confirmedBy);
+        if (!memory) { res.status(404).json({ error: "Memory candidate not found" }); return; }
+        res.json(memory);
+      } catch (error) { res.status(error instanceof MemoryAccessDeniedError ? 403 : 400).json({ error: error instanceof Error ? error.message : String(error) }); }
     });
 
     this.app.get("/observability/graph", (_req, res) => {
@@ -1134,10 +1208,10 @@ export class Orchestrator {
     this.app.get("/api/global-models", async (_req, res) => {
       try {
         const raw = await fs.readFile(globalModelsPath, "utf8");
-        res.type("json").send(raw);
+        res.json(parseGlobalModelCatalog(JSON.parse(raw) as unknown));
       } catch (e: any) {
         if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-          res.json({ providers: {}, models: {} });
+          res.json({ providers: {}, models: {}, embeddingProfiles: {} });
         } else {
           res.status(500).json({ error: String(e?.message ?? e) });
         }
@@ -1146,10 +1220,10 @@ export class Orchestrator {
 
     this.app.put("/api/global-models", async (req, res) => {
       try {
-        const incoming = req.body as { providers?: Record<string, unknown>; models?: Record<string, unknown>; replace?: boolean };
+        const incoming = req.body as { providers?: Record<string, unknown>; models?: Record<string, unknown>; embeddingProfiles?: Record<string, unknown>; replace?: boolean };
         const shouldReplace = incoming.replace === true;
         // Read existing file (if any)
-        let existing: { providers: Record<string, unknown>; models: Record<string, unknown> } = { providers: {}, models: {} };
+        let existing: { providers: Record<string, unknown>; models: Record<string, unknown>; embeddingProfiles: Record<string, unknown> } = { providers: {}, models: {}, embeddingProfiles: {} };
         if (!shouldReplace) {
           try {
             const raw = await fs.readFile(globalModelsPath, "utf8");
@@ -1158,19 +1232,29 @@ export class Orchestrator {
               existing = {
                 providers: parsed.providers ?? {},
                 models: parsed.models ?? {},
+                embeddingProfiles: parsed.embeddingProfiles ?? {},
               };
             }
           } catch { /* file doesn't exist yet */ }
         }
         // Merge or replace
+        const mergedProviders = { ...existing.providers };
+        for (const [key, value] of Object.entries(incoming.providers ?? {})) {
+          const previous = mergedProviders[key];
+          mergedProviders[key] = previous && typeof previous === "object" && value && typeof value === "object"
+            ? { ...previous, ...value } : value;
+        }
         const result = shouldReplace
-          ? { providers: incoming.providers ?? {}, models: incoming.models ?? {} }
+          ? { providers: incoming.providers ?? {}, models: incoming.models ?? {}, embeddingProfiles: incoming.embeddingProfiles ?? {} }
           : {
-              providers: { ...existing.providers, ...(incoming.providers ?? {}) },
+              providers: mergedProviders,
               models: { ...existing.models, ...(incoming.models ?? {}) },
+              embeddingProfiles: { ...existing.embeddingProfiles, ...(incoming.embeddingProfiles ?? {}) },
             };
         await fs.mkdir(path.dirname(globalModelsPath), { recursive: true });
-        await fs.writeFile(globalModelsPath, JSON.stringify(result, null, 2), "utf8");
+        const validated = parseGlobalModelCatalog(result);
+        await fs.writeFile(globalModelsPath, JSON.stringify(validated, null, 2), { encoding: "utf8", mode: 0o600 });
+        await fs.chmod(globalModelsPath, 0o600);
         res.json({ ok: true });
       } catch (e: any) {
         res.status(500).json({ error: String(e?.message ?? e) });
@@ -1485,12 +1569,17 @@ export class Orchestrator {
           startedAt: new Date().toISOString(),
           projectRootDir: path.dirname(this.configPath),
           runtimeMode: this.config.runtime.mode,
+          memoryFederationToken: this.memoryFederationToken,
         },
         null,
         2,
       ),
-      "utf8",
+      { encoding: "utf8", mode: 0o600 },
     );
+    // `mode` only applies when writeFile creates the file. Reassert it after
+    // every restart so a legacy state file can never leave the federation
+    // capability readable by other local users.
+    await fs.chmod(this.stateFile, 0o600);
     this.memoryService.start();
 
     const adminSpec = this.buildAdminSpec();
@@ -1790,7 +1879,7 @@ export class Orchestrator {
           });
         }
         if (this.logCleanupTimer) clearInterval(this.logCleanupTimer);
-        this.memoryService.stop();
+        await this.memoryService.stop();
         await this.taskManager.flushSchedulerState();
         const server = getHttpServer();
         if (server) {

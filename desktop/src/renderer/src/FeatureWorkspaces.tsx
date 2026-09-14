@@ -28,6 +28,7 @@ import {
   renderAgentResources,
   renderManagement,
   renderSettings,
+  type GlobalSettingsPage,
   type ManagementState,
   type Request,
 } from './features/management';
@@ -112,7 +113,7 @@ export function OperationsWorkspace({ kind, project, onBack, onProjectsChanged }
   return <section className={`native-feature-workspace ${kind === 'tasks' ? 'operations-task-workspace' : ''}`}><button onClick={onBack} className="feature-back">← {t('workspace.back')}</button><Notice {...notice} /><div ref={root} className={kind === 'tasks' ? 'operations-task-host' : undefined} /></section>;
 }
 
-export function NativeFeatureWorkspace({ kind, project, projects, onBack }: { kind: FeatureKind; project?: Project; projects: Project[]; onBack(): void }) {
+export function NativeFeatureWorkspace({ kind, project, projects, onBack, embedded = false }: { kind: FeatureKind; project?: Project; projects: Project[]; onBack(): void; embedded?: boolean }) {
   const { t } = useI18n();
   const root = useRef<HTMLDivElement>(null);
   const controlApi = useMemo(() => createControlPlaneApi((path, init) => window.oatDesktop.requestControlPlane({ path, init })), []);
@@ -123,11 +124,11 @@ export function NativeFeatureWorkspace({ kind, project, projects, onBack }: { ki
   const fail = useCallback((reason: unknown) => setError(errorText(reason)), []);
 
   const load = useCallback(async () => {
-    if ((kind === 'achievements' || kind === 'channels') && !project?.name) throw new Error(t('error.startProject'));
+    if (kind === 'achievements' && !project?.name) throw new Error(t('error.startProject'));
     if (kind === 'usage') return loadUsage(controlApi, 'all', '30d');
     if (kind === 'achievements') return loadAchievements(controlApi, project!.name, '', 'admin', '', projects);
     if (kind === 'plugins') return loadPlugins(controlApi);
-    return loadChannels(controlApi, project!.name);
+    return loadChannels(controlApi);
   }, [controlApi, kind, project, projects, t]);
 
   useEffect(() => { setState(undefined); setError(undefined); void load().then(update).catch(fail); }, [fail, load, update]);
@@ -138,13 +139,13 @@ export function NativeFeatureWorkspace({ kind, project, projects, onBack }: { ki
     if (kind === 'achievements') { root.current.innerHTML = renderAchievements(state as AchievementState, translator); bindAchievements(root.current, state as AchievementState, controlApi, translator, update, fail); return; }
     if (kind === 'plugins') { root.current.innerHTML = renderPlugins(state as PluginState, translator); bindPlugins(root.current, state as PluginState, controlApi, translator, update, fail); return; }
     root.current.innerHTML = renderChannels(state as ChannelState, translator);
-    return bindChannels(root.current, state as ChannelState, controlApi, projectApi, translator, update, fail);
+    return bindChannels(root.current, state as ChannelState, controlApi, controlApi, translator, update, fail);
   }, [controlApi, fail, kind, projectApi, state, t, update]);
 
-  return <section className="native-feature-workspace"><button onClick={onBack} className="feature-back">← {t('workspace.back')}</button><Notice error={error} /><div ref={root}>{!state && !error ? t('loading') : null}</div></section>;
+  return <section className={`native-feature-workspace ${embedded ? 'is-embedded' : ''}`}>{!embedded && <button onClick={onBack} className="feature-back">← {t('workspace.back')}</button>}<Notice error={error} /><div ref={root}>{!state && !error ? t('loading') : null}</div></section>;
 }
 
-export function ManagementWorkspace({ kind, project, projects, selectedTeam, onBack, onProjectsChanged }: { kind: ManagementKind; project?: Project; projects: Project[]; selectedTeam?: string; onBack(): void; onProjectsChanged(): Promise<void> }) {
+export function ManagementWorkspace({ kind, project, projects, selectedTeam, onBack, onProjectsChanged, settingsPage = 'general', embedded = false }: { kind: ManagementKind; project?: Project; projects: Project[]; selectedTeam?: string; onBack(): void; onProjectsChanged(): Promise<void>; settingsPage?: GlobalSettingsPage; embedded?: boolean }) {
   const { t, language, setLanguage, theme, setTheme } = useI18n();
   const root = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ManagementState>({ projects, selectedProject: project?.name, selectedTeam });
@@ -167,9 +168,9 @@ export function ManagementWorkspace({ kind, project, projects, selectedTeam, onB
       bindAgentResources(root.current, api, (message, error) => setNotice(error ? { error: message } : { value: message }), async () => { await reload(); await onProjectsChanged(); }, t);
       return;
     }
-    root.current.innerHTML = kind === 'settings' ? renderSettings(state, t) : renderManagement(state, t);
+    root.current.innerHTML = kind === 'settings' ? renderSettings(state, t, settingsPage) : renderManagement(state, t);
     bindManagement(root.current, state, api, async () => { await reload(); await onProjectsChanged(); }, (message, error) => setNotice(error ? { error: message } : { value: message }), t);
-  }, [api, kind, onProjectsChanged, reload, state]);
+  }, [api, kind, onProjectsChanged, reload, settingsPage, state]);
 
-  return <section className="native-feature-workspace"><button onClick={onBack} className="feature-back">← {t('workspace.back')}</button><Notice {...notice} />{kind === 'settings' && <section className="panel desktop-preferences"><h3>{t('settings.general')}</h3><div className="form-grid"><label>{t('app.language')}<select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="fr">Français</option><option value="ja">日本語</option></select></label><label>{t('app.theme')}<select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)}><option value="system">{t('theme.system')}</option><option value="light">{t('theme.light')}</option><option value="dark">{t('theme.dark')}</option></select></label></div></section>}<div ref={root} /></section>;
+  return <section className={`native-feature-workspace ${embedded ? 'is-embedded' : ''}`}>{!embedded && <button onClick={onBack} className="feature-back">← {t('workspace.back')}</button>}<Notice {...notice} />{kind === 'settings' && settingsPage === 'general' && <section className="panel desktop-preferences"><h3>{t('settings.general')}</h3><div className="form-grid"><label>{t('app.language')}<select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)}><option value="zh-CN">简体中文</option><option value="en">English</option><option value="fr">Français</option><option value="ja">日本語</option></select></label><label>{t('app.theme')}<select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)}><option value="system">{t('theme.system')}</option><option value="light">{t('theme.light')}</option><option value="dark">{t('theme.dark')}</option></select></label></div></section>}<div ref={root} /></section>;
 }

@@ -3,6 +3,7 @@
   "name": "Discord Push Channel",
   "version": "1.0.0",
   "description": "Stateless Discord incoming webhook push notification adapter",
+  "channels": ["discord"],
   "entryPoint": "index.js",
   "configSchema": {
     "type": "object",
@@ -14,5 +15,17 @@
     "required": [
       "webhookUrl"
     ]
+  },
+  "channelConfigs": {
+    "discord": {
+      "label": "Discord",
+      "description": "Discord incoming webhook account",
+      "schema": {
+        "type": "object",
+        "properties": { "webhookUrl": { "type": "string", "format": "uri" } },
+        "required": ["webhookUrl"]
+      },
+      "uiHints": { "webhookUrl": { "label": "Webhook URL", "sensitive": true } }
+    }
   }
 }

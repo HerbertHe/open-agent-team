@@ -29,3 +29,15 @@ test("resource config builder rejects duplicate teams", () => {
     ],
   }), /unique/);
 });
+
+test("memory config accepts a global embedding reference but rejects duplicated vector identity in zvec settings", () => {
+  const config = buildResourceProjectConfig({ projectName: "memory", modelAlias: "default", modelId: "openai/gpt-5", teams: [{ name: "platform", responsibility: "Memory", workers: 1 }] });
+  assert.doesNotThrow(() => validateResourceProjectConfig({
+    ...config,
+    memory: { embeddingRef: "memory-default", retrieval: { backend: "zvec_hybrid" }, zvec: { index: "flat" } },
+  }));
+  assert.throws(() => validateResourceProjectConfig({
+    ...config,
+    memory: { embeddingRef: "memory-default", zvec: { index: "flat", dimensions: 1536 } },
+  }));
+});

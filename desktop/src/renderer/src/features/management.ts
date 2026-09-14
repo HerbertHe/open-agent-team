@@ -12,7 +12,8 @@ import { ProjectRestartAvailabilityEnum, ProjectRestartTriggerEnum, ProjectRunti
 
 export type ProjectSummary = { name: string; projectName?: string | null; port?: number | null; alive?: boolean };
 export type Provider = { compatible_type?: 'openai' | 'anthropic' | string; base_url?: string; api_key?: string };
-export type GlobalModels = { providers: Record<string, Provider>; models: Record<string, string> };
+export type EmbeddingProfile = { kind: 'openai-compatible'; provider: string; model: string; dimensions: number; normalization: 'provider-default' | 'l2'; revision: string; timeoutMs: number; batchSize: number; maxAttempts: number };
+export type GlobalModels = { providers: Record<string, Provider>; models: Record<string, string>; embeddingProfiles: Record<string, EmbeddingProfile> };
 type Skill = { source?: string; names?: string[] };
 export type Team = {
   name: string; branch_prefix: string;
@@ -24,6 +25,7 @@ export type ManagementState = {
   projects: ProjectSummary[]; selectedProject?: string; teamConfig?: TeamConfig;
   selectedTeam?: string; globalConfig?: Record<string, unknown>; globalModels?: GlobalModels;
 };
+export type GlobalSettingsPage = 'general' | 'models';
 
 export type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 export type ProviderModelLister = (input: { baseUrl: string; apiKey?: string }) => Promise<string[]>;
@@ -188,15 +190,24 @@ export class ManagementApi {
     const current = await this.globalModels();
     delete current.providers[key];
     for (const model of Object.keys(current.models)) if (model.startsWith(`${key}/`)) delete current.models[model];
+    for (const [profile, value] of Object.entries(current.embeddingProfiles)) if (value.provider === key) delete current.embeddingProfiles[profile];
     await this.saveGlobalModels(current);
   }
   async removeModel(key: string): Promise<void> {
     const current = await this.globalModels(); delete current.models[key]; await this.saveGlobalModels(current);
   }
 
+  async saveEmbeddingProfile(key: string, profile: EmbeddingProfile): Promise<void> {
+    const current = await this.globalModels(); current.embeddingProfiles[key] = profile; await this.saveGlobalModels(current);
+  }
+
+  async removeEmbeddingProfile(key: string): Promise<void> {
+    const current = await this.globalModels(); delete current.embeddingProfiles[key]; await this.saveGlobalModels(current);
+  }
+
   /**
    * Tests an OpenAI-compatible provider locally and returns discovered model
-   * ids. The key is used only for this request and is never persisted here.
+   * ids. Successful connections are persisted in the mode-0600 global catalog.
    */
   async testProvider(provider: Provider): Promise<string[]> {
     const baseUrl = provider.base_url?.replace(/\/+$/, '');
@@ -209,7 +220,7 @@ export class ManagementApi {
     if (!key.trim()) throw new Error('Provider name is required.');
     const ids = await this.testProvider(provider);
     const current = await this.globalModels();
-    current.providers[key] = { compatible_type: provider.compatible_type ?? 'openai', base_url: provider.base_url?.replace(/\/+$/, '') };
+    current.providers[key] = { compatible_type: provider.compatible_type ?? 'openai', base_url: provider.base_url?.replace(/\/+$/, ''), api_key: provider.api_key || current.providers[key]?.api_key };
     for (const model of Object.keys(current.models)) if (model.startsWith(`${key}/`)) delete current.models[model];
     for (const id of ids) current.models[`${key}/${id}`] = id;
     await this.saveGlobalModels(current);
@@ -249,7 +260,7 @@ export class ManagementApi {
       const provider = value as Provider;
       try {
         const ids = await this.testProvider(provider);
-        next.providers[key] = { compatible_type: provider.compatible_type ?? 'openai', base_url: provider.base_url?.replace(/\/+$/, '') };
+        next.providers[key] = { compatible_type: provider.compatible_type ?? 'openai', base_url: provider.base_url?.replace(/\/+$/, ''), api_key: provider.api_key || next.providers[key]?.api_key };
         for (const model of Object.keys(next.models)) if (model.startsWith(`${key}/`)) delete next.models[model];
         for (const model of ids) next.models[`${key}/${model}`] = model;
       } catch (error) { failed.push({ key, error: error instanceof Error ? error.message : String(error) }); }
@@ -297,6 +308,7 @@ export function renderManagement(state: ManagementState, tr: Translate = (key) =
   const teamDraft = draftFor(state.selectedProject, state.teamConfig ?? {});
   const draftConfig = readJson(teamDraft) ?? state.teamConfig ?? {};
   const modelAliases = configModelAliases(draftConfig, state.globalModels);
+  const embeddingProfiles = Object.keys(state.globalModels?.embeddingProfiles ?? {}).sort();
   const dockerRuntimeLocked = getPath(state.teamConfig ?? {}, 'runtime.mode') === 'docker';
   const dockerRuntimeEnabled = getPath(draftConfig, 'runtime.mode') === 'docker';
   const selectedProject = state.projects.find((project) => project.name === state.selectedProject);
@@ -312,6 +324,12 @@ export function renderManagement(state: ManagementState, tr: Translate = (key) =
         <label>${tr('management.repositoryPath')}<input data-config-field="project.repo" value="${html(getPath(draftConfig, 'project.repo'))}" /></label>
         <label>${tr('management.baseBranch')}<input data-config-field="project.base_branch" value="${html(getPath(draftConfig, 'project.base_branch'))}" /></label>
         <label>${tr('management.defaultModel')}<select data-config-field="model"><option value="">${tr('management.chooseModel')}</option>${modelAliases.map((model) => `<option value="${html(model)}" ${model === getPath(draftConfig, 'model') ? 'selected' : ''}>${html(model)}</option>`).join('')}</select></label>
+        <label>${tr('management.memoryBackend')}<select data-config-field="memory.retrieval.backend"><option value="lexical" ${getPath(draftConfig, 'memory.retrieval.backend') !== 'zvec_fts' && getPath(draftConfig, 'memory.retrieval.backend') !== 'zvec_hybrid' ? 'selected' : ''}>lexical</option><option value="zvec_fts" ${getPath(draftConfig, 'memory.retrieval.backend') === 'zvec_fts' ? 'selected' : ''}>Zvec FTS</option><option value="zvec_hybrid" ${getPath(draftConfig, 'memory.retrieval.backend') === 'zvec_hybrid' ? 'selected' : ''}>Zvec hybrid</option></select></label>
+        <label>${tr('management.embeddingProfile')}<select data-config-field="memory.embeddingRef"><option value="">${tr('management.inheritEmbedding')}</option>${embeddingProfiles.map((profile) => `<option value="${html(profile)}" ${profile === getPath(draftConfig, 'memory.embeddingRef') ? 'selected' : ''}>${html(profile)}</option>`).join('')}</select><small class="hint">${tr('management.embeddingProfileHint')}</small></label>
+        <label class="settings-feature-toggle"><input type="checkbox" data-config-field="memory.retrieval.shadow" ${getPath(draftConfig, 'memory.retrieval.shadow') === true ? 'checked' : ''} /><span>${tr('management.memoryShadow')}</span><small class="hint">${tr('management.memoryShadowHint')}</small></label>
+        <label>${tr('management.memoryTimeout')}<input data-config-field="memory.retrieval.timeoutMs" type="number" min="100" value="${html(getPath(draftConfig, 'memory.retrieval.timeoutMs') ?? 3000)}" /></label>
+        <label>${tr('management.memoryFailureThreshold')}<input data-config-field="memory.retrieval.circuitBreakerFailureThreshold" type="number" min="1" value="${html(getPath(draftConfig, 'memory.retrieval.circuitBreakerFailureThreshold') ?? 3)}" /></label>
+        <label>${tr('management.memoryCooldown')}<input data-config-field="memory.retrieval.circuitBreakerCooldownSeconds" type="number" min="1" value="${html(getPath(draftConfig, 'memory.retrieval.circuitBreakerCooldownSeconds') ?? 60)}" /></label>
         <label>${tr('management.runtimeMode')}<select data-config-field="runtime.mode"><option value="local_process" ${getPath(draftConfig, 'runtime.mode') !== 'docker' ? 'selected' : ''} ${dockerRuntimeLocked ? 'disabled' : ''}>${tr('management.localProcess')}</option><option value="docker" ${getPath(draftConfig, 'runtime.mode') === 'docker' ? 'selected' : ''}>${tr('management.dockerSandbox')}</option></select><small class="hint">${dockerRuntimeLocked ? tr('management.dockerLocked') : tr('management.dockerMigrationHint')}</small></label>
         <label>${tr('management.stateDirectory')}<input data-config-field="runtime.persistence.state_dir" value="${html(getPath(draftConfig, 'runtime.persistence.state_dir'))}" placeholder=".oat/state" /></label>
         <label class="docker-conditional" ${dockerRuntimeEnabled ? '' : 'hidden'}>${tr('management.dockerImage')}<input data-config-field="runtime.docker.image" value="${html(getPath(draftConfig, 'runtime.docker.image'))}" placeholder="node:22-bookworm" /></label>
@@ -340,18 +358,35 @@ export function renderManagement(state: ManagementState, tr: Translate = (key) =
 
 /** Settings is intentionally a first-class page, rather than an advanced JSON
  * editor hidden under Team Config. */
-export function renderSettings(state: ManagementState, tr: Translate = (key) => key): string {
-  const retention = Number(state.globalConfig?.logRetentionDays ?? 3);
-  const days = Number.isFinite(retention) ? Math.min(365, Math.max(1, retention)) : 3;
+export function renderSettings(state: ManagementState, tr: Translate = (key) => key, page: GlobalSettingsPage = 'general'): string {
   const providers = Object.entries(state.globalModels?.providers ?? {}).map(([key, provider]) => `<tr><td>${html(key)}</td><td>${html(provider.compatible_type || 'openai')}</td><td>${html(provider.base_url || '—')}</td><td>${provider.api_key ? tr('settings.configured') : '—'}</td><td><button data-remove-provider="${html(key)}">${tr('management.remove')}</button></td></tr>`).join('') || `<tr><td colspan="5">${tr('settings.noProviders')}</td></tr>`;
   const models = Object.entries(state.globalModels?.models ?? {}).map(([key, name]) => `<tr><td><code>${html(key)}</code></td><td>${html(name)}</td><td><button data-copy-model="${html(key)}">${tr('settings.copy')}</button><button data-remove-model="${html(key)}">${tr('management.remove')}</button></td></tr>`).join('') || `<tr><td colspan="3">${tr('settings.noModels')}</td></tr>`;
+  const profiles = Object.entries(state.globalModels?.embeddingProfiles ?? {}).map(([key, profile]) => `<tr><td><code>${html(key)}</code></td><td>${html(profile.provider)}</td><td>${html(profile.model)}</td><td>${profile.dimensions}</td><td>${html(profile.revision)}</td><td><button data-remove-embedding-profile="${html(key)}">${tr('management.remove')}</button></td></tr>`).join('') || `<tr><td colspan="6">${tr('settings.noEmbeddingProfiles')}</td></tr>`;
+  const providerOptions = Object.entries(state.globalModels?.providers ?? {}).filter(([, provider]) => provider.compatible_type === 'openai').map(([key]) => key).sort().map((key) => `<option value="${html(key)}">${html(key)}</option>`).join('');
+  const defaultEmbedding = ((state.globalConfig?.memoryDefaults as { embeddingProfile?: unknown } | undefined)?.embeddingProfile ?? '') as string;
+  const profileOptions = Object.keys(state.globalModels?.embeddingProfiles ?? {}).sort().map((key) => `<option value="${html(key)}" ${key === defaultEmbedding ? 'selected' : ''}>${html(key)}</option>`).join('');
+  const rollout = state.globalConfig?.memoryRetrieval as { enabled?: unknown; projectAllowlist?: unknown } | undefined;
+  const rolloutProjects = new Set(stringList(rollout?.projectAllowlist));
+  const rolloutProjectOptions = state.projects.map((project) => { const rolloutId = project.projectName || project.name; return `<label class="settings-project-toggle"><input type="checkbox" data-memory-rollout-project="${html(rolloutId)}" ${rolloutProjects.has(rolloutId) ? 'checked' : ''} /><span>${html(rolloutId)}</span><small>${html(project.name)}</small></label>`; }).join('') || `<p class="hint">${tr('settings.noRolloutProjects')}</p>`;
+  const editableGlobalConfig = Object.fromEntries(Object.entries(state.globalConfig ?? {}).filter(([key]) => key !== 'channels' && key !== 'channelBindings'));
+  if (page === 'models') return `<section class="content management settings-management" data-management-root>
+    <div class="section-heading"><div><span class="eyebrow">MODEL REGISTRY</span><h2>${tr('settings.modelsTitle')}</h2><p class="hint">${tr('settings.registryHint')}</p></div><button data-management-refresh>${tr('management.refresh')}</button></div>
+    <article class="panel"><h3>${tr('settings.registry')}</h3>
+      <form class="form-grid registry-provider-form" data-provider-form><label>${tr('settings.providerName')}<input required name="key" placeholder="openai" /></label><label>${tr('management.protocol')}<select name="compatible_type"><option value="openai">OpenAI ${tr('management.compatible')}</option><option value="anthropic">Anthropic</option></select></label><label>${tr('management.baseUrl')}<input required name="base_url" placeholder="https://api.example.com/v1" /></label><label>${tr('settings.testApiKey')}<input name="api_key" type="password" autocomplete="off" /></label><button class="primary span-2">${tr('settings.connectProvider')}</button></form>
+      <div class="table-wrap"><table><thead><tr><th>${tr('settings.provider')}</th><th>${tr('management.protocol')}</th><th>${tr('management.baseUrl')}</th><th>${tr('settings.key')}</th><th>${tr('settings.actions')}</th></tr></thead><tbody>${providers}</tbody></table></div><div class="table-wrap"><table><thead><tr><th>${tr('settings.modelAlias')}</th><th>${tr('settings.providerModel')}</th><th>${tr('settings.actions')}</th></tr></thead><tbody>${models}</tbody></table></div></article>
+    <article class="panel"><h3>${tr('settings.embeddingProfiles')}</h3><p class="hint">${tr('settings.embeddingProfilesHint')}</p>
+      <form class="form-grid" data-embedding-profile-form><label>${tr('settings.profileName')}<input required name="key" placeholder="memory-default" /></label><label>${tr('settings.provider')}<select required name="provider"><option value="">—</option>${providerOptions}</select></label><label>${tr('settings.embeddingModel')}<input required name="model" placeholder="text-embedding-3-small" /></label><label>${tr('settings.dimensions')}<input required name="dimensions" type="number" min="1" max="65536" value="1536" /></label><label>${tr('settings.normalization')}<select name="normalization"><option value="provider-default">provider-default</option><option value="l2">l2</option></select></label><label>${tr('settings.embeddingRevision')}<input required name="revision" maxlength="128" value="1" /></label><button class="primary">${tr('settings.saveProfile')}</button></form>
+      <div class="table-wrap"><table><thead><tr><th>${tr('settings.profileName')}</th><th>${tr('settings.provider')}</th><th>${tr('settings.embeddingModel')}</th><th>${tr('settings.dimensions')}</th><th>${tr('settings.embeddingRevision')}</th><th>${tr('settings.actions')}</th></tr></thead><tbody>${profiles}</tbody></table></div>
+      <div class="inline-form"><label>${tr('settings.defaultEmbedding')}<select data-default-embedding><option value="">${tr('settings.noDefaultEmbedding')}</option>${profileOptions}</select></label><button data-save-default-embedding>${tr('settings.saveDefault')}</button></div>
+      <button class="danger registry-clear" data-clear-models>${tr('settings.clearRegistry')}</button></article>
+    <article class="panel"><h3>${tr('settings.memoryRollout')}</h3><p class="hint">${tr('settings.memoryRolloutHint')}</p>
+      <label class="settings-feature-toggle"><input type="checkbox" data-memory-rollout-enabled ${rollout?.enabled === true ? 'checked' : ''} /><span>${tr('settings.enableMemoryRollout')}</span></label>
+      <div class="settings-project-list">${rolloutProjectOptions}</div>
+      <p class="hint">${tr('settings.memoryRolloutRestart')}</p><button class="primary" data-save-memory-rollout>${tr('settings.saveMemoryRollout')}</button></article>
+  </section>`;
   return `<section class="content management settings-management" data-management-root>
     <div class="section-heading"><div><span class="eyebrow">${tr('settings.eyebrow')}</span><h2>${tr('settings.title')}</h2><p class="hint">${tr('settings.subtitle')}</p></div><button data-management-refresh>${tr('management.refresh')}</button></div>
-    <article class="panel"><h3>${tr('settings.retention')}</h3><p class="hint">${tr('settings.retentionHint')}</p><div class="inline-form management-retention"><label>${tr('settings.retentionDays')} <input data-retention-days type="number" min="1" max="365" value="${days}" /></label><button class="primary" data-save-retention>${tr('settings.saveRetention')}</button></div></article>
-    <article class="panel"><h3>${tr('settings.registry')}</h3><p class="hint">${tr('settings.registryHint')}</p>
-      <form class="form-grid registry-provider-form" data-provider-form><label>${tr('settings.providerName')}<input required name="key" placeholder="openai" /></label><label>${tr('management.protocol')}<select name="compatible_type"><option value="openai">OpenAI ${tr('management.compatible')}</option><option value="anthropic">Anthropic</option></select></label><label>${tr('management.baseUrl')}<input required name="base_url" placeholder="https://api.example.com/v1" /></label><label>${tr('settings.testApiKey')}<input name="api_key" type="password" autocomplete="off" /></label><button class="primary span-2">${tr('settings.connectProvider')}</button></form>
-      <div class="table-wrap"><table><thead><tr><th>${tr('settings.provider')}</th><th>${tr('management.protocol')}</th><th>${tr('management.baseUrl')}</th><th>${tr('settings.key')}</th><th>${tr('settings.actions')}</th></tr></thead><tbody>${providers}</tbody></table></div><div class="table-wrap"><table><thead><tr><th>${tr('settings.modelAlias')}</th><th>${tr('settings.providerModel')}</th><th>${tr('settings.actions')}</th></tr></thead><tbody>${models}</tbody></table></div><button class="danger registry-clear" data-clear-models>${tr('settings.clearRegistry')}</button></article>
-    <article class="panel"><h3>${tr('settings.advanced')}</h3><p class="hint">${tr('settings.advancedHint')}</p><textarea class="json-editor" data-global-config spellcheck="false">${json(state.globalConfig)}</textarea><button class="primary" data-save-global>${tr('settings.saveGlobal')}</button></article>
+    <article class="panel"><h3>${tr('settings.advanced')}</h3><p class="hint">${tr('settings.advancedHint')}</p><textarea class="json-editor" data-global-config spellcheck="false">${json(editableGlobalConfig)}</textarea><button class="primary" data-save-global>${tr('settings.saveGlobal')}</button></article>
   </section>`;
 }
 
@@ -409,7 +444,8 @@ export function bindManagement(root: ParentNode, state: ManagementState, api: Ma
   const refreshStructured = (config: TeamConfig) => {
     root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[data-config-field]').forEach((input) => {
       const value = getPath(config, input.dataset.configField!);
-      if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement) input.value = value == null ? '' : String(value);
+      if (input instanceof HTMLInputElement && input.type === 'checkbox') input.checked = value === true;
+      else input.value = value == null ? '' : String(value);
     });
     const teams = one<HTMLElement>('[data-structured-teams]');
     if (teams) teams.innerHTML = structuredTeams(config, modelAliases(), tr, state.selectedTeam);
@@ -517,6 +553,34 @@ export function bindManagement(root: ParentNode, state: ManagementState, api: Ma
     const key = button.dataset.removeProvider!; if (!confirm(`Remove ${key} and its models?`)) return;
     try { await api.removeProvider(key); notify('Provider removed.'); await reload(); } catch (error) { notify(String(error), true); }
   }));
+  one<HTMLFormElement>('[data-embedding-profile-form]')?.addEventListener('submit', async (event) => {
+    event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget as HTMLFormElement));
+    const key = String(values.key ?? '').trim(); const provider = String(values.provider ?? '').trim(); const model = String(values.model ?? '').trim(); const revision = String(values.revision ?? '').trim(); const dimensions = Number(values.dimensions);
+    if (!key || !provider || !model || !revision || revision.length > 128 || !Number.isInteger(dimensions) || dimensions < 1 || dimensions > 65_536) { notify(tr('settings.invalidEmbeddingProfile'), true); return; }
+    try { await api.saveEmbeddingProfile(key, { kind: 'openai-compatible', provider, model, dimensions, normalization: values.normalization === 'l2' ? 'l2' : 'provider-default', revision, timeoutMs: 15_000, batchSize: 32, maxAttempts: 3 }); notify(tr('settings.embeddingProfileSaved')); await reload(); } catch (error) { notify(String(error), true); }
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-remove-embedding-profile]').forEach((button) => button.addEventListener('click', async () => {
+    const key = button.dataset.removeEmbeddingProfile!; if (!confirm(`${tr('settings.removeEmbeddingConfirm')} ${key}?`)) return;
+    try {
+      await api.removeEmbeddingProfile(key);
+      if ((state.globalConfig?.memoryDefaults as { embeddingProfile?: unknown } | undefined)?.embeddingProfile === key) await api.saveGlobalConfig({ ...(state.globalConfig ?? {}), memoryDefaults: {} });
+      notify(tr('settings.embeddingProfileRemoved')); await reload();
+    } catch (error) { notify(String(error), true); }
+  }));
+  one<HTMLButtonElement>('[data-save-default-embedding]')?.addEventListener('click', async () => {
+    const value = one<HTMLSelectElement>('[data-default-embedding]')?.value || undefined;
+    const config = structuredClone(state.globalConfig ?? {}) as Record<string, unknown>;
+    config.memoryDefaults = value ? { embeddingProfile: value } : {};
+    try { await api.saveGlobalConfig(config); notify(tr('settings.defaultEmbeddingSaved')); await reload(); } catch (error) { notify(String(error), true); }
+  });
+  one<HTMLButtonElement>('[data-save-memory-rollout]')?.addEventListener('click', async () => {
+    const config = structuredClone(state.globalConfig ?? {}) as Record<string, unknown>;
+    config.memoryRetrieval = {
+      enabled: one<HTMLInputElement>('[data-memory-rollout-enabled]')?.checked === true,
+      projectAllowlist: [...root.querySelectorAll<HTMLInputElement>('[data-memory-rollout-project]:checked')].map((input) => input.dataset.memoryRolloutProject!).filter(Boolean),
+    };
+    try { await api.saveGlobalConfig(config); notify(tr('settings.memoryRolloutSaved')); await reload(); } catch (error) { notify(String(error), true); }
+  });
   root.querySelectorAll<HTMLButtonElement>('[data-remove-model]').forEach((button) => button.addEventListener('click', async () => {
     try { await api.removeModel(button.dataset.removeModel!); notify('Model removed.'); await reload(); } catch (error) { notify(String(error), true); }
   }));
@@ -526,7 +590,7 @@ export function bindManagement(root: ParentNode, state: ManagementState, api: Ma
   }));
   one<HTMLButtonElement>('[data-clear-models]')?.addEventListener('click', async () => {
     if (!confirm('Clear every global provider and model?')) return;
-    try { await api.saveGlobalModels({ providers: {}, models: {} }); notify('Model registry cleared.'); await reload(); } catch (error) { notify(String(error), true); }
+    try { await Promise.all([api.saveGlobalModels({ providers: {}, models: {}, embeddingProfiles: {} }), api.saveGlobalConfig({ ...(state.globalConfig ?? {}), memoryDefaults: {} })]); notify('Model registry cleared.'); await reload(); } catch (error) { notify(String(error), true); }
   });
 }
 

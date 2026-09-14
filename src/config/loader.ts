@@ -10,6 +10,8 @@ import {
 } from "../types";
 import type { ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
 import { t } from "../i18n/i18n";
+import { isMemoryRetrievalRolloutEnabled, loadOatConfig } from "../utils/oat-config";
+import { resolveEmbeddingReference } from "../models/global-models";
 
 function normalizeTeam(team: TeamConfig): TeamConfig {
   return {
@@ -84,10 +86,51 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     persistence: { state_dir: path.join(baseDir, ".oat", "state") },
   };
   const providersDefaults: Record<string, { compatible_type: ProviderCompatibleTypeEnum; base_url?: string; api_key?: string }> = {};
+  const globalOatConfig = await loadOatConfig();
+  const configuredEmbeddingRef = withInheritance.memory?.embeddingRef;
+  const leaderProjectScopeTeams = [...new Set(withInheritance.memory?.access?.leaderProjectScopeTeams ?? [])];
+  const knownTeams = new Set(withInheritance.teams.map((team: TeamConfig) => team.name));
+  const unknownMemoryTeams = leaderProjectScopeTeams.filter((name) => !knownTeams.has(name));
+  if (unknownMemoryTeams.length) throw new Error(`memory.access.leaderProjectScopeTeams contains unknown teams: ${unknownMemoryTeams.join(", ")}`);
   const memory = {
     enabled: withInheritance.memory?.enabled ?? true,
     roles: withInheritance.memory?.roles ?? ["admin", "leader"],
+    access: {
+      leaderProjectScopeTeams,
+    },
     database: withInheritance.memory?.database,
+    embeddingRef: resolveEmbeddingReference(configuredEmbeddingRef, globalOatConfig.memoryDefaults?.embeddingProfile),
+    retrieval: {
+      backend: withInheritance.memory?.retrieval?.backend ?? "lexical",
+      fallback: "lexical" as const,
+      shadow: withInheritance.memory?.retrieval?.shadow ?? false,
+      productionEnabled: isMemoryRetrievalRolloutEnabled(globalOatConfig, withInheritance.project.name),
+      candidateLimit: withInheritance.memory?.retrieval?.candidateLimit ?? 30,
+      maxResults: withInheritance.memory?.retrieval?.maxResults ?? 8,
+      maxPromptTokens: withInheritance.memory?.retrieval?.maxPromptTokens ?? 1800,
+      timeoutMs: withInheritance.memory?.retrieval?.timeoutMs ?? 3_000,
+      circuitBreakerFailureThreshold: withInheritance.memory?.retrieval?.circuitBreakerFailureThreshold ?? 3,
+      circuitBreakerCooldownSeconds: withInheritance.memory?.retrieval?.circuitBreakerCooldownSeconds ?? 60,
+    },
+    zvec: {
+      path: withInheritance.memory?.zvec?.path ?? "memory/zvec",
+      index: withInheritance.memory?.zvec?.index ?? "flat",
+      metric: "cosine" as const,
+      readOnlyFallback: withInheritance.memory?.zvec?.readOnlyFallback ?? true,
+      batchSize: withInheritance.memory?.zvec?.batchSize ?? 64,
+      maxAttempts: withInheritance.memory?.zvec?.maxAttempts ?? 8,
+      optimizePendingThreshold: withInheritance.memory?.zvec?.optimizePendingThreshold ?? 100_000,
+    },
+    extraction: {
+      enabled: withInheritance.memory?.extraction?.enabled ?? false,
+      model: withInheritance.memory?.extraction?.model ? resolveModelAlias(withInheritance.memory.extraction.model) : undefined,
+      version: withInheritance.memory?.extraction?.version ?? "m11-v1",
+      timeoutMs: withInheritance.memory?.extraction?.timeoutMs ?? 15_000,
+      maxInputChars: withInheritance.memory?.extraction?.maxInputChars ?? 4_000,
+      maxOutputTokens: withInheritance.memory?.extraction?.maxOutputTokens ?? 800,
+      maxFactsPerEvent: withInheritance.memory?.extraction?.maxFactsPerEvent ?? 5,
+      maxAttempts: withInheritance.memory?.extraction?.maxAttempts ?? 3,
+    },
     l1: {
       maxItems: withInheritance.memory?.l1?.maxItems ?? 24,
       completedTaskTtlHours: withInheritance.memory?.l1?.completedTaskTtlHours ?? 48,

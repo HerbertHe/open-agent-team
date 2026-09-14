@@ -109,10 +109,83 @@ test("delegated roots wait for delivery, prompt locks follow runtime end, and re
     const retry = await manager.createTask({ targetAgentId: "team-worker-0", createdBy: "team-lead", parentTaskId: delegated.taskId, prompt: "Address review", conflictKey: "src/shared.ts" }, { schedule: false, ignoreConflictTaskId: original.id });
     assert.equal(retry.conflictKey, original.conflictKey);
 
+    const recordDeliveryReport = (manager as unknown as { recordDeliveryReport(task: typeof original, report: any): void }).recordDeliveryReport.bind(manager);
+    recordDeliveryReport(original, { id: "delivery-review-1", taskId: original.id, agentId: "team-worker-0", role: AgentRoleEnum.Worker, stage: "review_submitted", summary: "Worker evidence", createdAt: new Date().toISOString(), reviewId: "review-1" });
+    assert.equal(original.deliveryReports?.at(-1)?.agentId, "team-worker-0");
+    assert.equal(manager.getTasks("team-lead").find((task) => task.id === delegated.taskId)?.deliveryReports?.at(-1)?.agentId, "team-worker-0");
+    assert.equal(root.deliveryReports, undefined, "Worker report must stop at the direct Leader task");
+
+    const leaderTask = manager.getTasks("team-lead").find((task) => task.id === delegated.taskId)!;
+    recordDeliveryReport(leaderTask, { id: "delivery-release-upstream", taskId: leaderTask.id, agentId: "team-lead", role: AgentRoleEnum.Leader, stage: "release_submitted", summary: "Leader aggregate", createdAt: new Date().toISOString(), releaseProposalId: "release-upstream" });
+    const rootAfterLeaderReport = manager.getTasks("admin").find((task) => task.id === root.id);
+    assert.equal(rootAfterLeaderReport?.deliveryReports?.at(-1)?.agentId, "team-lead", "Leader aggregate must reach the Admin root task");
+
     root.deliveryReports = [{ id: "delivery-release-1", taskId: delegated.taskId, agentId: "team-lead", role: AgentRoleEnum.Leader, stage: "release_submitted", summary: "", createdAt: new Date().toISOString(), releaseProposalId: "release-1" }];
     await (manager as unknown as { settleRootTaskForRelease(admin: typeof adminState, proposal: unknown, note: string): Promise<void> }).settleRootTaskForRelease(adminState, { id: "release-1", leaderId: "team-lead", teamName: "team", integrationBranch: "integration", headSha: "abc", artifactPaths: [], status: ReleaseStatusEnum.Merged, createdAt: new Date().toISOString() }, "");
     assert.equal(root.status, QueuedTaskStatusEnum.Completed);
     assert.ok(root.completedAt);
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("model execution errors fail only the current task and keep the Agent schedulable", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "oat-task-runtime-error-"));
+  const prompts: Array<{ agentId: string; text: string }> = [];
+  const events: Array<{ type: string }> = [];
+  let resetCount = 0;
+  const manager = new TaskManager(
+    {
+      project: { name: "runtime-error", project_name: "Runtime error", repo: stateDir, base_branch: "main" },
+      runtime: { persistence: { state_dir: stateDir } },
+      workspace: { git: {} },
+      admin: { name: "Admin" },
+      teams: [],
+    } as never,
+    {} as never,
+    {
+      sendPrompt: async (agentId: string, text: string) => { prompts.push({ agentId, text }); },
+      resetSession: async () => { resetCount += 1; },
+    } as never,
+    {} as never,
+    "http://127.0.0.1:1",
+    {} as never,
+    { emit: (event: { type: string }) => { events.push(event); } } as never,
+  );
+
+  manager.registerAgent({
+    spec: { id: "admin", role: AgentRoleEnum.Admin, name: "Admin", branch: "main", workspacePath: stateDir, model: "test/model", skills: [] },
+    sessionId: "admin",
+    workers: [],
+  });
+
+  try {
+    const failed = await manager.createTask({ targetAgentId: "admin", createdBy: "operator", prompt: "First task" }, { schedule: false });
+    const next = await manager.createTask({ targetAgentId: "admin", createdBy: "operator", prompt: "Second task" }, { schedule: false });
+    const orphan = await manager.createTask({ targetAgentId: "admin", createdBy: "admin", parentTaskId: failed.id, prompt: "Unstarted child" }, { schedule: false });
+    failed.status = QueuedTaskStatusEnum.Running;
+    (manager as unknown as { runningTaskByAgent: Map<string, string> }).runningTaskByAgent.set("admin", failed.id);
+    (manager as unknown as { promptActiveAgents: Set<string> }).promptActiveAgents.add("admin");
+    manager.startScheduling();
+
+    manager.handleRuntimeEvent("admin", {
+      type: "agent_end",
+      willRetry: false,
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "402: Insufficient Balance" }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    assert.equal(failed.status, QueuedTaskStatusEnum.Failed);
+    assert.equal(failed.error, "402: Insufficient Balance");
+    assert.equal((manager as unknown as { promptActiveAgents: Set<string> }).promptActiveAgents.has("admin"), true, "the next task owns the prompt lock");
+    assert.equal((manager as unknown as { crashedAgents: Set<string> }).crashedAgents.has("admin"), false);
+    assert.equal(next.status, QueuedTaskStatusEnum.Running);
+    assert.equal(orphan.status, QueuedTaskStatusEnum.Cancelled);
+    assert.match(orphan.error ?? "", /Owning task failed/);
+    assert.equal(prompts.length, 1);
+    assert.equal(resetCount, 0);
+    assert.ok(events.some((event) => event.type === "agent.execution_failed"));
+    assert.ok(!events.some((event) => event.type === "agent.crash"));
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }

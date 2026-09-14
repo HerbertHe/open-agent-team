@@ -85,6 +85,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function runtimeErrorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string" && value.trim()) return value;
+  if (isRecord(value) && typeof value.message === "string" && value.message.trim()) return value.message;
+  return "Agent runtime execution failed";
+}
+
 export class TaskManager {
   private readonly agents = new Map<string, AgentRuntimeState>();
   private readonly teamByLeaderId = new Map<string, TeamConfig>();
@@ -172,17 +179,41 @@ export class TaskManager {
     return { ok: true };
   }
 
-  handleRuntimeEvent(agentId: string, event: { type?: unknown; willRetry?: unknown; messages?: unknown }): void {
+  handleRuntimeEvent(agentId: string, event: { type?: unknown; willRetry?: unknown; messages?: unknown; error?: unknown }): void {
     if (event.type === "agent_start") {
       this.promptActiveAgents.add(agentId);
       return;
     }
-    if (event.type !== "agent_end") return;
-    const terminalError = event.willRetry === false && Array.isArray(event.messages) && [...event.messages].reverse().some((message) =>
-      isRecord(message) && message.role === "assistant" && message.stopReason === "error",
-    );
-    if (terminalError) return;
+    const terminalMessage = event.type === "error"
+      ? runtimeErrorMessage(event.error)
+      : event.type === "agent_end" && event.willRetry === false && Array.isArray(event.messages)
+        ? [...event.messages].reverse().find((message) => isRecord(message) && message.role === "assistant" && message.stopReason === "error")
+        : undefined;
+    if (event.type !== "agent_end" && event.type !== "error") return;
     this.promptActiveAgents.delete(agentId);
+    if (terminalMessage) {
+      const error = isRecord(terminalMessage) && typeof terminalMessage.errorMessage === "string" && terminalMessage.errorMessage.trim()
+        ? terminalMessage.errorMessage
+        : typeof terminalMessage === "string" ? terminalMessage : "Agent runtime execution failed";
+      const agent = this.agents.get(agentId);
+      this.observabilityHub.emit({
+        source: "orchestrator",
+        type: "agent.execution_failed",
+        agentId,
+        role: agent?.spec.role,
+        sessionId: agent?.sessionId,
+        payload: { error },
+      });
+      logger.warn(t("operation_failed", { operation: "agent_task", error }), { agentId, role: agent?.spec.role, processRetained: true });
+      if (!this.runningTaskByAgent.has(agentId)) this.requestSchedule(agentId);
+      void this.completeRunningTask(agentId, error, { cancelQueuedChildren: true }).catch((persistError: unknown) => {
+        logger.warn(t("scheduler_event_delivery_failed", {
+          operation: "agent_task_failure_persist",
+          error: persistError instanceof Error ? persistError.message : String(persistError),
+        }), { agentId, role: agent?.spec.role });
+      });
+      return;
+    }
     if (!this.runningTaskByAgent.has(agentId)) this.requestSchedule(agentId);
   }
 
@@ -795,21 +826,13 @@ export class TaskManager {
     this.persistSchedulerStateInBackground();
   }
 
-  private rootTaskFor(task: QueuedTask): QueuedTask {
-    let current = task;
-    const visited = new Set<string>();
-    while (current.parentTaskId && !visited.has(current.id)) {
-      visited.add(current.id);
-      const parent = this.taskById.get(current.parentTaskId);
-      if (!parent) break;
-      current = parent;
-    }
-    return current;
-  }
-
   private recordDeliveryReport(task: QueuedTask, report: TaskDeliveryReport): void {
-    const root = this.rootTaskFor(task);
-    const targets = root.id === task.id ? [task] : [task, root];
+    // A report crosses exactly one management boundary. Worker evidence is
+    // reviewed by its Leader; the Leader's aggregate is reviewed by Admin.
+    // Copying every downstream report to the root task bypasses that chain and
+    // incorrectly exposes Worker handoffs as operator-facing final delivery.
+    const parent = task.parentTaskId ? this.taskById.get(task.parentTaskId) : undefined;
+    const targets = parent ? [task, parent] : [task];
     for (const target of targets) {
       const reports = target.deliveryReports ?? [];
       if (reports.some((item) => item.id === report.id)) continue;
@@ -894,11 +917,12 @@ export class TaskManager {
     }
   }
 
-  private async completeRunningTask(agentId: string, failedError?: string): Promise<void> {
+  private async completeRunningTask(agentId: string, failedError?: string, options: { cancelQueuedChildren?: boolean } = {}): Promise<void> {
     const taskId = this.runningTaskByAgent.get(agentId);
     if (!taskId) return;
     const task = this.taskById.get(taskId);
     this.runningTaskByAgent.delete(agentId);
+    if (failedError) this.workerBusy.delete(agentId);
     if (task) {
       task.status = failedError ? QueuedTaskStatusEnum.Failed : QueuedTaskStatusEnum.Completed;
       task.error = failedError;
@@ -906,6 +930,16 @@ export class TaskManager {
       this.checkpointTask(task, failedError ? "failed" : "completed");
       this.removeTaskFromActiveQueue(task);
       this.emitTaskEvent(failedError ? "task.failed" : "task.completed", task);
+      if (failedError && options.cancelQueuedChildren) {
+        for (const child of this.taskById.values()) {
+          if (child.parentTaskId !== task.id || child.status !== QueuedTaskStatusEnum.Queued) continue;
+          child.status = QueuedTaskStatusEnum.Cancelled;
+          child.error = `Owning task failed: ${failedError}`;
+          child.completedAt = child.updatedAt = new Date().toISOString();
+          this.removeTaskFromActiveQueue(child);
+          this.emitTaskEvent("task.cancelled_due_to_owner_failure", child);
+        }
+      }
     }
     if (!failedError) this.lastCompletedWorkflowByAgent.set(agentId, taskId);
     await this.persistSchedulerState();

@@ -71,7 +71,71 @@
           "items": { "type": "string", "enum": ["admin", "leader"] },
           "default": ["admin", "leader"]
         },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "M13 explicit long-term memory grants. Leaders remain team-scoped unless their team is listed.",
+          "properties": {
+            "leaderProjectScopeTeams": {
+              "type": "array",
+              "maxItems": 200,
+              "items": { "type": "string", "minLength": 1 },
+              "default": []
+            }
+          }
+        },
         "database": { "type": "string", "minLength": 1 },
+        "embeddingRef": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ],
+          "description": "Reference to a global embeddingProfiles entry; null explicitly disables inherited embedding."
+        },
+        "retrieval": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": { "type": "string", "enum": ["lexical", "zvec_fts", "zvec_hybrid"], "default": "lexical" },
+            "fallback": { "type": "string", "enum": ["lexical"], "default": "lexical" },
+            "shadow": { "type": "boolean", "default": false },
+            "candidateLimit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 30 },
+            "maxResults": { "type": "integer", "minimum": 1, "maximum": 50, "default": 8 },
+            "maxPromptTokens": { "type": "integer", "minimum": 128, "maximum": 32768, "default": 1800 },
+            "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 120000, "default": 3000 },
+            "circuitBreakerFailureThreshold": { "type": "integer", "minimum": 1, "maximum": 20, "default": 3 },
+            "circuitBreakerCooldownSeconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 60 }
+          }
+        },
+        "zvec": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Storage and index settings only. Embedding identity is resolved exclusively from embeddingRef.",
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "default": "memory/zvec" },
+            "index": { "type": "string", "enum": ["flat", "hnsw"], "default": "flat" },
+            "metric": { "type": "string", "enum": ["cosine"], "default": "cosine" },
+            "readOnlyFallback": { "type": "boolean", "default": true },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 2048, "default": 64 },
+            "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 32, "default": 8 },
+            "optimizePendingThreshold": { "type": "integer", "minimum": 1, "default": 100000 }
+          }
+        },
+        "extraction": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional M11 structured fact extraction. Without an enabled, valid model, legacy deterministic consolidation remains active.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "model": { "type": "string", "minLength": 1, "description": "Model alias or provider/model identifier used only for memory extraction." },
+            "version": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "default": "m11-v1" },
+            "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 120000, "default": 15000 },
+            "maxInputChars": { "type": "integer", "minimum": 256, "maximum": 32000, "default": 4000 },
+            "maxOutputTokens": { "type": "integer", "minimum": 64, "maximum": 4096, "default": 800 },
+            "maxFactsPerEvent": { "type": "integer", "minimum": 1, "maximum": 20, "default": 5 },
+            "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 8, "default": 3 }
+          }
+        },
         "l1": {
           "type": "object",
           "additionalProperties": false,

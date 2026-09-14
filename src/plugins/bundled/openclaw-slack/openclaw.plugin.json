@@ -3,6 +3,7 @@
   "name": "Slack Push Channel",
   "version": "1.0.0",
   "description": "Stateless Slack incoming webhook push notification adapter",
+  "channels": ["slack"],
   "entryPoint": "index.js",
   "configSchema": {
     "type": "object",
@@ -14,5 +15,17 @@
     "required": [
       "webhookUrl"
     ]
+  },
+  "channelConfigs": {
+    "slack": {
+      "label": "Slack",
+      "description": "Slack incoming webhook account",
+      "schema": {
+        "type": "object",
+        "properties": { "webhookUrl": { "type": "string", "format": "uri" } },
+        "required": ["webhookUrl"]
+      },
+      "uiHints": { "webhookUrl": { "label": "Webhook URL", "sensitive": true } }
+    }
   }
 }
