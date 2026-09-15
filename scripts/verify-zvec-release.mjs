@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 export const ZVEC_RELEASE_MATRIX = Object.freeze([
   { platform: 'darwin', arch: 'arm64', binding: '@zvec/bindings-darwin-arm64', publish: true },
   { platform: 'darwin', arch: 'x64', binding: null, publish: false, reason: 'Zvec 0.7.0 has no darwin-x64 prebuilt binding.' },
-  { platform: 'linux', arch: 'x64', binding: '@zvec/bindings-linux-x64', publish: true },
-  { platform: 'linux', arch: 'arm64', binding: '@zvec/bindings-linux-arm64', publish: true },
+  { platform: 'linux', arch: 'x64', binding: '@zvec/bindings-linux-x64', publish: false, reason: 'Linux Desktop artifacts are not built by release CI.' },
+  { platform: 'linux', arch: 'arm64', binding: '@zvec/bindings-linux-arm64', publish: false, reason: 'Linux Desktop artifacts are not built by release CI.' },
   { platform: 'win32', arch: 'x64', binding: '@zvec/bindings-win32-x64', publish: true },
   { platform: 'win32', arch: 'ia32', binding: null, publish: false, reason: 'Zvec does not support Windows ia32.' },
 ]);
@@ -37,7 +37,8 @@ export async function verifyZvecRelease(root = path.resolve(path.dirname(fileURL
   const macTarget = desktop.build?.mac?.target?.find?.(({ target }) => target === 'dmg');
   if (!macTarget?.arch?.includes('arm64') || macTarget.arch.includes('x64')) errors.push('Zvec-enabled macOS release must target arm64 only.');
   const workflow = await fs.readFile(path.join(root, '.github', 'workflows', 'daily-release.yml'), 'utf8');
-  for (const name of ['linux-x64', 'linux-arm64', 'windows-x64', 'macos-arm64']) if (!workflow.includes(`name: ${name}`)) errors.push(`Release workflow is missing ${name}.`);
+  for (const name of ['windows-x64', 'macos-arm64']) if (!workflow.includes(`name: ${name}`)) errors.push(`Release workflow is missing ${name}.`);
+  for (const name of ['linux-x64', 'linux-arm64']) if (workflow.includes(`name: ${name}`)) errors.push(`Release workflow must not build ${name}.`);
   if (!workflow.includes('run-packaged-zvec-smoke.mjs')) errors.push('Release workflow must execute the packaged Zvec smoke test.');
   return {
     ok: errors.length === 0,

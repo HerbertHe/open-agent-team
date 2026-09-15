@@ -7,5 +7,7 @@ test('M15 release policy pins supported bindings and rejects unsupported archite
   assert.deepEqual(report.errors, []);
   assert.equal(report.defaultDecision, 'opt-in');
   assert.equal(ZVEC_RELEASE_MATRIX.find((item) => item.platform === 'darwin' && item.arch === 'x64')?.publish, false);
+  assert.equal(ZVEC_RELEASE_MATRIX.find((item) => item.platform === 'linux' && item.arch === 'x64')?.publish, false);
+  assert.equal(ZVEC_RELEASE_MATRIX.find((item) => item.platform === 'linux' && item.arch === 'arm64')?.publish, false);
   assert.equal(ZVEC_RELEASE_MATRIX.find((item) => item.platform === 'win32' && item.arch === 'ia32')?.publish, false);
 });
