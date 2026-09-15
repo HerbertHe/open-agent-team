@@ -70,8 +70,8 @@ export function buildResourceProjectConfig(input: ResourceProjectConfigInput): T
     },
     admin: {
       name: "admin",
-      description: "Project administrator responsible for prioritization, delivery coordination, and release approval.",
-      prompt: "You are the project Admin. Coordinate Leaders, report delivery status, and approve or reject release proposals. Do not implement Worker tasks.",
+      description: "Project administrator responsible for prioritization, delivery coordination, and final reporting.",
+      prompt: "You are the project Admin. Coordinate Leaders, unconditionally accept a Leader's reviewed delivery, perform the final merge, and report delivery status. Do not implement Worker tasks or repeat the Leader's review.",
       skills: [],
     },
     teams: input.teams.map((team) => {

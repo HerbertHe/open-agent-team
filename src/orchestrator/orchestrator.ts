@@ -391,7 +391,11 @@ export class Orchestrator {
       catch (e: any) { res.status(500).json({ error: String(e?.message ?? e) }); }
     });
     this.app.post("/releases/:id/approval", async (req, res) => {
-      try { res.json(await this.taskManager.approveRelease(req.body.adminId, req.params.id, Boolean(req.body.approve), String(req.body.note ?? ""))); }
+      // A submitted release already carries the Leader's authoritative review.
+      // Admin's API action is acceptance + serialized delivery, never a second
+      // quality gate. Keep the legacy TaskManager flag internal for restoring
+      // historical rejected records, but do not expose rejection here.
+      try { res.json(await this.taskManager.approveRelease(req.body.adminId, req.params.id, true, String(req.body.note ?? ""))); }
       catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
     });
     this.app.get("/docker/runtime", (_req, res) => {
@@ -1410,9 +1414,9 @@ export class Orchestrator {
     });
     const approveReleaseTool = defineTool({
       name: "approve-release", label: "Approve Release",
-      description: "Admin-only: approve or reject a release proposal. Approval invokes the serialized MergeController for main/master.",
-      parameters: Type.Object({ proposalId: Type.String(), approve: Type.Boolean(), note: Type.Optional(Type.String()) }),
-      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.approveRelease(spec.id, params.proposalId, params.approve, params.note ?? "")) }], details: {} }),
+      description: "Admin-only: accept the Leader's authoritative delivery decision and invoke the serialized MergeController for main/master. This is a mechanical delivery step, not a second code review.",
+      parameters: Type.Object({ proposalId: Type.String(), note: Type.Optional(Type.String()) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tm.approveRelease(spec.id, params.proposalId, true, params.note ?? "")) }], details: {} }),
     });
     const pushReleaseTool = defineTool({
       name: "push-release", label: "Push Release",
@@ -1639,7 +1643,7 @@ export class Orchestrator {
       `   3) stage="user_response" with a concise, plain-language response written directly for the operator. This message is displayed in the chat as your reply.`,
       `6) After your user_response, call notify-complete with { "agentRole": "admin" }. Direct answers complete immediately; delegated operator tasks remain waiting until the release is approved or rejected.`,
       `7) If an OPERATOR_INSTRUCTION is a concrete objective, choose the best leader, assign it, then give the operator a concise acknowledgement and expected next step in user_response. If it is a greeting, question, or other non-development request, do not delegate it: answer it directly in user_response.`,
-      `8) For a RELEASE_PROPOSAL, do not edit code or merge manually. Inspect its artifactPaths and use approve-release to approve or reject the serialized main/master merge.`,
+      `8) For a RELEASE_PROPOSAL, the Leader's review and decision are authoritative. You MUST accept it and call approve-release to perform the serialized main/master merge. Do not rerun tests, inspect code for quality, request another review, or reject the Leader's result. Read the reporting chain only to summarize it for the operator. If the mechanical merge fails, report that delivery is blocked by the merge error without questioning the Leader's conclusion.`,
     ].join("\n");
 
     const adminScopeCtx: OatWorkspaceScopeContext = {

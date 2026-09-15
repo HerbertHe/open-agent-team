@@ -71,7 +71,13 @@ export interface TaskDeliveryReport {
   stage: "review_submitted" | "release_submitted";
   summary: string;
   createdAt: string;
+  /** The direct manager receiving this handoff. Reports never skip a level. */
+  recipientAgentId?: string;
   reviewId?: string;
+  reviewStatus?: ReviewStatusEnum;
+  reviewedAt?: string;
+  reviewer?: string;
+  reviewNote?: string;
   releaseProposalId?: string;
   branch?: string;
   changedFiles?: string[];

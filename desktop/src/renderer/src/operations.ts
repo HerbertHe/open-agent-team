@@ -43,7 +43,7 @@ type Options = {
 };
 
 const esc = (value: string) => value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char] ?? char));
-const statusClass = (status: string) => ['running', 'busy'].includes(status) ? 'busy' : ['failed', 'error'].includes(status) ? 'error' : status === 'completed' || status === 'done' ? 'done' : 'idle';
+const statusClass = (status: string) => ['running', 'busy'].includes(status) ? 'busy' : status === 'review_pending' || status === 'reporting' ? 'reporting' : ['queued', 'waiting', 'paused'].includes(status) ? 'waiting' : ['failed', 'error'].includes(status) ? 'error' : status === 'completed' || status === 'done' ? 'done' : ['cancelled', 'offline'].includes(status) ? 'neutral' : 'idle';
 const short = (value: string, length = 72) => value.length > length ? `${value.slice(0, length - 1)}…` : value;
 const shortId = (value: string) => value.length > 24 ? `${value.slice(0, 12)}…${value.slice(-8)}` : value;
 
@@ -66,7 +66,7 @@ function isTimelineNoise(event: Event): boolean {
 
 function nodeColors(role: string, status: string, placeholder?: boolean): { fill: string; stroke: string } {
   const fill = placeholder ? '#e6e6e6' : role === 'admin' ? '#f0e3ff' : role === 'leader' ? '#e1efff' : role === 'worker' ? '#e5f6de' : '#f2ede4';
-  const stroke = placeholder ? '#8c8c8c' : status === 'error' ? '#c84a3b' : status === 'done' ? '#368855' : ['busy', 'tool'].includes(status) ? '#2c83c5' : status === 'instructed' ? '#79b9eb' : '#8d8270';
+  const stroke = placeholder ? 'var(--status-neutral)' : status === 'error' ? 'var(--status-danger)' : status === 'done' ? 'var(--status-available)' : ['busy', 'tool', 'instructed'].includes(status) ? 'var(--status-busy)' : ['waiting', 'standby'].includes(status) ? 'var(--status-waiting)' : 'var(--status-available)';
   return { fill, stroke };
 }
 

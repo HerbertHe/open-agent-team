@@ -294,7 +294,7 @@ export function buildResourcesConfig(values: {
     project: { name: values.projectName, repo: values.repo, base_branch: values.baseBranch },
     runtime: { mode: values.runtime, ...(values.runtime === ProjectRuntimeModeEnum.Docker ? { docker: { image: values.dockerImage || 'node:22-bookworm', network: values.dockerNetwork || 'bridge', extra_args: [] } } : {}), persistence: { state_dir: '.oat/state' } },
     workspace: { provider: 'worktree', root_dir: 'workspaces', git: { remote: 'origin', lfs: 'pull' }, sparse_checkout: { enabled: true } },
-    admin: { name: 'admin', description: 'Project administrator.', prompt: 'Manage staffing, status and release approval. Do not implement Worker tasks.', skills: [] },
+    admin: { name: 'admin', description: 'Project administrator.', prompt: 'Manage staffing and delivery status. Trust reviewed Leader results, perform the final merge, and do not repeat implementation review or Worker tasks.', skills: [] },
     teams: values.teams.map((team) => ({
       name: team.name, branch_prefix: `team/${team.name}`,
       leader: { name: `${team.name}-lead`, description: team.responsibility, prompt: `Lead ${team.name}: plan independent work, review branches, integrate approved changes, and submit releases.`, skills: [], repos: (team.repos || '').split(',').map((item) => item.trim()).filter(Boolean) },

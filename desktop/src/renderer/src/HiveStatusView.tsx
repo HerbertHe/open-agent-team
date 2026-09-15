@@ -4,7 +4,7 @@ import { HiveRoleMark, hiveRoleForAgent, type HiveRole } from './hive-brand';
 
 type HiveAgent = Project['agents'][number];
 type HiveTask = { targetAgentId: string; status: string; prompt: string };
-type AgentVisualState = 'busy' | 'queued' | 'idle' | 'failed' | 'offline';
+type AgentVisualState = 'busy' | 'reporting' | 'queued' | 'idle' | 'failed' | 'offline';
 
 function roleLabel(role: HiveRole, t: (key: string) => string) {
   if (role === 'chief') return t('hive.roleChief');
@@ -18,6 +18,7 @@ function visualState(project: Project | undefined, agent: HiveAgent, tasks: Hive
   if (!project?.alive || agent.status === 'offline') return 'offline';
   if (agent.status === 'failed') return 'failed';
   if (agent.status === 'running' || tasks.some((task) => task.targetAgentId === agent.id && task.status === 'running')) return 'busy';
+  if (tasks.some((task) => task.targetAgentId === agent.id && task.status === 'review_pending')) return 'reporting';
   if (tasks.some((task) => task.targetAgentId === agent.id && task.status === 'queued')) return 'queued';
   return 'idle';
 }

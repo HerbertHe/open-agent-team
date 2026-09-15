@@ -214,6 +214,15 @@ export class TaskManager {
       });
       return;
     }
+    const agent = this.agents.get(agentId);
+    if (agent?.spec.role === AgentRoleEnum.Leader && this.runningTaskByAgent.has(agentId)) {
+      void this.parkLeaderWorkflowAfterPrompt(agentId).catch((error: unknown) => {
+        logger.warn(t("scheduler_event_delivery_failed", {
+          operation: "leader_prompt_settle", error: error instanceof Error ? error.message : String(error),
+        }), { agentId });
+      });
+      return;
+    }
     if (!this.runningTaskByAgent.has(agentId)) this.requestSchedule(agentId);
   }
 
@@ -411,7 +420,15 @@ export class TaskManager {
     for (const event of snapshot.leaderEvents ?? []) {
       // Review handoffs are durable. Reset an interrupted lease so the Leader
       // can receive the same event after its runtime and Worker pool recover.
-      if (event.status === LeaderInboxEventStatusEnum.Pending || event.status === LeaderInboxEventStatusEnum.Leased || event.status === LeaderInboxEventStatusEnum.LegacyDelivered) {
+      const workerTask = this.taskById.get(event.taskId);
+      const workflow = workerTask?.parentTaskId ? this.taskById.get(workerTask.parentTaskId) : undefined;
+      const unfinishedChildren = workflow ? Array.from(this.taskById.values()).some((task) =>
+        task.parentTaskId === workflow.id &&
+        (task.status === QueuedTaskStatusEnum.Queued || task.status === QueuedTaskStatusEnum.Running || task.status === QueuedTaskStatusEnum.ReviewPending),
+      ) : true;
+      const strandedAfterReview = event.status === LeaderInboxEventStatusEnum.Acknowledged &&
+        workflow?.status === QueuedTaskStatusEnum.Waiting && !unfinishedChildren && !this.releaseByLeaderTask.has(workflow.id);
+      if (event.status === LeaderInboxEventStatusEnum.Pending || event.status === LeaderInboxEventStatusEnum.Leased || event.status === LeaderInboxEventStatusEnum.LegacyDelivered || strandedAfterReview) {
         event.status = LeaderInboxEventStatusEnum.Pending;
         event.leaseExpiresAt = undefined;
         event.error = undefined;
@@ -534,20 +551,23 @@ export class TaskManager {
       retry.unref?.();
     }
     await this.persistSchedulerState();
-    if (this.runningTaskByAgent.get(event.leaderId) === workflow.id) {
-      const unfinishedChildren = Array.from(this.taskById.values()).some((task) =>
-        task.parentTaskId === workflow.id &&
-        (task.status === QueuedTaskStatusEnum.Queued || task.status === QueuedTaskStatusEnum.Running || task.status === QueuedTaskStatusEnum.ReviewPending),
-      );
-      if (unfinishedChildren) {
-        this.runningTaskByAgent.delete(event.leaderId);
-        workflow.status = QueuedTaskStatusEnum.Waiting;
-        workflow.updatedAt = new Date().toISOString();
-        this.emitTaskEvent("task.waiting_for_workers", workflow);
-        await this.persistSchedulerState();
-        this.requestSchedule(event.leaderId);
-      }
-    }
+  }
+
+  private async parkLeaderWorkflowAfterPrompt(leaderId: string): Promise<void> {
+    const workflowId = this.runningTaskByAgent.get(leaderId);
+    const workflow = workflowId ? this.taskById.get(workflowId) : undefined;
+    if (!workflow) return;
+    const unfinishedChildren = Array.from(this.taskById.values()).some((task) =>
+      task.parentTaskId === workflow.id &&
+      (task.status === QueuedTaskStatusEnum.Queued || task.status === QueuedTaskStatusEnum.Running || task.status === QueuedTaskStatusEnum.ReviewPending),
+    );
+    if (!unfinishedChildren) return;
+    this.runningTaskByAgent.delete(leaderId);
+    workflow.status = QueuedTaskStatusEnum.Waiting;
+    workflow.updatedAt = new Date().toISOString();
+    this.emitTaskEvent("task.waiting_for_workers", workflow);
+    await this.persistSchedulerState();
+    this.requestSchedule(leaderId);
   }
 
   private async acknowledgeLeaderReviewEvent(leaderId: string, reviewId: string): Promise<void> {
@@ -842,6 +862,35 @@ export class TaskManager {
     }
   }
 
+  private updateDeliveryReview(review: ReviewRequest): void {
+    for (const task of this.taskById.values()) {
+      const reports = task.deliveryReports ?? [];
+      if (!reports.some((report) => report.reviewId === review.id)) continue;
+      task.deliveryReports = reports.map((report) => report.reviewId === review.id ? {
+        ...report,
+        reviewStatus: review.status,
+        reviewedAt: review.reviewedAt,
+        reviewer: review.reviewer,
+        reviewNote: review.reviewNote,
+      } : report);
+      task.updatedAt = review.reviewedAt ?? task.updatedAt;
+      this.emitTaskEvent("task.delivery_report_reviewed", task);
+    }
+  }
+
+  private promoteReviewedReportsToAdmin(leaderTask: QueuedTask): void {
+    const root = leaderTask.parentTaskId ? this.taskById.get(leaderTask.parentTaskId) : undefined;
+    if (!root) return;
+    for (const report of leaderTask.deliveryReports ?? []) {
+      if (report.role !== AgentRoleEnum.Worker || report.reviewStatus !== ReviewStatusEnum.Merged) continue;
+      const reports = root.deliveryReports ?? [];
+      if (reports.some((item) => item.id === report.id)) continue;
+      root.deliveryReports = [...reports, report];
+      root.updatedAt = report.reviewedAt ?? report.createdAt;
+      this.emitTaskEvent("task.delivery_report_promoted", root);
+    }
+  }
+
   private async scheduleAgent(agentId: string): Promise<void> {
     if (!this.schedulingEnabled) return;
     if (this.crashedAgents.has(agentId)) return;
@@ -1115,6 +1164,18 @@ export class TaskManager {
     this.requestSchedule(workerId);
   }
 
+  private markReviewSubmitted(task: QueuedTask, review: ReviewRequest): void {
+    const at = new Date().toISOString();
+    task.lastProgress = {
+      stage: "review_submitted",
+      message: `Review ${review.id} submitted to ${review.leaderId}; awaiting Leader review.`,
+      at,
+    };
+    task.updatedAt = at;
+    this.checkpointTask(task, "progress");
+    this.emitTaskEvent("task.progress", task);
+  }
+
   async submitReview(workerId: string, tests: GitTaskArtifact["tests"] = []): Promise<ReviewRequest> {
     const worker = this.getAgent(workerId);
     if (worker.spec.role !== AgentRoleEnum.Worker) throw new Error(t("scheduler_role_expected", { agentId: workerId, role: AgentRoleEnum.Worker }));
@@ -1139,12 +1200,18 @@ export class TaskManager {
         stage: "review_submitted",
         summary: task.lastProgress?.message?.trim() || "",
         createdAt: existing.createdAt,
+        recipientAgentId: leader.spec.id,
         reviewId: existing.id,
+        reviewStatus: existing.status,
+        reviewedAt: existing.reviewedAt,
+        reviewer: existing.reviewer,
+        reviewNote: existing.reviewNote,
         branch: existing.branch,
         changedFiles: existing.changedFiles,
         tests: existing.tests,
         artifactPaths: [existing.artifactPath],
       });
+      this.markReviewSubmitted(task, existing);
       return existing;
     }
     const committed = await commitWorkspaceChanges(worker.spec.workspacePath, `feat(${worker.spec.teamName}): ${task.id}`);
@@ -1186,12 +1253,15 @@ export class TaskManager {
       stage: "review_submitted",
       summary: task.lastProgress?.message?.trim() || "",
       createdAt: review.createdAt,
+      recipientAgentId: leader.spec.id,
       reviewId: review.id,
+      reviewStatus: review.status,
       branch: review.branch,
       changedFiles: review.changedFiles,
       tests: review.tests,
       artifactPaths: [review.artifactPath],
     });
+    this.markReviewSubmitted(task, review);
     this.observabilityHub.emit({
       source: "orchestrator", type: "leader.review_ready", agentId: leader.spec.id,
       role: AgentRoleEnum.Leader, sessionId: leader.sessionId,
@@ -1229,6 +1299,7 @@ export class TaskManager {
       }, { schedule: false, ignoreConflictTaskId: original.id });
       try {
         await this.gitStore.saveReview(review);
+        this.updateDeliveryReview(review);
         original.status = QueuedTaskStatusEnum.Failed;
         original.error = t("scheduler_review_changes_requested", { reviewId: review.id, note });
         original.completedAt = original.updatedAt = new Date().toISOString();
@@ -1251,6 +1322,7 @@ export class TaskManager {
     review.status = ReviewStatusEnum.Merged;
     review.mergeCommit = (await simpleGit(leader.spec.workspacePath).raw(["rev-parse", "HEAD"])).trim();
     await this.gitStore.saveReview(review);
+    this.updateDeliveryReview(review);
     const task = this.taskById.get(review.taskId);
     if (task) {
       task.status = QueuedTaskStatusEnum.Completed;
@@ -2423,6 +2495,23 @@ export class TaskManager {
           task.lastProgress = { stage, message, at: new Date().toISOString() };
           this.checkpointTask(task, "progress");
           this.emitTaskEvent("task.progress", task);
+          // RELEASE_PROPOSAL runs as an Admin child task, but its operator-facing
+          // response belongs to the original root conversation. Mirror only the
+          // final authored response; intermediate review chatter stays internal.
+          const root = agent.spec.role === AgentRoleEnum.Admin && stage === "user_response" && task.parentTaskId
+            ? this.taskById.get(task.parentTaskId)
+            : undefined;
+          if (root) {
+            root.lastProgress = { stage, message, at: new Date().toISOString() };
+            root.updatedAt = root.lastProgress.at;
+            this.checkpointTask(root, "progress");
+            this.emitTaskEvent("task.progress", root);
+            this.observabilityHub.emit({
+              source: "orchestrator", type: "report_progress", agentId,
+              role: agent.spec.role, sessionId: agent.sessionId,
+              payload: { stage, message, taskId: root.id, sourceTaskId: task.id },
+            });
+          }
         }
         this.observabilityHub.emit({
           source: "orchestrator",
@@ -2604,7 +2693,10 @@ export class TaskManager {
     }
     const proposal = await this.gitStore.loadRelease(proposalId);
     const leaderTask = taskId ? this.taskById.get(taskId) : undefined;
+    const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
+    if (!admin) throw new Error(t("admin_not_found"));
     if (leaderTask) {
+      this.promoteReviewedReportsToAdmin(leaderTask);
       this.recordDeliveryReport(leaderTask, {
         id: `delivery-${proposal.id}`,
         taskId: leaderTask.id,
@@ -2613,13 +2705,12 @@ export class TaskManager {
         stage: "release_submitted",
         summary: changelog?.trim() || proposal.note?.trim() || "",
         createdAt: proposal.createdAt,
+        recipientAgentId: admin.spec.id,
         releaseProposalId: proposal.id,
         branch: proposal.integrationBranch,
         artifactPaths: proposal.artifactPaths,
       });
     }
-    const admin = Array.from(this.agents.values()).find((a) => a.spec.role === AgentRoleEnum.Admin);
-    if (!admin) throw new Error(t("admin_not_found"));
     // The Admin root task is completed after it acknowledges delegation. Link
     // the downstream delivery back to that original task so the operator gets
     // a final answer in the same conversation instead of an unbound internal
@@ -2628,7 +2719,7 @@ export class TaskManager {
     if (rootTask) {
       const message = t("scheduler_release_waiting_approval", { teamName: team.name, proposalId: proposal.id });
       const at = new Date().toISOString();
-      rootTask.lastProgress = { stage: "awaiting_approval", message, at };
+      rootTask.lastProgress = { stage: "awaiting_admin_merge", message, at };
       rootTask.updatedAt = at;
       this.emitTaskEvent("task.progress", rootTask);
       this.observabilityHub.emit({
@@ -2637,7 +2728,7 @@ export class TaskManager {
         agentId: admin.spec.id,
         role: AgentRoleEnum.Admin,
         sessionId: admin.sessionId,
-        payload: { taskId: rootTask.id, stage: "awaiting_approval", message },
+        payload: { taskId: rootTask.id, stage: "awaiting_admin_merge", message },
       });
     }
     this.observabilityHub.emit({
@@ -2649,7 +2740,7 @@ export class TaskManager {
       targetAgentId: admin.spec.id,
       createdBy: leaderId,
       parentTaskId: rootTask?.id,
-      prompt: `RELEASE_PROPOSAL:\n${JSON.stringify({ id: proposal.id, team: proposal.teamName, branch: proposal.integrationBranch, headSha: proposal.headSha, artifactPaths: proposal.artifactPaths, note: proposal.note }, null, 2)}\n\nAnalyze the status and use approve-release to approve or reject this delivery.`,
+      prompt: `RELEASE_PROPOSAL:\n${JSON.stringify({ id: proposal.id, team: proposal.teamName, branch: proposal.integrationBranch, headSha: proposal.headSha, artifactPaths: proposal.artifactPaths, note: proposal.note, reportingChain: rootTask?.deliveryReports ?? [] }, null, 2)}\n\nThe Leader has already reviewed the Worker delivery and its decision is authoritative. Unconditionally accept the result and call approve-release to perform the serialized main/master merge. Do not rerun tests, inspect the implementation for quality, or reject the delivery. Use the Worker → Leader reporting chain only to prepare the final operator-facing summary. After the merge, call report-progress with stage="user_response" and report the full chain and concise delivery result. If the merge tool returns an operational error, report the merge as blocked; do not reinterpret it as a failed Leader review.`,
     });
     return { ok: true, releaseProposalId: proposalId, changelog };
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { AgentRoleEnum, QueuedTaskStatusEnum, ReleaseStatusEnum } from "../types";
+import { AgentRoleEnum, QueuedTaskStatusEnum, ReleaseStatusEnum, ReviewStatusEnum } from "../types";
 import { TaskManager } from "./task-manager";
 
 test("startup gate, pause, snapshots, and recall keep queue work durable", async () => {
@@ -110,14 +110,37 @@ test("delegated roots wait for delivery, prompt locks follow runtime end, and re
     assert.equal(retry.conflictKey, original.conflictKey);
 
     const recordDeliveryReport = (manager as unknown as { recordDeliveryReport(task: typeof original, report: any): void }).recordDeliveryReport.bind(manager);
-    recordDeliveryReport(original, { id: "delivery-review-1", taskId: original.id, agentId: "team-worker-0", role: AgentRoleEnum.Worker, stage: "review_submitted", summary: "Worker evidence", createdAt: new Date().toISOString(), reviewId: "review-1" });
+    recordDeliveryReport(original, { id: "delivery-review-1", taskId: original.id, agentId: "team-worker-0", recipientAgentId: "team-lead", role: AgentRoleEnum.Worker, stage: "review_submitted", summary: "Worker evidence", createdAt: new Date().toISOString(), reviewId: "review-1", reviewStatus: ReviewStatusEnum.Merged, reviewNote: "Approved by Leader" });
     assert.equal(original.deliveryReports?.at(-1)?.agentId, "team-worker-0");
     assert.equal(manager.getTasks("team-lead").find((task) => task.id === delegated.taskId)?.deliveryReports?.at(-1)?.agentId, "team-worker-0");
-    assert.equal(root.deliveryReports, undefined, "Worker report must stop at the direct Leader task");
+    assert.equal(root.deliveryReports, undefined, "Worker report must stop at the direct Leader task until Leader approves upward reporting");
 
     const leaderTask = manager.getTasks("team-lead").find((task) => task.id === delegated.taskId)!;
-    recordDeliveryReport(leaderTask, { id: "delivery-release-upstream", taskId: leaderTask.id, agentId: "team-lead", role: AgentRoleEnum.Leader, stage: "release_submitted", summary: "Leader aggregate", createdAt: new Date().toISOString(), releaseProposalId: "release-upstream" });
+    const internals = manager as unknown as {
+      runningTaskByAgent: Map<string, string>;
+      currentWorkflowTaskId(agentId: string): string | undefined;
+      parkLeaderWorkflowAfterPrompt(agentId: string): Promise<void>;
+      markReviewSubmitted(task: typeof original, review: any): void;
+    };
+    original.status = QueuedTaskStatusEnum.ReviewPending;
+    internals.markReviewSubmitted(original, { id: "review-progress", leaderId: "team-lead" });
+    assert.equal(original.lastProgress?.stage, "review_submitted", "submit-review must update the Worker task after ownership is released");
+
+    leaderTask.status = QueuedTaskStatusEnum.Running;
+    internals.runningTaskByAgent.set("team-lead", leaderTask.id);
+    original.status = QueuedTaskStatusEnum.Completed;
+    retry.status = QueuedTaskStatusEnum.Cancelled;
+    await internals.parkLeaderWorkflowAfterPrompt("team-lead");
+    assert.equal(internals.currentWorkflowTaskId("team-lead"), leaderTask.id, "the last reviewed child must keep Leader context for release submission");
+    original.status = QueuedTaskStatusEnum.ReviewPending;
+    await internals.parkLeaderWorkflowAfterPrompt("team-lead");
+    assert.equal(internals.currentWorkflowTaskId("team-lead"), undefined, "Leader context is parked only after the prompt ends with unfinished children");
+    assert.equal(leaderTask.status, QueuedTaskStatusEnum.Waiting);
+
+    (manager as unknown as { promoteReviewedReportsToAdmin(task: typeof leaderTask): void }).promoteReviewedReportsToAdmin(leaderTask);
+    recordDeliveryReport(leaderTask, { id: "delivery-release-upstream", taskId: leaderTask.id, agentId: "team-lead", recipientAgentId: "admin", role: AgentRoleEnum.Leader, stage: "release_submitted", summary: "Leader aggregate", createdAt: new Date().toISOString(), releaseProposalId: "release-upstream" });
     const rootAfterLeaderReport = manager.getTasks("admin").find((task) => task.id === root.id);
+    assert.equal(rootAfterLeaderReport?.deliveryReports?.[0]?.agentId, "team-worker-0", "Admin must see the reviewed Worker report after Leader reports upward");
     assert.equal(rootAfterLeaderReport?.deliveryReports?.at(-1)?.agentId, "team-lead", "Leader aggregate must reach the Admin root task");
 
     root.deliveryReports = [{ id: "delivery-release-1", taskId: delegated.taskId, agentId: "team-lead", role: AgentRoleEnum.Leader, stage: "release_submitted", summary: "", createdAt: new Date().toISOString(), releaseProposalId: "release-1" }];
@@ -204,9 +227,15 @@ test("restart preserves durable waiting workflows, review handoffs, and release 
       { id: "root", targetAgentId: "admin", createdBy: "operator", prompt: "Root", status: "waiting", createdAt: now, updatedAt: now },
       { id: "leader", targetAgentId: "team-lead", createdBy: "admin", parentTaskId: "root", prompt: "Leader", status: "waiting", createdAt: now, updatedAt: now },
       { id: "worker", targetAgentId: "team-worker-0", createdBy: "team-lead", parentTaskId: "leader", prompt: "Worker", status: "review_pending", createdAt: now, updatedAt: now },
+      { id: "root-stranded", targetAgentId: "admin", createdBy: "operator", prompt: "Stranded root", status: "waiting", createdAt: now, updatedAt: now },
+      { id: "leader-stranded", targetAgentId: "team-lead", createdBy: "admin", parentTaskId: "root-stranded", prompt: "Stranded leader", status: "waiting", createdAt: now, updatedAt: now },
+      { id: "worker-reviewed", targetAgentId: "team-worker-0", createdBy: "team-lead", parentTaskId: "leader-stranded", prompt: "Reviewed worker", status: "completed", createdAt: now, updatedAt: now },
     ],
-    queues: { admin: ["root"], "team-lead": ["leader"] },
-    leaderEvents: [{ id: "event-1", leaderId: "team-lead", taskId: "worker", reviewId: "review-1", type: "worker_review_ready", status: "leased", createdAt: now, updatedAt: now, deliveryAttempts: 1, leaseExpiresAt: now }],
+    queues: { admin: ["root", "root-stranded"], "team-lead": ["leader", "leader-stranded"] },
+    leaderEvents: [
+      { id: "event-1", leaderId: "team-lead", taskId: "worker", reviewId: "review-1", type: "worker_review_ready", status: "leased", createdAt: now, updatedAt: now, deliveryAttempts: 1, leaseExpiresAt: now },
+      { id: "event-stranded", leaderId: "team-lead", taskId: "worker-reviewed", reviewId: "review-reviewed", type: "worker_review_ready", status: "acknowledged", createdAt: now, updatedAt: now, deliveryAttempts: 1 },
+    ],
     releasesByLeaderTask: { leader: "release-1" },
   }), "utf8");
   const manager = new TaskManager(
@@ -222,6 +251,7 @@ test("restart preserves durable waiting workflows, review handoffs, and release 
     assert.equal(manager.getTasks().find((task) => task.id === "leader")?.status, QueuedTaskStatusEnum.Waiting);
     assert.equal(manager.getTasks().find((task) => task.id === "worker")?.status, QueuedTaskStatusEnum.ReviewPending);
     assert.equal((manager as unknown as { leaderEventsById: Map<string, { status: string; leaseExpiresAt?: string }> }).leaderEventsById.get("event-1")?.status, "pending");
+    assert.equal((manager as unknown as { leaderEventsById: Map<string, { status: string; leaseExpiresAt?: string }> }).leaderEventsById.get("event-stranded")?.status, "pending", "a reviewed workflow without a release must resume Leader reporting after restart");
     assert.equal((manager as unknown as { releaseByLeaderTask: Map<string, string> }).releaseByLeaderTask.get("leader"), "release-1");
     await manager.flushSchedulerState();
   } finally {
