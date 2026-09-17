@@ -57,7 +57,7 @@ type RuntimeStatus = {
 type UpdateStatus = { oat: { checked: boolean; latest?: string; available: boolean; error?: string }; desktop: { checked: boolean; latest?: string; available: boolean; error?: string } };
 type Project = { name: string; projectName?: string | null; root: string; port?: number; pid?: number; startedAt?: string | null; alive: boolean; agents: Array<{ id: string; role: string; label: string; status: string }> };
 type ProviderProbe = { baseUrl: string; apiKey?: string };
-type OrchestratorRequest = { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } };
+type OrchestratorRequest = { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string | ArrayBuffer } };
 type ControlPlaneResult = { handled: boolean; value?: unknown };
 type OrchestratorState = { orchestratorPort?: unknown; pid?: unknown; startedAt?: unknown; configPath?: unknown; argv?: unknown; memoryFederationToken?: unknown };
 type StatePidStatus = 'missing' | 'stopped' | 'mismatch' | 'current';
@@ -1599,12 +1599,38 @@ async function requestOrchestrator(input: OrchestratorRequest): Promise<unknown>
   return requestAtPort(port, input, memoryFederationToken);
 }
 
+async function selectAndUploadKnowledge(projectName: string, teamId?: string): Promise<{ uploaded: unknown[] }> {
+  if (typeof projectName !== 'string' || !projectName.trim()) throw new Error('A project is required for knowledge upload.');
+  if (teamId !== undefined && (typeof teamId !== 'string' || !/^[\p{L}\p{N}_.-]{1,80}$/u.test(teamId))) throw new Error('Invalid knowledge team identifier.');
+  const selection = await dialog.showOpenDialog({
+    title: 'Upload shared knowledge', properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'Knowledge files', extensions: ['txt', 'md', 'mdx', 'html', 'htm', 'json', 'jsonc', 'yaml', 'yml', 'toml', 'xml', 'pdf', 'docx', 'ts', 'tsx', 'js', 'jsx', 'py', 'go', 'rs', 'java', 'c', 'h', 'cpp', 'hpp', 'css', 'scss', 'less', 'sql', 'sh'] }],
+  });
+  if (selection.canceled) return { uploaded: [] };
+  const uploaded: unknown[] = [];
+  for (const filePath of selection.filePaths) {
+    const content = await fs.readFile(filePath);
+    uploaded.push(await requestOrchestrator({
+      projectName, path: '/knowledge/uploads', init: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-OAT-Knowledge-File-Name': encodeURIComponent(basename(filePath)),
+          ...(teamId ? { 'X-OAT-Knowledge-Team-Id': teamId } : {}),
+        },
+        body: Uint8Array.from(content).buffer,
+      },
+    }));
+  }
+  return { uploaded };
+}
+
 async function requestAtPort(port: number, input: Pick<OrchestratorRequest, 'path' | 'init'>, memoryFederationToken?: string): Promise<unknown> {
   const method = input.init?.method?.toUpperCase() ?? 'GET';
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Unsupported Orchestrator request method.');
-  const headers = Object.fromEntries(Object.entries(input.init?.headers ?? {}).filter(([key]) => /^content-type$/i.test(key)));
+  const headers = Object.fromEntries(Object.entries(input.init?.headers ?? {}).filter(([key]) => /^(content-type|x-oat-knowledge-file-name|x-oat-knowledge-team-id)$/i.test(key)));
   if (input.path === '/memory/federated-search' && memoryFederationToken) headers['X-OAT-Memory-Federation-Token'] = memoryFederationToken;
-  const timeout = input.path === '/api/channels/weixin/login-wait' ? 125_000 : 30_000;
+  const timeout = input.path === '/api/channels/weixin/login-wait' ? 125_000 : input.path === '/knowledge/uploads' ? 120_000 : 30_000;
   const response = await fetch(requestTarget(port, input.path), { method, headers, body: input.init?.body, signal: AbortSignal.timeout(timeout) });
   const text = await response.text();
   if (!response.ok) {
@@ -1635,10 +1661,13 @@ async function subscribeObservability(event: IpcMainInvokeEvent, projectName: st
   const controller = new AbortController();
   observabilityStreams.set(event.sender.id, controller);
   const { port } = await runningProject(projectName);
+  let lastEventId: string | undefined;
   const pump = async (): Promise<void> => {
     while (!controller.signal.aborted) {
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/observability/events`, { headers: { Accept: 'text/event-stream' }, signal: controller.signal });
+        const headers: Record<string, string> = { Accept: 'text/event-stream' };
+        if (lastEventId) headers['Last-Event-ID'] = lastEventId;
+        const response = await fetch(`http://127.0.0.1:${port}/observability/events`, { headers, signal: controller.signal });
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
         event.sender.send('observability:status', { projectName, connected: true });
         const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
@@ -1649,9 +1678,13 @@ async function subscribeObservability(event: IpcMainInvokeEvent, projectName: st
           let boundary: number;
           while ((boundary = pending.indexOf('\n\n')) >= 0) {
             const frame = pending.slice(0, boundary); pending = pending.slice(boundary + 2);
+            const id = frame.split('\n').find(line => line.startsWith('id:'))?.slice(3).trim();
             const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
             if (!data) continue;
-            try { event.sender.send('observability:event', { projectName, event: JSON.parse(data) }); } catch { /* ignore malformed events */ }
+            try {
+              event.sender.send('observability:event', { projectName, event: JSON.parse(data) });
+              if (id) lastEventId = id;
+            } catch { /* ignore malformed events */ }
           }
         }
       } catch {
@@ -1920,10 +1953,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:restart-status', (event, name: string) => { requireTrustedRenderer(event); return projectRestartStatus(name); });
   ipcMain.handle('projects:restart', (event, name: string) => { requireTrustedRenderer(event); return restartProject(name, ProjectRestartTriggerEnum.HumanUi); });
   ipcMain.handle('projects:delete', (event, name: string) => { requireTrustedRenderer(event); return deleteProject(name); });
-  ipcMain.handle('resource-agent:send', (event, text: string) => {
+  ipcMain.handle('resource-agent:send', (event, input: { requestId?: string; text?: string } | string) => {
     requireTrustedRenderer(event);
+    const text = typeof input === 'string' ? input : input?.text;
+    const requestId = typeof input === 'object' ? input?.requestId : undefined;
     if (typeof text !== 'string' || !text.trim()) throw new Error('Resource Manager message is required.');
-    return getResourceSupervisor().send(text.trim());
+    return getResourceSupervisor().send(text.trim(), requestId ? (streamEvent) => {
+      if (!event.sender.isDestroyed()) event.sender.send('resource-agent:event', { requestId, event: streamEvent });
+    } : undefined);
   });
   ipcMain.handle('resource-agent:history', (event) => { requireTrustedRenderer(event); return getResourceSupervisor().history(); });
   ipcMain.handle('resource-agent:confirm', (event, proposalId: string) => {
@@ -1934,6 +1971,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('resource-agent:cancel', (event) => { requireTrustedRenderer(event); return getResourceSupervisor().cancel(); });
   ipcMain.handle('providers:list-models', (event, input: ProviderProbe) => { requireTrustedRenderer(event); return listProviderModels(input); });
   ipcMain.handle('orchestrator:request', (event, input: OrchestratorRequest) => { requireTrustedRenderer(event); return requestOrchestrator(input); });
+  ipcMain.handle('knowledge:upload', (event, input: { projectName?: unknown; teamId?: unknown }) => {
+    requireTrustedRenderer(event);
+    return selectAndUploadKnowledge(String(input?.projectName ?? ''), typeof input?.teamId === 'string' && input.teamId.trim() ? input.teamId.trim() : undefined);
+  });
   ipcMain.handle('control-plane:request', (event, input: Omit<OrchestratorRequest, 'projectName'>) => { requireTrustedRenderer(event); return requestControlPlane(input); });
   ipcMain.handle('observability:subscribe', (event, projectName: string) => { requireTrustedRenderer(event); return subscribeObservability(event, projectName); });
   ipcMain.handle('observability:unsubscribe', (event) => { requireTrustedRenderer(event); stopObservabilityStream(event.sender.id); });

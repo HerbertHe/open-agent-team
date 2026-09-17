@@ -17,6 +17,7 @@ import { MemoryOperations, type MemoryOperationJob, type MemoryOperationalSnapsh
 import type { MemoryIndexMigrationRecord } from "./memory-repository";
 import type { MemoryIndexRebuildEstimate } from "./zvec-index-migration";
 import type { ZvecIndexManifest } from "./zvec-index-identity";
+import type { MemoryMaintenanceRun, MemoryMaintenanceTrigger } from "./maintenance-types";
 
 const MAX_EVENT_CONTENT = 4_000;
 const ACTIVE_TASK_STATUSES = new Set(["queued", "running", "waiting", "review_pending"]);
@@ -57,7 +58,7 @@ export class MemoryService {
   private readonly operations: NonNullable<MemoryServiceDependencies["operations"]>;
   private readonly indexSyncIntervalMs: number;
   private unsubscribe?: () => void;
-  private dreamTimer?: ReturnType<typeof setInterval>;
+  private maintenanceTimer?: ReturnType<typeof setInterval>;
   private indexSyncTimer?: ReturnType<typeof setInterval>;
   private indexSyncPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
@@ -65,6 +66,7 @@ export class MemoryService {
   private idleResolver: () => boolean = () => false;
   private lastActivityAt = Date.now();
   private dreamAbort?: AbortController;
+  private readonly maintenanceByAgent = new Map<string, Promise<MemoryMaintenanceRun>>();
 
   constructor(
     private readonly projectId: string,
@@ -120,12 +122,13 @@ export class MemoryService {
 
   start(): void {
     if (!this.config.enabled || this.stopping) return;
-    if (this.config.dream.enabled && !this.dreamTimer) {
-      this.dreamTimer = setInterval(() => {
+    if (this.config.dream.enabled && !this.maintenanceTimer) {
+      this.maintenanceTimer = setInterval(() => {
         if (Date.now() - this.lastActivityAt < this.config.dream.idleAfterSeconds * 1_000) return;
-        void this.runDream("idle");
+        if (!this.idleResolver()) return;
+        for (const agentId of this.repository.pendingMaintenanceAgentIds?.() ?? []) void this.runAgentMaintenance(agentId, "event_threshold");
       }, this.config.dream.pollSeconds * 1_000);
-      this.dreamTimer.unref?.();
+      this.maintenanceTimer.unref?.();
     }
     if (this.config.retrieval.backend !== "lexical" && this.config.embeddingRef && !this.indexSyncTimer) {
       void this.runIndexSync();
@@ -138,14 +141,15 @@ export class MemoryService {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
     this.dreamAbort?.abort();
-    if (this.dreamTimer) clearInterval(this.dreamTimer);
+    if (this.maintenanceTimer) clearInterval(this.maintenanceTimer);
     if (this.indexSyncTimer) clearInterval(this.indexSyncTimer);
-    this.dreamTimer = undefined;
+    this.maintenanceTimer = undefined;
     this.indexSyncTimer = undefined;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.stopPromise = (async () => {
       await this.indexSyncPromise?.catch(() => undefined);
+      await Promise.allSettled([...this.maintenanceByAgent.values()]);
       await Promise.resolve(this.index.close()).catch(() => undefined);
       await this.operations.close().catch(() => undefined);
       this.repository.close();
@@ -174,10 +178,7 @@ export class MemoryService {
     if (!event.agentId || !event.role) return undefined;
     if (event.role === AgentRoleEnum.Admin && this.config.roles.includes("admin")) return { owner: event.agentId, role: event.role };
     if (event.role === AgentRoleEnum.Leader && this.config.roles.includes("leader")) return { owner: event.agentId, role: event.role };
-    if (event.role === AgentRoleEnum.Worker && this.config.roles.includes("leader")) {
-      const match = event.agentId.match(/^(.+)-worker-\d+$/);
-      if (match) return { owner: `${match[1]}-lead`, role: AgentRoleEnum.Leader };
-    }
+    if (event.role === AgentRoleEnum.Worker && this.config.roles.includes("worker")) return { owner: event.agentId, role: event.role };
     return undefined;
   }
 
@@ -255,15 +256,25 @@ export class MemoryService {
       teamId: this.teamFor(owned.owner) ?? undefined,
       fingerprint: createHash("sha256").update(`${owned.owner}\0${event.type}\0${normalize(content)}`).digest("hex"),
     }, this.config.l1.maxItems);
+    if (event.type === "task.completed") {
+      queueMicrotask(() => {
+        if (!this.stopping) void this.runAgentMaintenance(owned.owner, "task_completed");
+      });
+    }
   }
 
   private teamFor(agentId: string): string | null {
     if (agentId === AgentRoleEnum.Admin) return null;
-    return agentId.replace(/-(?:lead|leader)$/, "") || null;
+    const leader = agentId.match(/^(.+)-(?:lead|leader)$/u);
+    if (leader?.[1]) return leader[1];
+    return agentId.match(/^(.+)-worker-\d+$/u)?.[1] ?? null;
   }
 
   isEnabledFor(agentId: string): boolean {
-    return this.config.enabled && (agentId === AgentRoleEnum.Admin ? this.config.roles.includes("admin") : /-(?:lead|leader)$/.test(agentId) && this.config.roles.includes("leader"));
+    if (!this.config.enabled) return false;
+    if (agentId === AgentRoleEnum.Admin) return this.config.roles.includes("admin");
+    if (/-(?:lead|leader)$/.test(agentId)) return this.config.roles.includes("leader");
+    return /-worker-\d+$/.test(agentId) && this.config.roles.includes("worker");
   }
 
   isSystemIdleFromTasks(tasks: Array<{ status: string }>, promptActive: boolean): boolean {
@@ -279,8 +290,8 @@ export class MemoryService {
 
   async buildContextForActor(actor: MemoryActor, query: string): Promise<string> {
     const projectGranted = actor.projectId === this.projectId || actor.projectIds.includes(this.projectId);
-    if (!projectGranted || actor.role === "worker" || actor.employment === "external" || actor.role === "resource_manager") {
-      const reason = !projectGranted ? "project_not_granted" : actor.role === "resource_manager" ? "resource_manager_cannot_receive_prompt_context" : "worker_has_no_long_term_read";
+    if (!projectGranted || actor.employment === "external" || actor.role === "resource_manager") {
+      const reason = !projectGranted ? "project_not_granted" : actor.role === "resource_manager" ? "resource_manager_cannot_receive_prompt_context" : "external_agent_has_no_long_term_read";
       this.repository.recordAccessAudit({ action: "inject", decision: "denied", actor, reason });
       return "";
     }
@@ -288,7 +299,7 @@ export class MemoryService {
       actor,
       agentId: actor.id,
       query,
-      globalScope: actor.role === "admin" || actor.role === "user",
+      globalScope: actor.role === "user",
       l2MaxResults: this.config.l2.maxResults,
       l3MaxPromptItems: this.config.l3.maxPromptItems,
     });
@@ -313,7 +324,7 @@ export class MemoryService {
   }
 
   listForActor(actor: MemoryActor, options: MemoryListOptions = {}): MemoryRecord[] {
-    if (!(actor.projectId === this.projectId || actor.projectIds.includes(this.projectId)) || actor.role === "worker" || actor.employment === "external") {
+    if (!(actor.projectId === this.projectId || actor.projectIds.includes(this.projectId)) || actor.employment === "external") {
       this.repository.recordAccessAudit({ action: "list", decision: "denied", actor, reason: "actor_has_no_long_term_read", metadata: { status: options.status ?? "active", level: options.level } });
       return [];
     }
@@ -323,12 +334,12 @@ export class MemoryService {
   }
 
   async searchForActor(actor: MemoryActor, query: string, limit = this.config.retrieval.maxResults): Promise<MemoryRecord[]> {
-    if (!(actor.projectId === this.projectId || actor.projectIds.includes(this.projectId)) || actor.role === "worker" || actor.employment === "external") {
+    if (!(actor.projectId === this.projectId || actor.projectIds.includes(this.projectId)) || actor.employment === "external") {
       this.repository.recordAccessAudit({ action: actor.role === "resource_manager" ? "federated_search" : "retrieve", decision: "denied", actor, reason: "actor_has_no_long_term_read" });
       throw new MemoryAccessDeniedError("actor_has_no_long_term_read");
     }
     const bounded = Math.min(50, Math.max(1, Math.floor(limit)));
-    const result = await this.retriever.retrieve({ actor, agentId: actor.id, query: truncate(query, 1_000), globalScope: true, l2MaxResults: bounded, l3MaxPromptItems: bounded });
+    const result = await this.retriever.retrieve({ actor, agentId: actor.id, query: truncate(query, 1_000), globalScope: actor.role === "user", l2MaxResults: bounded, l3MaxPromptItems: bounded });
     return [...result.l3, ...result.l2].slice(0, bounded);
   }
 
@@ -425,16 +436,74 @@ export class MemoryService {
     return run;
   }
 
-  private async runStructuredExtraction(): Promise<{ processedEvents: number; createdL2: number; promotedL3: number }> {
+  runAgentMaintenance(agentId: string, trigger: MemoryMaintenanceTrigger = "manual"): Promise<MemoryMaintenanceRun> {
+    const existing = this.maintenanceByAgent.get(agentId);
+    if (existing) return existing;
+    const runId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const pendingEventIds = this.repository
+      .listPendingExtractionEvents(this.config.dream.maxEventsPerRun, this.config.extraction.maxAttempts, agentId)
+      .map(({ id }) => id);
+    const run: MemoryMaintenanceRun = {
+      id: runId,
+      projectId: this.projectId,
+      agentId,
+      trigger,
+      status: this.isEnabledFor(agentId) && !this.stopping ? "running" : "cancelled",
+      pendingEventIds,
+      proposedMutations: pendingEventIds.length,
+      appliedMutations: 0,
+      rejectedMutations: 0,
+      startedAt: createdAt,
+      ...(!this.isEnabledFor(agentId) || this.stopping ? { completedAt: createdAt, error: "Agent memory maintenance is disabled or stopping." } : {}),
+    };
+    this.repository.insertMaintenanceRun(run, createdAt);
+    if (run.status === "cancelled") return Promise.resolve(run);
+    this.hub.emit({ source: "orchestrator", type: "agent.memory_maintenance.started", agentId, payload: { runId, trigger, pendingEvents: pendingEventIds.length } });
+    const task = (async () => {
+      try {
+        const cancelled = () => this.stopping || (trigger === "event_threshold" && this.config.dream.cancelOnNewTask && !this.idleResolver());
+        const result = this.config.extraction.enabled && this.extractor.available
+          ? await this.runStructuredExtraction(agentId, cancelled)
+          : this.repository.consolidate({
+              agentId,
+              maxEvents: this.config.dream.maxEventsPerRun,
+              minEvidence: this.config.l3.minEvidence,
+              retentionDays: this.config.l2.retentionDays,
+              l1MaxItems: this.config.l1.maxItems,
+              l1TtlHours: this.config.l1.completedTaskTtlHours,
+              isCancelled: cancelled,
+            });
+        run.appliedMutations = result.createdL2 + result.promotedL3;
+        run.rejectedMutations = Math.max(0, run.proposedMutations - result.processedEvents);
+        run.status = "completed";
+      } catch (error) {
+        run.status = error instanceof DreamCancelledError ? "cancelled" : "failed";
+        run.error = truncate(error instanceof Error ? error.message : String(error), 800);
+      } finally {
+        run.completedAt = new Date().toISOString();
+        this.repository.finishMaintenanceRun(run, run.completedAt);
+        this.hub.emit({ source: "orchestrator", type: `agent.memory_maintenance.${run.status}`, agentId, payload: { ...run } });
+      }
+      return run;
+    })();
+    this.maintenanceByAgent.set(agentId, task);
+    void task.finally(() => {
+      if (this.maintenanceByAgent.get(agentId) === task) this.maintenanceByAgent.delete(agentId);
+    });
+    return task;
+  }
+
+  private async runStructuredExtraction(agentId?: string, isCancelled: () => boolean = () => this.dreamAbort?.signal.aborted ?? false): Promise<{ processedEvents: number; createdL2: number; promotedL3: number }> {
     const result = { processedEvents: 0, createdL2: 0, promotedL3: 0 };
-    const events = this.repository.listPendingExtractionEvents(this.config.dream.maxEventsPerRun, this.config.extraction.maxAttempts);
+    const events = this.repository.listPendingExtractionEvents(this.config.dream.maxEventsPerRun, this.config.extraction.maxAttempts, agentId);
     for (const original of events) {
-      if (this.dreamAbort?.signal.aborted) throw new DreamCancelledError();
+      if (isCancelled()) throw new DreamCancelledError();
       const event = { ...original, content: original.content.slice(0, this.config.extraction.maxInputChars) };
       const started = performance.now();
       try {
         const extracted = await this.withExtractionTimeout(this.extractor.extract(event));
-        if (this.dreamAbort?.signal.aborted) throw new DreamCancelledError();
+        if (isCancelled()) throw new DreamCancelledError();
         const candidates = governExtractedFacts(event, extracted.facts);
         const created = this.repository.commitExtraction(event, candidates, {
           id: randomUUID(), eventId: event.id, model: this.extractor.model, version: this.extractor.version,
@@ -456,13 +525,13 @@ export class MemoryService {
       }
     }
     try {
-      const governance = await this.governor.govern(this.config.dream.maxEventsPerRun, this.config.l3.minEvidence);
+      const governance = await this.governor.govern(this.config.dream.maxEventsPerRun, this.config.l3.minEvidence, agentId);
       result.promotedL3 += governance.autoPromotedL3;
       this.hub.emit({ source: "orchestrator", type: "memory.governance.completed", payload: { ...governance } });
     } catch (error) {
       this.hub.emit({ source: "orchestrator", type: "memory.governance.failed", payload: { error: truncate(error instanceof Error ? error.message : String(error), 800) } });
     }
-    this.repository.finishStructuredConsolidation(this.config.l2.retentionDays, this.config.l1.maxItems, this.config.l1.completedTaskTtlHours);
+    this.repository.finishStructuredConsolidation(this.config.l2.retentionDays, this.config.l1.maxItems, this.config.l1.completedTaskTtlHours, agentId);
     return result;
   }
 

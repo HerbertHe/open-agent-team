@@ -58,3 +58,17 @@ test("M11 config defaults extraction off and rejects unbounded values", () => {
   assert.throws(() => TeamFileSchema.parse(team({ enabled: true, model: "extractor", maxFactsPerEvent: 21 })));
   assert.throws(() => TeamFileSchema.parse(team({ enabled: true, model: "extractor", timeoutMs: 99 })));
 });
+
+test("M14 config enables owner-private memory for every Agent and file-backed knowledge defaults", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-semantic-config-"));
+  const file = path.join(root, "team.json");
+  writeFileSync(file, JSON.stringify(team()), "utf8");
+  try {
+    const config = await loadConfig(file);
+    assert.deepEqual(config.memory.roles, ["admin", "leader", "worker"]);
+    assert.deepEqual(config.knowledge.roots, { project: "knowledge/project", teams: "knowledge/teams", uploads: "knowledge/uploads" });
+    assert.equal(config.knowledge.ingestion.chunkTokens, 1_000);
+    assert.equal(config.knowledge.ingestion.chunkOverlapTokens, 120);
+    assert.throws(() => TeamFileSchema.parse({ ...team(), knowledge: { ingestion: { chunkTokens: 256, chunkOverlapTokens: 256 } } }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

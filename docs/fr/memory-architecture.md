@@ -1,25 +1,17 @@
-# Mémoire à trois niveaux pour Admin et Leader
+# Mémoire privée des Agents et maintenance par propriétaire
 
-> État : implémenté le 26 août 2026.
+> État : implémenté, schéma SQLite v9.
 
-La mémoire concerne les agents Admin et Leader. Les événements utiles d'un Worker sont attribués à son Leader. Le contexte récupéré est signalé comme historique et faillible : il ne remplace jamais les instructions courantes.
+Admin, Leader et Worker disposent chacun d'une mémoire privée isolée entre les tâches. Les événements d'un Worker lui appartiennent et ne sont plus transférés au Leader. Le contexte récupéré reste une indication historique faillible et ne remplace jamais les instructions courantes.
 
-Le stockage local utilise `better-sqlite3` en mode WAL, par défaut dans `<state_dir>/memory/memory.db`.
+Le stockage de référence utilise `better-sqlite3` en mode WAL dans `<state_dir>/memory/memory.db`. L1 conserve l'activité récente, L2 les faits et épisodes gouvernés, et L3 les connaissances privées stables. Seuls les éléments actifs peuvent être injectés. La recherche lexicale reste le mode par défaut ; Zvec peut être activé par Project avec un repli lexical et une autorisation globale explicite.
 
-| Niveau | Rôle |
-| --- | --- |
-| L1 | Activité récente, progression, réponses et erreurs ; capacité et TTL limités |
-| L2 | Épisodes, décisions et échecs consolidés pendant l'inactivité ; preuves et confiance cumulatives |
-| L3 | Connaissances stables promues automatiquement selon le seuil de preuves ou manuellement |
+Il n'existe pas d'Agent de rêve central. À la fin d'une tâche ou pendant une période d'inactivité, chaque Agent exécute séparément une maintenance limitée à ses propres événements. Les exécutions sont enregistrées dans `maintenance_runs` et diffusées via `agent.memory_maintenance.*`. L'ancien chemin `dream_runs` n'est conservé que pour la migration et les tests de compatibilité.
 
-Le mode rêve ne s'exécute que si aucun prompt n'est actif et si aucune tâche n'est en attente, en cours, bloquée ou en review. Il consolide un nombre borné d'événements, promeut L2 vers L3, expire L2 et nettoie L1. Un nouveau travail demande son annulation.
+API principales : `GET /memory/overview`, `GET /memory`, `POST /memory/maintenance` avec `{ "agentId": "..." }`, `POST /memory/:id/promote`, `POST /memory/:id/confirm` et `POST /memory/:id/forget`.
 
-Les payloads bruts ne sont pas stockés. Le texte utile est limité à 4 000 caractères et les formes courantes de clés, tokens et secrets sont masquées. Admin consulte L2/L3 pour le projet ; un Leader ne consulte que sa mémoire.
+Desktop affiche l'entrée mémoire pour tout Agent interne sélectionné, y compris les Workers. L'utilisateur local peut consulter et administrer chaque propriétaire, tandis que les Agents eux-mêmes ne peuvent lire que leur propre mémoire.
 
-API : `GET /memory/overview`, `GET /memory`, `POST /memory/dream`, `POST /memory/:id/promote`, `POST /memory/:id/forget`.
+Les connaissances partagées sont distinctes de la mémoire privée. Elles proviennent de fichiers de projet ou d'équipe révisés, ainsi que de fichiers importés par l'utilisateur, puis sont découpées et vectorisées dans la même base SQLite et le même pipeline sémantique/Zvec. Voir la documentation chinoise `knowledge-architecture.md` pour le contrat complet.
 
-Desktop affiche une icône cerveau pour Admin et Leader. La boîte de dialogue présente L1/L2/L3, les preuves, sources, confiance, activité et exécutions du mode rêve ; elle permet la promotion et l'oubli. Cette entrée n'apparaît pas pour un Worker.
-
-La recherche actuelle est déterministe (recouvrement lexical, importance, confiance et ancienneté). Les embeddings, le graphe temporel et le réflecteur LLM sont des évolutions possibles, pas des dépendances actuelles.
-
-Validation : `pnpm test:memory`, `pnpm exec tsc --noEmit`, `pnpm run build`, `pnpm --filter desktop run build`.
+Validation : `pnpm test:memory`, `pnpm exec tsc --noEmit`, `pnpm run build`, `pnpm --filter ./desktop run build`.

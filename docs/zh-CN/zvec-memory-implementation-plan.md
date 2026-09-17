@@ -94,7 +94,7 @@ M13 已实现统一 `MemoryActor/MemoryPolicy`。Admin 读取当前项目的 pro
 
 M14 已实现 Desktop「全局设置 → 记忆管理」和服务端 `MemoryOperations` 门面。页面按 Project 汇总检索回退、Embedding/collection identity、active pointer、pending/dead letter、完整度、磁盘估算、后台进度、retrieval trace 与访问审计；重建、继续、激活和回滚采用后台 job，并由前后端双重确认。重建在服务端检查保守磁盘预算，暂停在 batch 边界生效。已引用 Embedding Profile 禁止原地修改或删除，Desktop 会区分显式引用、继承全局默认和显式禁用的 Project 并预览影响。页面和 API 不返回 secret、完整 prompt 或 vector，现有 Agent 页面交互保持不变。详见 [M14 运行手册](./memory-desktop-operations-m14.md)。
 
-M15 已完成发布实现与默认值评审。Windows Desktop 从不兼容的 ia32 改为 x64，CI 覆盖 macOS arm64、Windows x64、Linux x64/arm64 并执行真实 packaged smoke；受支持的 binding 作为精确 optional dependency 固定。跨 Project 重建增加 `~/.oat/locks` 跨进程租约，峰值磁盘预算纳入 sibling collection、索引放大和 25% 临时空间。新增带 SQLite integrity/SHA-256/Project 校验的在线备份与停机恢复命令，恢复时保留旧数据库并隔离 Zvec 派生目录。发布检查固化版本、许可证、架构和 asar 约束。由于签名/公证和各生产 Profile 的项目级评测仍需外部证据，评审结论是保持 lexical 默认与 Zvec opt-in。详见 [M15 发布评审](./memory-release-m15.md)。
+M15 已完成发布实现与默认值评审。Windows Desktop 从不兼容的 ia32 改为 x64；当前 CI 只构建 macOS arm64 与 Windows x64 App，不构建 Linux App。受支持的 binding 作为精确 optional dependency 固定。跨 Project 重建增加 `~/.oat/locks` 跨进程租约，峰值磁盘预算纳入 sibling collection、索引放大和 25% 临时空间。新增带 SQLite integrity/SHA-256/Project 校验的在线备份与停机恢复命令，恢复时保留旧数据库并隔离 Zvec 派生目录。发布检查固化版本、许可证、架构和 asar 约束。由于签名/公证和各生产 Profile 的项目级评测仍需外部证据，评审结论是保持 lexical 默认与 Zvec opt-in。详见 [M15 发布评审](./memory-release-m15.md)。
 
 ## 3. 当前实现基线
 

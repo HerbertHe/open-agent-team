@@ -92,6 +92,7 @@ export class ResourceSupervisor {
   private promptTail: Promise<unknown> = Promise.resolve();
   private lastAssistantText = '';
   private latestProposalId?: string;
+  private streamListener?: (event: Record<string, unknown>) => void;
   private readonly proposals = new Map<string, ResourceProposal>();
 
   constructor(private readonly host: ResourceSupervisorHost, private readonly conversationKey = 'desktop') {}
@@ -226,6 +227,7 @@ export class ResourceSupervisor {
       resourceLoader: loader,
     });
     created.session.subscribe((event: Record<string, unknown>) => {
+      this.streamListener?.(event);
       if (event.type !== 'message_end') return;
       const text = textOfAssistant(event.message);
       if (text) this.lastAssistantText = text;
@@ -247,13 +249,15 @@ export class ResourceSupervisor {
     await this.createSession(model);
   }
 
-  async send(text: string): Promise<ResourceAgentReply> {
+  async send(text: string, onEvent?: (event: Record<string, unknown>) => void): Promise<ResourceAgentReply> {
     const run = async (): Promise<ResourceAgentReply> => {
       await this.appendHistory(ConversationMessageRoleEnum.User, text);
       await this.ensureSession();
       this.latestProposalId = undefined;
       this.lastAssistantText = '';
-      await this.session!.prompt(text);
+      this.streamListener = onEvent;
+      try { await this.session!.prompt(text); }
+      finally { this.streamListener = undefined; }
       const reply: ResourceAgentReply = {
         text: this.lastAssistantText || '资源主管已完成处理，但模型没有返回可显示的汇报。',
         status: this.latestProposalId ? ResourceOperationStatusEnum.WaitingConfirmation : ResourceOperationStatusEnum.Completed,

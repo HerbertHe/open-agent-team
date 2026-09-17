@@ -81,6 +81,7 @@ test("M08 executes Dense, Jieba FTS and exact routes with application-side autho
   const adminId = addMemory(repository, "admin", "未绑定的微信通道账号默认交由智能体资源主管处理。", "2026-09-08T01:00:00.000Z");
   const alphaId = addMemory(repository, "alpha-lead", "Worker 完成任务后先向 Leader 汇报。", "2026-09-08T02:00:00.000Z");
   const betaId = addMemory(repository, "beta-lead", "Orion 团队使用隔离的私有部署凭据。", "2026-09-08T03:00:00.000Z");
+  const workerId = addMemory(repository, "alpha-worker-0", "Worker 私有记忆包含星云发布步骤。", "2026-09-08T04:00:00.000Z");
   const raw = new Database(file);
   raw.prepare("UPDATE memory_items SET scope='team', team_id='alpha' WHERE id=?").run(alphaId);
   raw.prepare("UPDATE memory_items SET scope='team', team_id='beta' WHERE id=?").run(betaId);
@@ -96,9 +97,9 @@ test("M08 executes Dense, Jieba FTS and exact routes with application-side autho
   const index = await ZvecMemoryIndex.create({ layout, manifest, workerHost: host });
   context.after(async () => { await index.close(); await host.dispose(); repository.close(); rmSync(root, { recursive: true, force: true }); });
   repository.registerIndexTarget({ collectionRevision: manifest.collectionRevision, projectId, embeddingRevision: manifest.embeddingRevision, state: "building", path: `collections/${manifest.collectionRevision}`, documentCount: 0, createdAt: manifest.createdAt });
-  assert.equal(repository.enqueueIndexBackfill(manifest.collectionRevision, "2026-09-10T00:00:00.000Z"), 3);
+  assert.equal(repository.enqueueIndexBackfill(manifest.collectionRevision, "2026-09-10T00:00:00.000Z"), 4);
   const writer = new MemoryIndexWorker({ repository, index, embeddingProvider: provider, workerId: "m08-writer", now: () => new Date("2026-09-10T01:00:00.000Z") });
-  assert.equal((await writer.runOnce()).indexed, 3);
+  assert.equal((await writer.runOnce()).indexed, 4);
 
   const shadow = new ZvecShadowMemoryIndex({ projectId, repository, index, mode: "hybrid", embeddingProvider: provider, maxResults: 8, now: () => new Date("2026-09-10T02:00:00.000Z") });
   const admin = await shadow.search({ agentId: "admin", globalScope: true, query: "api_key=top-secret 微信通道 资源主管", limit: 30 });
@@ -115,6 +116,10 @@ test("M08 executes Dense, Jieba FTS and exact routes with application-side autho
   audit = repository.listRetrievalRuns(1)[0]!;
   assert.equal(audit.candidateIds.includes(betaId), false);
   assert.equal(audit.selectedIds.includes(betaId), false);
+
+  const worker = await shadow.search({ agentId: "alpha-worker-0", globalScope: false, query: "星云发布步骤", limit: 30 });
+  assert.equal(worker?.some(({ id }) => id === workerId), true);
+  assert.equal(worker?.some(({ id }) => id === alphaId), false);
 
   const injected = await shadow.search({ agentId: "alpha-lead' OR scope = 'team", globalScope: true, query: "Orion 私有部署凭据", limit: 30 });
   assert.equal(injected?.some(({ id }) => id === betaId) ?? false, false);

@@ -1,6 +1,8 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ForwardRefExoticComponent, type SVGProps } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ForwardRefExoticComponent, type ReactNode, type SVGProps } from 'react';
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { IpcTaskTransport, ResourceAgentTransport, type ChatTarget } from './chat-transport';
 import { shouldSubmitOnDoubleNewline } from './chat-composer';
 import { useI18n, type Language } from './i18n';
@@ -29,10 +31,13 @@ import IconBrain from '~icons/lucide/brain';
 import IconSparkles from '~icons/lucide/sparkles';
 import IconScrollText from '~icons/lucide/scroll-text';
 import IconCable from '~icons/lucide/cable';
+import IconBookOpen from '~icons/lucide/book-open';
+import IconLibrary from '~icons/lucide/library';
 import { ManagementWorkspace, NativeFeatureWorkspace, OperationsWorkspace } from './FeatureWorkspaces';
 import { HiveProjectMark } from './hive-brand';
 import { HiveStatusView } from './HiveStatusView';
 import { MemoryManagementWorkspace } from './MemoryManagementWorkspace';
+import { KnowledgeManagementWorkspace } from './KnowledgeManagementWorkspace';
 import {
   ConversationMessageRoleEnum,
   ResourceOperationStatusEnum,
@@ -44,8 +49,10 @@ import { ChannelConnectionStatusEnum, type ChannelAccountStatus } from '../../sh
 
 type Agent = Project['agents'][number];
 type DeliveryReport = { id: string; taskId: string; agentId: string; recipientAgentId?: string; role: 'leader' | 'worker'; stage: 'review_submitted' | 'release_submitted'; summary: string; createdAt: string; reviewId?: string; reviewStatus?: string; reviewedAt?: string; reviewer?: string; reviewNote?: string; releaseProposalId?: string; branch?: string; changedFiles?: string[]; tests?: Array<{ command: string; status: string; evidencePath?: string }>; artifactPaths?: string[] };
-type Task = { id: string; targetAgentId: string; createdBy?: string; parentTaskId?: string; prompt: string; status: string; createdAt?: string; startedAt?: string; updatedAt?: string; completedAt?: string; lastProgress?: { stage?: string; message: string; at: string }; deliveryReports?: DeliveryReport[] };
-type ObservabilityEvent = { ts: string; source: 'orchestrator' | 'pi'; type: string; agentId?: string; payload?: Record<string, unknown> };
+type KnowledgeReference = { documentId: string; sourceId: string; chunkId: string; path: string; title: string; visibility: 'team' | 'project' | 'restricted'; teamId?: string; contentHash: string; heading?: string; lineStart?: number; lineEnd?: number; score?: number };
+type Task = { id: string; targetAgentId: string; createdBy?: string; parentTaskId?: string; prompt: string; status: string; createdAt?: string; startedAt?: string; updatedAt?: string; completedAt?: string; lastProgress?: { stage?: string; message: string; at: string }; memoryReferences?: string[]; knowledgeReferences?: KnowledgeReference[]; deliveryReports?: DeliveryReport[] };
+type RunStreamMetadata = { schemaVersion: 1; kind: string; taskId?: string; runId: string; turnId: string; messageId?: string; blockIndex?: number; seq: number };
+type ObservabilityEvent = { ts: string; eventId?: string; seq?: number; source: 'orchestrator' | 'pi'; type: string; agentId?: string; stream?: RunStreamMetadata; payload?: Record<string, unknown> };
 type GlobalConfig = { resource_agent?: { model?: string }; logRetentionDays?: number; channelBindings?: Array<{ id: string; channelId: string; accountId: string; target: string; projectName?: string; targetAgentId?: string; enabled: boolean }> };
 type GlobalModels = { models?: Record<string, string> };
 type WorkspaceEntry = { name: string; path: string; type: 'directory' | 'file' };
@@ -53,9 +60,9 @@ type WorkspaceDirectory = { kind: 'directory'; path: string; entries: WorkspaceE
 type WorkspaceFile = { kind: 'file'; path: string; size: number; content: string; binary?: boolean; truncated?: boolean };
 type MemoryLevel = 'L1' | 'L2' | 'L3';
 type MemoryRecord = { id: string; projectId: string; agentId: string; teamId?: string; level: MemoryLevel; kind: string; content: string; summary: string; confidence: number; salience: number; evidenceCount: number; independentEvidenceCount?: number; sourceEventIds: string[]; sources?: Array<{ eventId: string; agentId?: string; role: string; eventType: string; createdAt: string }>; status: string; contradictionIds?: string[]; supersedesId?: string; governanceVersion?: string; confirmedAt?: string; confirmedBy?: string; createdAt: string; updatedAt: string; lastConfirmedAt: string };
-type DreamRun = { id: string; status: string; trigger: string; startedAt: string; completedAt?: string; processedEvents: number; createdL2: number; promotedL3: number; error?: string };
+type MemoryMaintenanceRun = { id: string; status: string; trigger: string; agentId: string; startedAt?: string; completedAt?: string; proposedMutations: number; appliedMutations: number; rejectedMutations: number; error?: string };
 type MemoryRetrievalStatus = { mode: 'lexical' | 'shadow' | 'active'; configuredBackend: 'lexical' | 'zvec_fts' | 'zvec_hybrid'; effectiveBackend: 'lexical' | 'zvec_fts' | 'zvec_hybrid'; rolloutEnabled: boolean; circuitState: 'closed' | 'open' | 'half_open'; consecutiveFailures: number; fallbackCount: number; maxPromptTokens: number; lastFallbackReason?: string; lastFallbackAt?: string; lastSuccessAt?: string; circuitOpenUntil?: string };
-type MemoryOverview = { enabled: boolean; counts: Record<MemoryLevel, number>; pendingEvents: number; lastDream?: DreamRun; runningDream?: DreamRun; lastActivityAt?: string; retrieval?: MemoryRetrievalStatus };
+type MemoryOverview = { enabled: boolean; counts: Record<MemoryLevel, number>; pendingEvents: number; lastMaintenance?: MemoryMaintenanceRun; runningMaintenance?: MemoryMaintenanceRun; lastActivityAt?: string; retrieval?: MemoryRetrievalStatus };
 type TeamConfig = { model?: string; models?: Record<string, string>; runtime?: { mode?: 'local_process' | 'docker'; docker?: { image?: string; network?: 'none' | 'bridge' | 'host'; extra_args?: string[] }; persistence?: { state_dir?: string } }; workspace?: { git?: { remote?: string; remote_url?: string; user_name?: string; user_email?: string; push_enabled?: boolean } }; admin?: { name?: string; description?: string; model?: string }; teams?: Array<{ name: string; leader?: { name?: string; description?: string; model?: string; repos?: string[]; skills?: Array<{ names?: string[] }> }; worker?: { total?: number; model?: string; extra_skills?: Array<{ names?: string[] }> } }> };
 type GitAgentStatus = { agentId: string; role: string; workspacePath: string; branch?: string; headCommit?: string; headSubject?: string; dirty: boolean; ahead: number; behind: number; mergedIntoBase: boolean; error?: string };
 type GitStatus = { repository: { path: string; baseBranch: string; headCommit?: string; remote?: string; remoteUrl?: string; pushEnabled: boolean; userName?: string; userEmail?: string; identityValid: boolean }; agents: GitAgentStatus[]; reviews: Array<{ id: string; workerId: string; leaderId: string; status: string; mergeCommit?: string }>; releases: Array<{ id: string; leaderId: string; status: string; mergeCommit?: string; pushedAt?: string; pushedRemote?: string }> };
@@ -66,7 +73,7 @@ type DockerStatus = { installed: boolean; daemonRunning: boolean; available: boo
 type LogSummary = { agents: Array<{ agentId: string; files: number; bytes: number; oldestAt?: string; newestAt?: string }>; files: number; bytes: number; retentionDays: number; cleaned?: number; errors?: Array<{ file: string; error: string }> };
 type Workspace = 'chat' | 'resource-agent' | 'tasks' | 'monitor' | 'docker' | 'usage' | 'achievements' | 'config' | 'resources' | 'plugins' | 'settings';
 type DesktopPresentationMode = 'classic' | 'hive';
-type GlobalSettingsSection = 'general' | 'models' | 'memory' | 'channels' | 'logs';
+type GlobalSettingsSection = 'general' | 'models' | 'memory' | 'knowledge' | 'channels' | 'logs';
 
 const workspaceGroups: Array<[string, Workspace[]]> = [
   ['workspace.operate', ['tasks', 'monitor', 'docker']], ['workspace.insights', ['usage', 'achievements']], ['workspace.configure', ['config', 'resources', 'plugins', 'settings']],
@@ -103,8 +110,25 @@ function isAdminAgent(agent: Agent) { return agent.role.toLowerCase().includes('
 function isLeaderAgent(agent: Agent) { return /(?:^|[-_\s])(?:lead|leader)(?:$|[-_\s])|leader/i.test(agent.role); }
 function isWorkerAgent(agent: Agent) { return agent.role.toLowerCase().includes('worker'); }
 function messageText(message: UIMessage) { return message.parts.filter((part) => part.type === 'text').map((part) => part.text).join(''); }
+function messageReasoning(message: UIMessage) { return message.parts.filter((part) => part.type === 'reasoning').map((part) => part.text).join(''); }
+function record(value: unknown): Record<string, unknown> | undefined { return value && typeof value === 'object' ? value as Record<string, unknown> : undefined; }
+function MarkdownContent({ children, className = '' }: { children: string; className?: string }) {
+  return <div className={`stream-markdown ${className}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children: linkChildren, ...props }) => <a {...props} target="_blank" rel="noreferrer">{linkChildren}</a> }}>{children}</ReactMarkdown></div>;
+}
+function ConversationScroller({ version, children }: { version: string | number; children: ReactNode }) {
+  const viewport = useRef<HTMLDivElement>(null); const following = useRef(true); const [unread, setUnread] = useState(0);
+  const scrollToLatest = useCallback(() => { const element = viewport.current; if (!element) return; element.scrollTop = element.scrollHeight; following.current = true; setUnread(0); }, []);
+  useLayoutEffect(() => {
+    const element = viewport.current; if (!element) return;
+    if (following.current) scrollToLatest(); else setUnread((count) => count + 1);
+  }, [version, scrollToLatest]);
+  return <div className="conversation-scroll-shell"><div ref={viewport} className="oat-scrollbar conversation-scroll-viewport" onScroll={() => { const element = viewport.current; if (!element) return; following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 72; if (following.current) setUnread(0); }}>{children}</div>{unread > 0 && <button type="button" className="conversation-new-content" onClick={scrollToLatest}>{unread} ↓</button>}</div>;
+}
 function eventText(event: ObservabilityEvent) {
   const payload = event.payload ?? {};
+  const assistantEvent = record(record(payload.piEvent)?.assistantMessageEvent);
+  if (typeof assistantEvent?.delta === 'string') return assistantEvent.delta;
+  if (typeof assistantEvent?.content === 'string') return assistantEvent.content;
   if (typeof payload.message === 'string') return payload.message;
   if (typeof payload.line === 'string') return payload.line;
   if (typeof payload.error === 'string') return payload.error;
@@ -124,13 +148,81 @@ function taskFromEvent(event: ObservabilityEvent): Task | undefined {
   return typeof task.id === 'string' && typeof task.targetAgentId === 'string' && typeof task.prompt === 'string' && typeof task.status === 'string' ? task as Task : undefined;
 }
 function eventTaskId(event: ObservabilityEvent) {
+  if (event.stream?.taskId) return event.stream.taskId;
   const task = taskFromEvent(event);
   if (task) return task.id;
   return typeof event.payload?.taskId === 'string' ? event.payload.taskId : undefined;
 }
+
+function streamedRun(events: ObservabilityEvent[]) {
+  const text = new Map<string, string>(); const reasoning = new Map<string, string>(); const messageOrder: string[] = [];
+  let currentMessage = 'message:legacy'; let streaming = false;
+  const ensureMessage = (messageId?: string) => {
+    const id = messageId || currentMessage;
+    currentMessage = id;
+    if (!messageOrder.includes(id)) messageOrder.push(id);
+    return id;
+  };
+  for (const event of events) {
+    const piEvent = record(event.payload?.piEvent); const assistantEvent = record(piEvent?.assistantMessageEvent);
+    if (event.stream?.kind === 'message.started') { ensureMessage(event.stream.messageId); streaming = true; }
+    const messageId = ensureMessage(event.stream?.messageId);
+    const blockIndex = event.stream?.blockIndex ?? (typeof assistantEvent?.contentIndex === 'number' ? assistantEvent.contentIndex : 0);
+    const key = `${messageId}:${blockIndex}`;
+    const legacyKind = assistantEvent?.type === 'text_delta' ? 'content.delta' : assistantEvent?.type === 'text_end' ? 'content.block.completed' : assistantEvent?.type === 'thinking_delta' ? 'reasoning.delta' : assistantEvent?.type === 'thinking_end' ? 'reasoning.completed' : undefined;
+    const kind = event.stream?.kind ?? legacyKind;
+    if (kind === 'content.delta' && typeof assistantEvent?.delta === 'string') text.set(key, (text.get(key) ?? '') + assistantEvent.delta);
+    else if (kind === 'content.block.completed' && typeof assistantEvent?.content === 'string') text.set(key, assistantEvent.content);
+    else if (kind === 'reasoning.delta' && typeof assistantEvent?.delta === 'string') reasoning.set(key, (reasoning.get(key) ?? '') + assistantEvent.delta);
+    else if (kind === 'reasoning.completed' && typeof assistantEvent?.content === 'string') reasoning.set(key, assistantEvent.content);
+    if (event.type === 'pi.message_end') {
+      const message = record(piEvent?.message);
+      if (message?.role === 'assistant' && Array.isArray(message.content)) {
+        message.content.forEach((part, index) => {
+          const content = record(part); const snapshotKey = `${messageId}:${index}`;
+          if (content?.type === 'text' && typeof content.text === 'string') text.set(snapshotKey, content.text);
+          if (content?.type === 'thinking' && typeof content.thinking === 'string' && content.redacted !== true) reasoning.set(snapshotKey, content.thinking);
+        });
+      }
+      streaming = false;
+    }
+  }
+  const valuesFor = (blocks: Map<string, string>) => messageOrder.flatMap((messageId) => [...blocks.entries()].filter(([key]) => key.startsWith(`${messageId}:`)).sort(([a], [b]) => Number(a.split(':').at(-1)) - Number(b.split(':').at(-1))).map(([, value]) => value)).filter(Boolean);
+  return { markdown: valuesFor(text).join('\n\n'), reasoning: valuesFor(reasoning).join('\n\n'), streaming };
+}
+function referencedMemories(events: ObservabilityEvent[]): string[] {
+  const seen = new Set<string>(); const references: string[] = [];
+  for (const event of events) {
+    if (event.type !== 'memory.context.injected' || !Array.isArray(event.payload?.references)) continue;
+    for (const reference of event.payload.references) {
+      if (typeof reference !== 'string' || !reference.trim() || seen.has(reference)) continue;
+      seen.add(reference); references.push(reference);
+    }
+  }
+  return references;
+}
+function referencedKnowledge(events: ObservabilityEvent[]): KnowledgeReference[] {
+  const references = new Map<string, KnowledgeReference>();
+  for (const event of events) {
+    if (event.type !== 'knowledge.context.injected' || !Array.isArray(event.payload?.references)) continue;
+    for (const value of event.payload.references) {
+      const reference = record(value) as KnowledgeReference | undefined;
+      if (!reference || typeof reference.documentId !== 'string' || typeof reference.path !== 'string') continue;
+      references.set(reference.documentId, reference);
+    }
+  }
+  return [...references.values()];
+}
 // Project and Agent names are user data. Keep their emoji and other Unicode
 // characters intact; Iconify is only for application controls and decoration.
 function displayName(value: string | null | undefined) { return (value || '').trim() || 'Untitled project'; }
+function storedAgentSelection(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem('oat.desktop.selected-agents') || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+  } catch { return {}; }
+}
 type StatusTone = 'available' | 'busy' | 'reporting' | 'waiting' | 'danger' | 'neutral';
 const statusDotClass: Record<StatusTone, string> = {
   available: 'bg-[var(--status-available)]',
@@ -139,6 +231,10 @@ const statusDotClass: Record<StatusTone, string> = {
   waiting: 'bg-[var(--status-waiting)]',
   danger: 'bg-[var(--status-danger)]',
   neutral: 'bg-[var(--status-neutral)]',
+};
+const statusColor: Record<StatusTone, string> = {
+  available: 'var(--status-available)', busy: 'var(--status-busy)', reporting: 'var(--status-reporting)',
+  waiting: 'var(--status-waiting)', danger: 'var(--status-danger)', neutral: 'var(--status-neutral)',
 };
 function agentStatusTone(status: string, busy = false): StatusTone {
   if (status === 'failed' || status === 'error') return 'danger';
@@ -164,12 +260,12 @@ function MarqueeText({ value, className = '' }: { value: string; className?: str
   }, [value]);
   return <span ref={viewport} className={`marquee ${distance ? 'is-overflowing' : ''} ${className}`} style={{ '--marquee-distance': `${distance}px` } as CSSProperties}><span ref={content} className="marquee-content">{value}</span></span>;
 }
-function AgentTreeRow({ member, selected, tone, thinking, nested = false, onSelect }: { member: Agent; selected: boolean; tone: StatusTone; thinking: boolean; nested?: boolean; onSelect(): void }) {
+function AgentTreeRow({ member, selected, tone, thinking, statusLabel, subtitle, onSelect }: { member: Agent; selected: boolean; tone: StatusTone; thinking: boolean; statusLabel: string; subtitle: string; onSelect(): void }) {
   const isAdmin = isAdminAgent(member);
-  const classicTone = isAdmin ? 'border-amber-300 bg-amber-50 text-oat-ink hover:bg-amber-100' : selected ? 'border-transparent bg-stone-100 text-oat-ink' : 'border-transparent hover:bg-stone-50';
-  return <button type="button" onClick={onSelect} className={`${nested ? 'w-full' : 'ml-2 w-[calc(100%-0.5rem)]'} mt-1 flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-body leading-5 ${classicTone}`}>
-    {thinking ? <IconLoader className="h-3 w-3 shrink-0 animate-spin text-[var(--status-busy)]" /> : <i className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClass[tone]}`} />}
-    <MarqueeText value={displayName(member.label || member.id)} className="min-w-0 flex-1" />
+  return <button type="button" aria-current={selected ? 'page' : undefined} aria-label={`${displayName(member.label || member.id)} · ${statusLabel}`} title={statusLabel} onClick={onSelect} style={{ '--agent-status-color': statusColor[tone] } as CSSProperties} className={`agent-tree-row status-${tone} ${selected ? 'is-selected' : ''} relative mt-1 grid w-full grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 overflow-hidden rounded-lg border border-transparent px-2 py-1.5 text-left leading-4`}>
+    <span className="grid h-6 w-6 place-items-center rounded-md bg-stone-100 text-micro font-semibold text-stone-500">{isAdmin ? 'A' : member.role.toLowerCase().includes('leader') ? 'L' : 'W'}</span>
+    <span className="min-w-0"><MarqueeText value={displayName(member.label || member.id)} className="text-body font-medium" /><small className="block truncate text-micro text-stone-400">{subtitle}</small></span>
+    {thinking && <IconLoader className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--status-busy)]" />}
   </button>;
 }
 type IconComponent = ForwardRefExoticComponent<SVGProps<SVGSVGElement> & { title?: string }>;
@@ -185,7 +281,7 @@ function PresentationModeSwitch({ mode, onChange }: { mode: DesktopPresentationM
 
 export function App() {
   const { t } = useI18n();
-  const [projects, setProjects] = useState<Project[]>([]); const [projectName, setProjectName] = useState<string>(); const [config, setConfig] = useState<TeamConfig>(); const [agentId, setAgentId] = useState<string>(); const [workspace, setWorkspace] = useState<Workspace>('chat');
+  const [projects, setProjects] = useState<Project[]>([]); const [projectName, setProjectName] = useState<string | undefined>(() => localStorage.getItem('oat.desktop.selected-project') || undefined); const [config, setConfig] = useState<TeamConfig>(); const [agentSelection, setAgentSelection] = useState<Record<string, string>>(storedAgentSelection); const [workspace, setWorkspace] = useState<Workspace>('chat');
   const [resourcesOpen, setResourcesOpen] = useState(true); const [detailsOpen, setDetailsOpen] = useState(true); const [prompt, setPrompt] = useState(''); const [runtime, setRuntime] = useState<RuntimeStatus>(); const [agentTasks, setAgentTasks] = useState<Task[]>([]); const [projectTasks, setProjectTasks] = useState<Task[]>([]); const [agentEvents, setAgentEvents] = useState<ObservabilityEvent[]>([]); const [resourceModel, setResourceModel] = useState(''); const [globalModelChoices, setGlobalModelChoices] = useState<string[]>([]); const [resourceModelSaving, setResourceModelSaving] = useState(false);
   const [modelSaving, setModelSaving] = useState(false); const [gitSettingsOpen, setGitSettingsOpen] = useState(false); const [workspaceBrowserOpen, setWorkspaceBrowserOpen] = useState(false); const [memoryOpen, setMemoryOpen] = useState(false);
   const [resourceReply, setResourceReply] = useState<ResourceAgentReply>();
@@ -196,7 +292,8 @@ export function App() {
   const hiveMode = presentationMode === 'hive';
   const project = projects.find((item) => item.name === projectName) ?? projects[0];
   const agents = useMemo(() => configuredAgents(project, config), [project, config]);
-  const agent = agents.find((item) => item.id === agentId) ?? agents[0];
+  const selectedAgentId = project?.name ? agentSelection[project.name] : undefined;
+  const agent = agents.find((item) => item.id === selectedAgentId) ?? agents.find(isAdminAgent) ?? agents[0];
   const showDetails = detailsOpen && (workspace === 'chat' || workspace === 'resource-agent');
   const workspaceColumns = `${resourcesOpen ? '268px ' : ''}minmax(0, 1fr)${showDetails ? ' 390px' : ''}`;
   const isAdmin = Boolean(agent?.role.toLowerCase().includes('admin'));
@@ -208,6 +305,8 @@ export function App() {
   const projectChatBusy = status === 'submitted' || status === 'streaming';
   const resourceChatBusy = resourceChat.status === 'submitted' || resourceChat.status === 'streaming';
   useEffect(() => { localStorage.setItem('oat.desktop.presentation-mode', presentationMode); }, [presentationMode]);
+  useEffect(() => { if (project?.name) localStorage.setItem('oat.desktop.selected-project', project.name); }, [project?.name]);
+  useEffect(() => { localStorage.setItem('oat.desktop.selected-agents', JSON.stringify(agentSelection)); }, [agentSelection]);
   useEffect(() => {
     let active = true;
     void window.oatDesktop.getResourceAgentHistory().then((history: ResourceHistoryMessage[]) => {
@@ -226,8 +325,7 @@ export function App() {
     setProjects(nextProjects); setRuntime(nextRuntime); setResourceModel(globalConfig.resource_agent?.model ?? ''); setChannelBindings(globalConfig.channelBindings ?? []); setChannelStatuses(nextChannelStatuses); setGlobalModelChoices(Object.keys(globalModels.models ?? {}).sort()); setProjectName((selected) => selected && nextProjects.some((item) => item.name === selected) ? selected : nextProjects[0]?.name);
   }, []);
   useEffect(() => { void refresh(); const interval = window.setInterval(() => void refresh(), 12_000); return () => window.clearInterval(interval); }, [refresh]);
-  useEffect(() => { if (!project?.name) { setConfig(undefined); return; } void requestControl<TeamConfig>(`/api/projects/${encodeURIComponent(project.name)}/config`).then(setConfig).catch(() => setConfig(undefined)); }, [project?.name]);
-  useEffect(() => { setAgentId(undefined); }, [project?.name]);
+  useEffect(() => { setConfig(undefined); if (!project?.name) return; void requestControl<TeamConfig>(`/api/projects/${encodeURIComponent(project.name)}/config`).then(setConfig).catch(() => setConfig(undefined)); }, [project?.name]);
   useEffect(() => {
     if (!project?.name || !project.alive || !agent?.id) { setAgentTasks([]); setProjectTasks([]); return; }
     let active = true;
@@ -239,6 +337,18 @@ export function App() {
     setAgentEvents([]);
     if (!project?.name || !project.alive || !agent?.id) return;
     let active = true;
+    let frame: number | undefined;
+    const pendingEvents: ObservabilityEvent[] = [];
+    const flushEvents = () => {
+      frame = undefined;
+      const batch = pendingEvents.splice(0);
+      if (!batch.length) return;
+      setAgentEvents((events) => {
+        const known = new Set(events.map((item) => item.eventId).filter(Boolean));
+        const unique = batch.filter((item) => { if (!item.eventId || !known.has(item.eventId)) { if (item.eventId) known.add(item.eventId); return true; } return false; });
+        return [...events, ...unique].slice(-1500);
+      });
+    };
     const unsubscribe = window.oatDesktop.onObservabilityEvent(({ projectName: eventProject, event }) => {
       if (!active || eventProject !== project.name || !event || typeof event !== 'object') return;
       const next = event as ObservabilityEvent;
@@ -250,13 +360,11 @@ export function App() {
         setAgentTasks((tasks) => taskId ? tasks.filter((task) => task.id !== taskId) : tasks.filter((task) => task.status === 'queued' || task.status === 'running'));
         void refresh();
       }
-      setAgentEvents((events) => {
-        const updated = next.type === 'pi.message_update' ? [...events.filter((item) => item.type !== 'pi.message_update'), next] : [...events, next];
-        return updated.slice(-80);
-      });
+      pendingEvents.push(next);
+      if (frame === undefined) frame = window.requestAnimationFrame(flushEvents);
     });
     void window.oatDesktop.subscribeObservability(project.name);
-    return () => { active = false; unsubscribe(); void window.oatDesktop.unsubscribeObservability(); };
+    return () => { active = false; if (frame !== undefined) window.cancelAnimationFrame(frame); unsubscribe(); void window.oatDesktop.unsubscribeObservability(); };
   }, [project?.name, project?.alive, agent?.id, refresh]);
   const submit = (event: React.FormEvent) => { event.preventDefault(); const value = prompt.trim(); if (!value) return; setPrompt(''); void sendMessage({ text: value }); };
   const reorderAdminQueue = async (taskIds: string[]) => {
@@ -303,8 +411,23 @@ export function App() {
     setResourceReply(reply);
     await refresh();
   };
-  return <div className="desktop-shell flex min-h-screen flex-col bg-oat-canvas text-oat-ink"><header className={`app-drag flex h-11 shrink-0 items-center border-b pl-20 pr-3 ${hiveMode ? 'hive-mode-header' : 'border-oat-line bg-white/90'}`}><div className="flex min-w-0 flex-1 items-center gap-1">{!hiveMode && <IconButton label={resourcesOpen ? t('header.collapseResources') : t('header.showResources')} icon="leftPanel" onClick={() => setResourcesOpen((open) => !open)} />}<IconButton label={t('header.refresh')} icon="refresh" onClick={() => void refresh()} /><span className="ml-2 truncate text-xs font-medium">{hiveMode ? `${t('hive.liveTitle')} · ${displayName(project?.projectName || project?.name)}` : workspace === 'resource-agent' ? t('resource.agent') : displayName(project?.projectName || project?.name)}</span></div><div className="flex items-center gap-1"><PresentationModeSwitch mode={presentationMode} onChange={setPresentationMode} />{!hiveMode && <><IconButton label={t('workspace.tasks')} icon="tasks" onClick={() => setWorkspace('tasks')} /><IconButton label={t('workspace.monitor')} icon="activity" onClick={() => setWorkspace('monitor')} /><IconButton label={t('workspace.docker')} icon="docker" onClick={() => setWorkspace('docker')} />{agent && (isAdminAgent(agent) || isLeaderAgent(agent)) && <IconButton label={t('memory.open')} icon="memory" onClick={() => setMemoryOpen(true)} />}{agent && <IconButton label={t('workspaceFiles.open')} icon="workspace" onClick={() => setWorkspaceBrowserOpen(true)} />}<IconButton label={t('git.configure')} icon="git" onClick={() => setGitSettingsOpen(true)} /><IconButton label={t('workspace.config')} icon="settings" onClick={() => setWorkspace('config')} />{(workspace === 'chat' || workspace === 'resource-agent') && <IconButton label={detailsOpen ? t('header.collapseDetails') : t('header.showDetails')} icon="rightPanel" onClick={() => setDetailsOpen((open) => !open)} />}</>}</div></header>
-  {hiveMode ? <HiveStatusView project={project} agents={agents} tasks={projectTasks} selectedAgentId={agent?.id} resourceBusy={resourceChatBusy} onSelectAgent={setAgentId} /> : <div className="desktop-grid grid min-h-0 flex-1" style={{ gridTemplateColumns: workspaceColumns }}>
+  const projectChannels = channelBindings.filter((binding) => binding.enabled && binding.projectName === project?.name);
+  const projectChannelStatuses = projectChannels.map((binding) => channelStatuses.find((status) => status.channelId === binding.channelId && status.accountId === binding.accountId)?.status ?? ChannelConnectionStatusEnum.NotConfigured);
+  const channelIndicator = projectChannelStatuses.some((value) => value === ChannelConnectionStatusEnum.Error) ? 'text-red-600 hover:bg-red-50' : projectChannelStatuses.length > 0 && projectChannelStatuses.every((value) => value === ChannelConnectionStatusEnum.Connected) ? 'text-emerald-600 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50';
+  const admins = agents.filter(isAdminAgent); const leaders = agents.filter(isLeaderAgent); const workers = agents.filter(isWorkerAgent);
+  const leaderTeams = new Set(leaders.map(teamOf));
+  const orphanWorkers = workers.filter((member) => !leaderTeams.has(teamOf(member)));
+  const otherMembers = agents.filter((member) => !isAdminAgent(member) && !isLeaderAgent(member) && !isWorkerAgent(member));
+  const selectAgent = (member: Agent) => { if (!project?.name) return; setAgentSelection((current) => ({ ...current, [project.name]: member.id })); setWorkspace('chat'); };
+  const row = (member: Agent) => {
+    const memberTask = projectTasks.find((task) => task.targetAgentId === member.id && ['running', 'review_pending', 'waiting', 'queued'].includes(task.status));
+    const tone = memberTask ? taskStatusTone(memberTask.status) : agentStatusTone(member.status);
+    const statusKey = tone === 'danger' ? 'status.attention' : tone === 'neutral' ? 'status.offline' : `status.${tone}`;
+    return <AgentTreeRow key={member.id} member={member} selected={workspace !== 'resource-agent' && agent?.id === member.id} tone={tone} statusLabel={t(statusKey)} subtitle={isAdminAgent(member) ? t('agent.inbox') : isLeaderAgent(member) ? t('sidebar.leader') : t('sidebar.worker')} thinking={projectChatBusy && member.id === agent?.id} onSelect={() => selectAgent(member)} />;
+  };
+  const headerContext = hiveMode ? `${t('hive.liveTitle')} · ${displayName(project?.projectName || project?.name)}` : workspace === 'resource-agent' ? t('resource.agent') : workspace === 'chat' && agent ? `${displayName(project?.projectName || project?.name)} · ${displayName(agent.label || agent.id)}` : displayName(project?.projectName || project?.name);
+  return <div className="desktop-shell flex min-h-screen flex-col bg-oat-canvas text-oat-ink"><header className={`app-drag flex h-11 shrink-0 items-center border-b pl-20 pr-3 ${hiveMode ? 'hive-mode-header' : 'border-oat-line bg-white/90'}`}><div className="flex min-w-0 flex-1 items-center gap-1">{!hiveMode && <IconButton label={resourcesOpen ? t('header.collapseResources') : t('header.showResources')} icon="leftPanel" onClick={() => setResourcesOpen((open) => !open)} />}<IconButton label={t('header.refresh')} icon="refresh" onClick={() => void refresh()} /><span className="ml-2 truncate text-xs font-medium">{headerContext}</span></div><div className="flex items-center gap-1"><PresentationModeSwitch mode={presentationMode} onChange={setPresentationMode} />{!hiveMode && <><IconButton label={t('workspace.tasks')} icon="tasks" onClick={() => setWorkspace('tasks')} /><IconButton label={t('workspace.monitor')} icon="activity" onClick={() => setWorkspace('monitor')} /><IconButton label={t('workspace.docker')} icon="docker" onClick={() => setWorkspace('docker')} />{agent && <IconButton label={t('memory.open')} icon="memory" onClick={() => setMemoryOpen(true)} />}{agent && <IconButton label={t('workspaceFiles.open')} icon="workspace" onClick={() => setWorkspaceBrowserOpen(true)} />}<IconButton label={t('git.configure')} icon="git" onClick={() => setGitSettingsOpen(true)} /><IconButton label={t('workspace.config')} icon="settings" onClick={() => setWorkspace('config')} />{(workspace === 'chat' || workspace === 'resource-agent') && <IconButton label={detailsOpen ? t('header.collapseDetails') : t('header.showDetails')} icon="rightPanel" onClick={() => setDetailsOpen((open) => !open)} />}</>}</div></header>
+  {hiveMode ? <HiveStatusView project={project} agents={agents} tasks={projectTasks} selectedAgentId={agent?.id} resourceBusy={resourceChatBusy} onSelectAgent={(id) => { if (project?.name) setAgentSelection((current) => ({ ...current, [project.name]: id })); }} /> : <div className="desktop-grid grid min-h-0 flex-1" style={{ gridTemplateColumns: workspaceColumns }}>
     <aside className={`desktop-rail flex min-h-0 flex-col overflow-hidden border-r border-oat-line bg-white ${resourcesOpen ? '' : 'hidden'}`}>
       <section className="agent-tree oat-scrollbar min-h-0 flex-1 overflow-auto p-3">
         <div className="mb-3 text-xs font-semibold tracking-normal text-stone-500">{t('resource.title')}</div>
@@ -312,51 +435,54 @@ export function App() {
           <span className={`grid h-8 w-8 place-items-center rounded-lg text-white ${workspace === 'resource-agent' ? 'bg-oat-taupe' : 'bg-oat-ink'}`}>{resourceChatBusy ? <IconLoader className="h-4 w-4 animate-spin" /> : <IconBot className="h-4 w-4" />}</span>
           <span className="min-w-0 flex-1"><strong className="block text-body font-semibold">{t('resource.agent')}</strong><small className="block truncate text-xs leading-4 text-stone-500">{resourceChatBusy ? t('resource.thinking') : t('resource.history')}</small></span>
         </button>
-        <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold tracking-normal text-stone-500"><IconFolder className="h-3.5 w-3.5" />{t('resource.projects')}</div>
-        {projects.map((item) => {
-          const projectChannels = channelBindings.filter((binding) => binding.enabled && binding.projectName === item.name);
-          const projectChannelStatuses = projectChannels.map((binding) => channelStatuses.find((status) => status.channelId === binding.channelId && status.accountId === binding.accountId)?.status ?? ChannelConnectionStatusEnum.NotConfigured);
-          const channelIndicator = projectChannelStatuses.some((status) => status === ChannelConnectionStatusEnum.Error) ? 'text-red-600 hover:bg-red-50' : projectChannelStatuses.length > 0 && projectChannelStatuses.every((status) => status === ChannelConnectionStatusEnum.Connected) ? 'text-emerald-600 hover:bg-emerald-50' : 'text-amber-600 hover:bg-amber-50';
-          const members = configuredAgents(item, item.name === project?.name ? config : undefined);
-          const admins = members.filter(isAdminAgent);
-          const leaders = members.filter(isLeaderAgent);
-          const workers = members.filter(isWorkerAgent);
-          const leaderTeams = new Set(leaders.map(teamOf));
-          const orphanWorkers = workers.filter((member) => !leaderTeams.has(teamOf(member)));
-          const otherMembers = members.filter((member) => !isAdminAgent(member) && !isLeaderAgent(member) && !isWorkerAgent(member));
-          const select = (member: Agent) => { setProjectName(item.name); setAgentId(member.id); setWorkspace('chat'); };
-          const row = (member: Agent, nested = false) => {
-            const memberTask = item.name === project?.name ? projectTasks.find((task) => task.targetAgentId === member.id && ['running', 'review_pending', 'waiting', 'queued'].includes(task.status)) : undefined;
-            const tone = memberTask ? taskStatusTone(memberTask.status) : agentStatusTone(member.status);
-            return <AgentTreeRow key={member.id} member={member} nested={nested} selected={agent?.id === member.id && project?.name === item.name} tone={tone} thinking={projectChatBusy && item.name === project?.name && member.id === agent?.id} onSelect={() => select(member)} />;
-          };
-          return <details key={item.name} open={item.name === project?.name} className="mb-2">
-            <summary onClick={() => setProjectName(item.name)} className={`rounded-lg border px-2 py-2 text-body leading-5 font-semibold ${item.name === project?.name ? 'border-stone-300 bg-stone-100' : 'border-transparent hover:bg-stone-50'}`}>
-              <IconChevronRight className="project-chevron mr-1 inline-block h-4 w-4 align-[-3px] text-stone-500" /><i className={`mr-1.5 inline-block h-2 w-2 rounded-full ${statusDotClass[item.alive ? 'available' : 'neutral']}`} />{displayName(item.projectName || item.name)}<span className="float-right flex items-center gap-1 text-xs font-normal text-stone-400">{projectChannels.length > 0 && <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setProjectName(item.name); setSettingsSection('channels'); setWorkspace('settings'); }} title={projectChannels.map((binding, index) => `${binding.channelId}/${binding.accountId}: ${projectChannelStatuses[index]}`).join('\n')} className={`inline-flex items-center gap-0.5 rounded px-1 ${channelIndicator}`}><IconCable className="h-3.5 w-3.5" />{projectChannels.length}</button>}{members.length}</span>
-            </summary>
-            {admins.map((member) => row(member))}
-            {leaders.map((leader) => {
-              const teamWorkers = workers.filter((worker) => teamOf(worker) === teamOf(leader));
-              return <div key={leader.id}>{row(leader)}{teamWorkers.length > 0 && <div className="ml-5 border-l border-stone-200 pl-1.5">{teamWorkers.map((worker) => row(worker, true))}</div>}</div>;
-            })}
-            {orphanWorkers.map((member) => row(member))}
-            {otherMembers.map((member) => row(member))}
-          </details>;
-        })}
-        {!projects.length && <p className="p-2 text-xs text-stone-500">{t('resource.noProjects')}</p>}
+        <div className="mb-2 px-1 text-micro font-bold tracking-widest text-stone-400">{t('sidebar.currentProject')}</div>
+        {projects.length ? <div className="relative mb-4 rounded-xl border border-oat-line bg-white px-2.5 py-2 shadow-sm">
+          <div className="flex items-center gap-2">
+            <i className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass[project?.alive ? 'available' : 'neutral']}`} />
+            <label className="relative min-w-0 flex-1"><span className="sr-only">{t('sidebar.switchProject')}</span><select value={project?.name ?? ''} onChange={(event) => setProjectName(event.target.value)} className="w-full appearance-none truncate bg-transparent py-0.5 pr-6 text-body font-semibold outline-none">{projects.map((item) => <option key={item.name} value={item.name}>{displayName(item.projectName || item.name)}</option>)}</select><IconChevronDown className="pointer-events-none absolute right-0 top-1 h-3.5 w-3.5 text-stone-400" /></label>
+            <span className="text-micro text-stone-400">{agents.length}</span>
+            {projectChannels.length > 0 && <button type="button" onClick={() => { setSettingsSection('channels'); setWorkspace('settings'); }} title={projectChannels.map((binding, index) => `${binding.channelId}/${binding.accountId}: ${projectChannelStatuses[index]}`).join('\n')} className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-micro ${channelIndicator}`}><IconCable className="h-3.5 w-3.5" />{projectChannels.length}</button>}
+          </div>
+          <p className="mt-1 truncate pl-4 text-micro text-stone-400">{project?.alive ? t('sidebar.projectRunning') : t('status.offline')}</p>
+        </div> : <p className="p-2 text-xs text-stone-500">{t('resource.noProjects')}</p>}
+        {project && <><div className="mb-1 flex items-center justify-between px-1"><span className="text-micro font-bold tracking-widest text-stone-400">{t('sidebar.agents')}</span><span className="text-micro text-stone-400">{t('sidebar.projectScope')}</span></div>
+          <div>{admins.map((member) => row(member))}</div>
+          {leaders.map((leader) => {
+            const teamWorkers = workers.filter((worker) => teamOf(worker) === teamOf(leader));
+            return <details key={leader.id} open className="agent-team mt-2"><summary className="flex list-none items-center gap-1 rounded-md px-1 py-1 text-micro font-semibold text-stone-400 hover:bg-stone-50"><IconChevronRight className="project-chevron h-3.5 w-3.5" /><span className="min-w-0 flex-1 truncate">{teamOf(leader)}</span><span>{teamWorkers.length + 1}</span></summary><div className="ml-2 border-l border-stone-200 pl-2">{row(leader)}{teamWorkers.map((worker) => row(worker))}</div></details>;
+          })}
+          {orphanWorkers.length > 0 && <div className="mt-2">{orphanWorkers.map((member) => row(member))}</div>}
+          {otherMembers.length > 0 && <div className="mt-2">{otherMembers.map((member) => row(member))}</div>}
+        </>}
       </section>
       <div className="flex items-center justify-between border-t border-oat-line p-3 text-xs text-stone-500"><span className="flex items-center gap-2"><i className={`h-2 w-2 rounded-full ${statusDotClass[runtime?.oat.installed ? 'available' : 'busy']}`} />{runtime?.oat.installed ? t('app.ready') : t('app.setup')}</span><button type="button" onClick={() => { setSettingsSection('general'); setWorkspace('settings'); }} title={t('app.settings')} aria-label={t('app.settings')} className="grid h-7 w-7 place-items-center rounded-md text-stone-500 hover:bg-stone-100 hover:text-oat-ink"><IconCog className="h-4 w-4" /></button></div>
     </aside>
     <main className="flex min-w-0 flex-col overflow-hidden">{workspace === 'chat' ? <ChatWorkspace project={project} agent={agent} config={config} modelChoices={globalModelChoices} canMessage={isAdmin} messages={messages} tasks={projectTasks} events={agentEvents} prompt={prompt} status={status} error={error} onPrompt={setPrompt} onSubmit={submit} onStop={stop} onWorkspace={setWorkspace} onReorderQueue={reorderAdminQueue} onDeleteTask={deleteAdminTask} onConfigureModel={updateAgentModel} modelSaving={modelSaving} /> : workspace === 'resource-agent' ? <ResourceAgentWorkspace messages={resourceChat.messages} status={resourceChat.status} error={resourceChat.error} onSend={resourceChat.sendMessage} onStop={resourceChat.stop} model={resourceModel} modelChoices={globalModelChoices} onConfigureModel={updateResourceModel} modelSaving={resourceModelSaving} reply={resourceReply} onConfirmProposal={confirmResourceProposal} /> : workspace === 'tasks' || workspace === 'monitor' ? <OperationsWorkspace kind={workspace} project={project} onBack={() => setWorkspace('chat')} onProjectsChanged={refresh} /> : workspace === 'docker' ? <DockerWorkspace project={project} onBack={() => setWorkspace('chat')} /> : workspace === 'usage' || workspace === 'achievements' || workspace === 'plugins' ? <NativeFeatureWorkspace kind={workspace} project={project} projects={projects} onBack={() => setWorkspace('chat')} /> : workspace === 'settings' ? <GlobalSettingsWorkspace section={settingsSection} onSection={setSettingsSection} project={project} projects={projects} selectedTeam={agent ? teamOf(agent) : undefined} onBack={() => setWorkspace('chat')} onProjectsChanged={refresh} /> : <ManagementWorkspace kind={workspace} project={project} projects={projects} selectedTeam={agent ? teamOf(agent) : undefined} onBack={() => setWorkspace('chat')} onProjectsChanged={refresh} />}</main>
     {showDetails && <aside className="desktop-rail oat-scrollbar min-h-0 overflow-auto border-l border-oat-line bg-stone-50">{workspace === 'resource-agent' ? <ResourceAgentBadge /> : <><AgentDetails project={project} agent={agent} config={config} tasks={agentTasks} allTasks={projectTasks} onWorkspace={setWorkspace} /><GitPanel project={project} agent={agent} /><DelegatedTasks agent={agent} agents={agents} tasks={projectTasks} /></>}</aside>}
-  </div>}{workspaceBrowserOpen && project && agent && <WorkspaceBrowserDialog project={project} agent={agent} onClose={() => setWorkspaceBrowserOpen(false)} />}{memoryOpen && project && agent && <MemoryDialog project={project} agents={agents.filter((item) => isAdminAgent(item) || isLeaderAgent(item))} initialAgentId={agent.id} onClose={() => setMemoryOpen(false)} />}{gitSettingsOpen && <GitSettingsDialog project={project} onClose={() => setGitSettingsOpen(false)} />}</div>;
+  </div>}{workspaceBrowserOpen && project && agent && <WorkspaceBrowserDialog project={project} agent={agent} onClose={() => setWorkspaceBrowserOpen(false)} />}{memoryOpen && project && agent && <MemoryDialog project={project} agents={agents} initialAgentId={agent.id} onClose={() => setMemoryOpen(false)} />}{gitSettingsOpen && <GitSettingsDialog project={project} onClose={() => setGitSettingsOpen(false)} />}</div>;
 }
 
 function ResourceAgentWorkspace({ messages, status, error, onSend, onStop, model, modelChoices, onConfigureModel, modelSaving, reply, onConfirmProposal }: { messages: UIMessage[]; status: string; error?: Error; onSend(message: { text: string }): unknown; onStop(): void; model: string; modelChoices: string[]; onConfigureModel(model: string): void; modelSaving: boolean; reply?: ResourceAgentReply; onConfirmProposal(proposalId: string): Promise<void> }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const submit = (event: React.FormEvent) => { event.preventDefault(); const text = draft.trim(); if (!text) return; setDraft(''); void onSend({ text }); };
-  return <><div className="oat-scrollbar flex flex-1 flex-col gap-3 overflow-auto px-[clamp(1.25rem,7vw,6rem)] py-8">{messages.length ? messages.map((message) => <article key={message.id} className={`chat-bubble max-w-[44rem] rounded-xl border border-oat-line bg-white p-3 text-sm ${message.role === 'user' ? 'self-end bg-stone-100' : ''}`}>{message.role !== 'user' && <small className="text-micro text-stone-500">{t('resource.agent')}</small>}<p className={message.role === 'user' ? 'whitespace-pre-wrap' : 'mt-1 whitespace-pre-wrap'}>{messageText(message)}</p></article>) : <div className="m-auto max-w-lg text-center text-stone-500"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-oat-ink text-white"><IconBot className="h-6 w-6" /></span><h2 className="mt-4 text-xl font-semibold text-oat-ink">{t('resource.historyTitle')}</h2><p className="mt-2">{t('resource.historyText')}</p></div>}{reply?.proposalId && reply.status === ResourceOperationStatusEnum.WaitingConfirmation && <article className="max-w-[44rem] rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm"><strong>{t('resource.confirmProposal')}</strong><p className="mt-2 text-stone-600">{t('resource.confirmProposalHint')}</p><button type="button" onClick={() => void onConfirmProposal(reply.proposalId!)} className="mt-3 rounded-lg bg-oat-ink px-3 py-2 text-xs font-semibold text-white">{t('resource.applyProposal')}</button></article>}{reply && reply.requiredAction !== ResourceRequiredActionEnum.None && <article className="max-w-[44rem] rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">{reply.text}</article>}{error && <p className="max-w-[44rem] rounded-lg bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}</div><ChatComposer value={draft} onChange={setDraft} onSubmit={submit} placeholder={t('resource.placeholder')} busy={status === 'submitted' || status === 'streaming'} onStop={onStop} model={model} modelChoices={modelChoices} onConfigureModel={onConfigureModel} modelSaving={modelSaving} /></>;
+  const lastMessage = messages.at(-1); const streaming = status === 'streaming' || status === 'submitted';
+  return <>
+    <ConversationScroller version={`${messages.length}:${lastMessage ? messageText(lastMessage).length + messageReasoning(lastMessage).length : 0}`}>
+      {messages.length ? messages.map((message) => {
+        const reasoning = messageReasoning(message);
+        return <article key={message.id} className={`chat-bubble max-w-[44rem] rounded-xl border border-oat-line bg-white p-3 text-sm ${message.role === 'user' ? 'self-end bg-stone-100' : ''}`}>
+          {message.role !== 'user' && <small className="text-micro text-stone-500">{t('resource.agent')}</small>}
+          {reasoning && <details className="reasoning-stream my-2 group" open={streaming && message === lastMessage}><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><IconBrain className="h-3.5 w-3.5 shrink-0" /><span>{t('chat.modelReasoning')}</span>{streaming && message === lastMessage && <small>{t('chat.live')}</small>}</summary><div className="mt-2 pl-5"><MarkdownContent>{reasoning}</MarkdownContent></div></details>}
+          {message.role === 'user' ? <p className="whitespace-pre-wrap">{messageText(message)}</p> : <MarkdownContent className="mt-1">{messageText(message)}</MarkdownContent>}
+        </article>;
+      }) : <div className="m-auto max-w-lg text-center text-stone-500"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-oat-ink text-white"><IconBot className="h-6 w-6" /></span><h2 className="mt-4 text-xl font-semibold text-oat-ink">{t('resource.historyTitle')}</h2><p className="mt-2">{t('resource.historyText')}</p></div>}
+      {reply?.proposalId && reply.status === ResourceOperationStatusEnum.WaitingConfirmation && <article className="max-w-[44rem] rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm"><strong>{t('resource.confirmProposal')}</strong><p className="mt-2 text-stone-600">{t('resource.confirmProposalHint')}</p><button type="button" onClick={() => void onConfirmProposal(reply.proposalId!)} className="mt-3 rounded-lg bg-oat-ink px-3 py-2 text-xs font-semibold text-white">{t('resource.applyProposal')}</button></article>}
+      {reply && reply.requiredAction !== ResourceRequiredActionEnum.None && <article className="max-w-[44rem] rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">{reply.text}</article>}
+      {error && <p className="max-w-[44rem] rounded-lg bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}
+    </ConversationScroller>
+    <ChatComposer value={draft} onChange={setDraft} onSubmit={submit} placeholder={t('resource.placeholder')} busy={streaming} onStop={onStop} model={model} modelChoices={modelChoices} onConfigureModel={onConfigureModel} modelSaving={modelSaving} />
+  </>;
 }
 
 function ChatComposer({ value, onChange, onSubmit, placeholder, busy, disabled = false, submitOnDoubleNewline = false, onStop, model, modelChoices = [], onConfigureModel, modelSaving = false }: { value: string; onChange(value: string): void; onSubmit(event: React.FormEvent): void; placeholder: string; busy: boolean; disabled?: boolean; submitOnDoubleNewline?: boolean; onStop?(): void; model?: string; modelChoices?: string[]; onConfigureModel?(model: string): void; modelSaving?: boolean }) {
@@ -438,16 +564,22 @@ function ChatWorkspace({ project, agent, config, modelChoices, canMessage, messa
     });
   };
   const agentName = (agentId: string) => project?.agents.find((item) => item.id === agentId)?.label || agentId;
-  return <><div className="oat-scrollbar flex flex-1 flex-col gap-4 overflow-auto px-[clamp(1.25rem,7vw,6rem)] py-8">{taskHistory.length ? taskHistory.map((task) => <Fragment key={task.id}><article className="chat-bubble self-end max-w-[44rem] rounded-xl border border-oat-line bg-stone-100 p-3 text-sm"><p className="whitespace-pre-wrap">{task.prompt}</p></article><AgentRun task={task} events={eventsForTask(task)} agentName={agentName} operatorFacing={canMessage} /></Fragment>) : !unmatchedMessages.length && <div className="m-auto text-center"><img src="/logo.svg" className="mx-auto h-12 w-12" /><h2 className="mt-4 text-lg font-semibold text-oat-ink">{canMessage ? t('chat.startAdmin') : t('chat.report')}</h2></div>}{unmatchedMessages.map((message) => <article key={message.id} className={`chat-bubble max-w-[44rem] rounded-xl border border-oat-line bg-white p-3 text-sm ${message.role === 'user' ? 'self-end bg-stone-100' : ''}`}>{message.role !== 'user' && <small className="text-micro text-stone-500">{t('chat.team')}</small>}<p className={message.role === 'user' ? 'whitespace-pre-wrap' : 'mt-1 whitespace-pre-wrap'}>{messageText(message)}</p></article>)}{error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}</div>{canMessage && <ChatComposer value={prompt} onChange={onPrompt} onSubmit={onSubmit} placeholder={t('chat.messageAdmin')} disabled={!project?.alive || !agent} busy={status === 'submitted' || status === 'streaming'} submitOnDoubleNewline onStop={onStop} model={currentModel} modelChoices={modelChoices} onConfigureModel={onConfigureModel} modelSaving={modelSaving} />}</>;
+  return <><ConversationScroller version={`${events.length}:${messages.length}:${tasks.map((task) => task.updatedAt).join(',')}`}>{taskHistory.length ? taskHistory.map((task) => <Fragment key={task.id}><article className="chat-bubble self-end max-w-[44rem] rounded-xl border border-oat-line bg-stone-100 p-3 text-sm"><p className="whitespace-pre-wrap">{task.prompt}</p></article><AgentRun task={task} events={eventsForTask(task)} agentName={agentName} operatorFacing={canMessage} /></Fragment>) : !unmatchedMessages.length && <div className="m-auto text-center"><img src="/logo.svg" className="mx-auto h-12 w-12" /><h2 className="mt-4 text-lg font-semibold text-oat-ink">{canMessage ? t('chat.startAdmin') : t('chat.report')}</h2></div>}{unmatchedMessages.map((message) => <article key={message.id} className={`chat-bubble max-w-[44rem] rounded-xl border border-oat-line bg-white p-3 text-sm ${message.role === 'user' ? 'self-end bg-stone-100' : ''}`}>{message.role !== 'user' && <small className="text-micro text-stone-500">{t('chat.team')}</small>}{message.role === 'user' ? <p className="whitespace-pre-wrap">{messageText(message)}</p> : <MarkdownContent className="mt-1">{messageText(message)}</MarkdownContent>}</article>)}{error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}</ConversationScroller>{canMessage && <ChatComposer value={prompt} onChange={onPrompt} onSubmit={onSubmit} placeholder={t('chat.messageAdmin')} disabled={!project?.alive || !agent} busy={status === 'submitted' || status === 'streaming'} submitOnDoubleNewline onStop={onStop} model={currentModel} modelChoices={modelChoices} onConfigureModel={onConfigureModel} modelSaving={modelSaving} />}</>;
 }
 
 function DeliveryReportChain({ reports, agentName }: { reports: DeliveryReport[]; agentName: (agentId: string) => string }) {
   const { t } = useI18n();
   if (!reports.length) return null;
-  const orderedReports = reports.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return <details className="delivery-report-chain mt-4 group">
-    <summary><IconChevronRight /> <span>{t('chat.internalReportChain')}</span><small>{reports.length} {t('chat.handoffs')}</small></summary>
-    <ol>{orderedReports.map((report) => {
+  const grouped = new Map<string, { report: DeliveryReport; revisions: number }>();
+  for (const report of reports.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    const key = report.releaseProposalId || report.reviewId || report.id;
+    const previous = grouped.get(key);
+    grouped.set(key, { report, revisions: (previous?.revisions ?? 0) + 1 });
+  }
+  const currentReports = [...grouped.values()];
+  const leaders = currentReports.filter(({ report }) => report.role === 'leader');
+  const workers = currentReports.filter(({ report }) => report.role === 'worker');
+  const renderReport = ({ report, revisions }: { report: DeliveryReport; revisions: number }, children?: ReactNode) => {
       const isLeader = report.role === 'leader';
       const reference = report.releaseProposalId || report.reviewId;
       const evidenceCount = (report.changedFiles?.length ?? 0) + (report.tests?.length ?? 0) + (report.artifactPaths?.length ?? 0);
@@ -455,8 +587,8 @@ function DeliveryReportChain({ reports, agentName }: { reports: DeliveryReport[]
       return <li key={report.id} className={isLeader ? 'is-leader' : 'is-worker'}>
         <i aria-hidden="true">{isLeader ? 'L' : 'W'}</i>
         <div className="delivery-report-content">
-          <header><strong>{agentName(report.agentId)}</strong><span>→</span><b>{report.recipientAgentId ? agentName(report.recipientAgentId) : isLeader ? t('chat.adminRole') : t('chat.leaderRole')}</b><small className={`report-review-state ${report.reviewStatus === 'changes_requested' || report.reviewStatus === 'rejected' ? 'is-rejected' : report.reviewStatus === 'merged' || isLeader ? 'is-approved' : 'is-reporting'}`}>{reportState}</small><time>{new Date(report.createdAt).toLocaleString()}</time></header>
-          <p>{report.summary || t(isLeader ? 'chat.leaderReportDefault' : 'chat.workerReportDefault')}</p>
+          <header><strong>{agentName(report.agentId)}</strong><span>→</span><b>{report.recipientAgentId ? agentName(report.recipientAgentId) : isLeader ? t('chat.adminRole') : t('chat.leaderRole')}</b>{revisions > 1 && <small className="report-revision">v{revisions}</small>}<small className={`report-review-state ${report.reviewStatus === 'changes_requested' || report.reviewStatus === 'rejected' ? 'is-rejected' : report.reviewStatus === 'merged' || isLeader ? 'is-approved' : 'is-reporting'}`}>{reportState}</small><time>{new Date(report.createdAt).toLocaleString()}</time></header>
+          <MarkdownContent className="delivery-report-summary">{report.summary || t(isLeader ? 'chat.leaderReportDefault' : 'chat.workerReportDefault')}</MarkdownContent>
           {report.reviewNote && <p className="report-review-note"><strong>{t('chat.leaderReview')}</strong>{report.reviewNote}</p>}
           {(reference || report.branch || evidenceCount > 0) && <details className="delivery-report-evidence group/evidence"><summary><IconChevronRight />{t('chat.deliveryEvidence')}{evidenceCount > 0 ? ` · ${evidenceCount}` : ''}</summary><div>
             {reference && <p><span>{isLeader ? t('chat.releaseProposal') : t('chat.reviewRequest')}</span><code title={reference}>{reference}</code></p>}
@@ -466,17 +598,34 @@ function DeliveryReportChain({ reports, agentName }: { reports: DeliveryReport[]
             {!!report.artifactPaths?.length && <section><strong>{t('chat.artifacts')} · {report.artifactPaths.length}</strong>{report.artifactPaths.map((artifact) => <code key={artifact}>{artifact}</code>)}</section>}
           </div></details>}
         </div>
+        {children}
       </li>;
-    })}</ol>
+  };
+  const unattachedWorkers = workers.filter(({ report }) => !leaders.some(({ report: leader }) => report.recipientAgentId === leader.agentId));
+  const testCount = currentReports.reduce((count, { report }) => count + (report.tests?.filter((test) => test.status === 'passed').length ?? 0), 0);
+  const artifactCount = currentReports.reduce((count, { report }) => count + (report.artifactPaths?.length ?? 0), 0);
+  return <details className="delivery-report-chain mt-4 group">
+    <summary><IconChevronRight /> <span>{t('chat.internalReportChain')}</span><small>{currentReports.length} {t('chat.handoffs')} · {testCount} {t('chat.testsPassed')} · {artifactCount} {t('chat.artifacts')}</small></summary>
+    <ol>{leaders.map((leader) => renderReport(leader, workers.some(({ report }) => report.recipientAgentId === leader.report.agentId) ? <ol className="delivery-report-children">{workers.filter(({ report }) => report.recipientAgentId === leader.report.agentId).map((worker) => renderReport(worker))}</ol> : undefined))}{unattachedWorkers.map((worker) => renderReport(worker))}</ol>
   </details>;
 }
 
 function AgentRun({ events, task, agentName, operatorFacing }: { events: ObservabilityEvent[]; task: Task; agentName: (agentId: string) => string; operatorFacing: boolean }) {
   const { t } = useI18n();
   const [now, setNow] = useState(() => Date.now());
-  const reply = [...events].reverse().find((event) => event.type === 'report_progress' && ['user_response', 'done'].includes(String(event.payload?.stage)) && typeof event.payload?.message === 'string');
-  const processEvents = events.filter((event) => event.type === 'report_progress' || event.type === 'pi.message_update' || event.type === 'pi.process.log' || event.type === 'pi.local.log' || event.type.startsWith('task.') || event.type.startsWith('pi.command.'));
-  const latestThought = [...processEvents].reverse().find((event) => event !== reply);
+  const stream = streamedRun(events);
+  const memoryReferences = [...new Set([...(task.memoryReferences ?? []), ...referencedMemories(events)])];
+  const knowledgeReferences = [...new Map([...(task.knowledgeReferences ?? []), ...referencedKnowledge(events)].map((reference) => [reference.documentId, reference])).values()];
+  const reversedEvents = [...events].reverse();
+  const reply = reversedEvents.find((event) => event.type === 'report_progress' && event.payload?.stage === 'user_response' && typeof event.payload?.message === 'string')
+    ?? reversedEvents.find((event) => event.type === 'report_progress' && event.payload?.stage === 'done' && typeof event.payload?.message === 'string');
+  const replyText = typeof reply?.payload?.message === 'string' ? reply.payload.message : stream.markdown;
+  // message_update contains token-level text, reasoning and tool-call JSON
+  // deltas. Those are merged by streamedRun and must never appear as one row
+  // per token in the activity timeline. Only actual tool execution lifecycle
+  // events belong here.
+  const processEvents = events.filter((event) => event.type === 'report_progress' || event.type === 'pi.process.log' || event.type === 'pi.local.log' || event.type.startsWith('task.') || event.type.startsWith('pi.command.') || event.type.startsWith('pi.tool_execution_'));
+  const latestActivity = [...processEvents].reverse().find((event) => event !== reply);
   const startedAt = task.startedAt ?? task.createdAt ?? processEvents[0]?.ts;
   const running = ['running', 'queued', 'waiting', 'review_pending'].includes(task.status);
   const finishedAt = task.completedAt ?? task.updatedAt;
@@ -497,7 +646,15 @@ function AgentRun({ events, task, agentName, operatorFacing }: { events: Observa
   };
   const runTone = task.status === 'review_pending' ? 'reporting' : running ? 'busy' : task.status === 'failed' ? 'danger' : 'available';
   const runLabel = task.status === 'review_pending' ? t('status.reporting') : running ? t('chat.processing') : t('chat.processed');
-  return <section className="mx-auto w-full max-w-3xl text-sm"><div className="flex items-center gap-2 border-b border-oat-line pb-2 text-xs text-stone-500"><i className={`h-2 w-2 rounded-full ${statusDotClass[runTone]}`} />{runLabel} {formatElapsed(elapsed)}</div>{reply && (operatorFacing ? <article className="admin-final-report mt-4"><header><i>A</i><strong>{t('chat.adminRole')}</strong><span>→</span><b>{t('chat.userRole')}</b><small>{t('chat.adminFinalReport')}</small></header><p>{reply.payload?.message as string}</p></article> : <article className="mt-4"><p className="whitespace-pre-wrap leading-6 text-oat-ink">{reply.payload?.message as string}</p></article>)}<DeliveryReportChain reports={task.deliveryReports ?? []} agentName={agentName} /><details className="mt-4 group"><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><span className="shrink-0">{t('chat.thinking')}</span>{latestThought && <span className="min-w-0 truncate text-stone-400"><span className="mr-1.5 font-medium text-stone-500">{eventSourceName(latestThought)} · {eventStage(latestThought)}</span>{eventText(latestThought)}</span>}</summary><div className="mt-2 space-y-1.5 pl-5 text-xs leading-5 text-stone-500">{processEvents.slice(-8).map((event, index) => <p key={`${event.ts}:${event.type}:${index}`} className="flex min-w-0 items-center gap-2"><span className="shrink-0 text-stone-400">↳</span><span className={`shrink-0 rounded px-1.5 py-0.5 text-micro font-medium ${event.source === 'pi' ? 'bg-blue-50 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>{eventSourceName(event)}</span><span className="max-w-36 shrink-0 truncate text-micro text-stone-400" title={event.type}>{eventStage(event)}</span><span className="min-w-0 truncate">{eventText(event)}</span></p>)}</div></details></section>;
+  return <section className="mx-auto w-full max-w-3xl text-sm">
+    <div className="flex items-center gap-2 border-b border-oat-line pb-2 text-xs text-stone-500"><i className={`h-2 w-2 rounded-full ${statusDotClass[runTone]}`} />{runLabel} {formatElapsed(elapsed)}</div>
+    {!!knowledgeReferences.length && <details className="knowledge-reference-stream mt-4 group"><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><IconLibrary className="h-3.5 w-3.5 shrink-0" /><span>{t('chat.referenceKnowledge')}</span><small>{knowledgeReferences.length}</small></summary><ol className="mt-2 space-y-1 pl-5 text-xs text-stone-600">{knowledgeReferences.map((reference) => <li key={reference.documentId} className="knowledge-reference-item"><strong>{reference.title}</strong><code>{reference.path}{reference.lineStart ? `:${reference.lineStart}${reference.lineEnd && reference.lineEnd !== reference.lineStart ? `-${reference.lineEnd}` : ''}` : ''}</code>{reference.teamId && <small>{reference.teamId}</small>}</li>)}</ol></details>}
+    {!!memoryReferences.length && <details className="memory-reference-stream mt-4 group"><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><IconBookOpen className="h-3.5 w-3.5 shrink-0" /><span>{t('chat.referenceMemory')}</span><small>{memoryReferences.length}</small></summary><div className="mt-2 pl-5"><MarkdownContent>{memoryReferences.map((reference) => `- ${reference}`).join('\n')}</MarkdownContent></div></details>}
+    {stream.reasoning && <details className="reasoning-stream mt-3 group" open={running}><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><IconBrain className="h-3.5 w-3.5 shrink-0" /><span>{t('chat.modelReasoning')}</span>{stream.streaming && <small>{t('chat.live')}</small>}</summary><div className="mt-2 pl-5"><MarkdownContent>{stream.reasoning}</MarkdownContent></div></details>}
+    {!!processEvents.length && <details className="activity-stream mt-3 group"><summary className="flex min-w-0 list-none items-center gap-2 text-xs text-stone-500"><IconChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" /><IconActivity className="h-3.5 w-3.5 shrink-0" /><span className="shrink-0">{t('chat.activity')}</span>{latestActivity && <span className="min-w-0 truncate text-stone-400"><span className="mr-1.5 font-medium text-stone-500">{eventSourceName(latestActivity)} · {eventStage(latestActivity)}</span>{eventText(latestActivity)}</span>}</summary><div className="mt-2 space-y-1.5 pl-5 text-xs leading-5 text-stone-500">{processEvents.slice(-10).map((event, index) => <p key={event.eventId || `${event.ts}:${event.type}:${index}`} className="flex min-w-0 items-center gap-2"><span className="shrink-0 text-stone-400">↳</span><span className={`shrink-0 rounded px-1.5 py-0.5 text-micro font-medium ${event.source === 'pi' ? 'bg-blue-50 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>{eventSourceName(event)}</span><span className="max-w-36 shrink-0 truncate text-micro text-stone-400" title={event.type}>{eventStage(event)}</span><span className="min-w-0 truncate">{eventText(event)}</span></p>)}</div></details>}
+    <DeliveryReportChain reports={task.deliveryReports ?? []} agentName={agentName} />
+    {replyText && <article className={`mt-4 ${operatorFacing ? 'operator-final-response' : ''}`}><MarkdownContent>{replyText}</MarkdownContent>{stream.streaming && !reply && <i className="stream-caret" aria-hidden="true" />}</article>}
+  </section>;
 }
 
 function AgentDetails({ project, agent, config, tasks, allTasks, onWorkspace }: { project?: Project; agent?: Agent; config?: TeamConfig; tasks: Task[]; allTasks: Task[]; onWorkspace(workspace: Workspace): void }) {
@@ -578,7 +735,7 @@ function MemoryDialog({ project, agents, initialAgentId, onClose }: { project: P
   const [agentId, setAgentId] = useState(initialAgentId); const [level, setLevel] = useState<MemoryLevel>('L1');
   const [status, setStatus] = useState<'active' | 'candidate' | 'disputed' | 'superseded'>('active');
   const [overview, setOverview] = useState<MemoryOverview>(); const [items, setItems] = useState<MemoryRecord[]>([]);
-  const [error, setError] = useState<string>(); const [loading, setLoading] = useState(false); const [dreaming, setDreaming] = useState(false);
+  const [error, setError] = useState<string>(); const [loading, setLoading] = useState(false); const [maintaining, setMaintaining] = useState(false);
   const load = useCallback(async () => {
     if (!project.alive) return;
     setLoading(true);
@@ -597,15 +754,15 @@ function MemoryDialog({ project, agents, initialAgentId, onClose }: { project: P
     const timer = window.setInterval(() => void load(), 5_000);
     return () => window.clearInterval(timer);
   }, [load, project.alive]);
-  const dream = async () => {
-    if (dreaming) return; setDreaming(true);
+  const maintain = async () => {
+    if (maintaining) return; setMaintaining(true);
     try {
-      const run = await requestProject<DreamRun>(project.name, '/memory/dream', { method: 'POST' });
-      if (run.status === 'skipped') setError(run.error || t('memory.busy'));
+      const run = await requestProject<MemoryMaintenanceRun>(project.name, '/memory/maintenance', { method: 'POST', body: { agentId } });
+      if (run.status === 'failed' || run.status === 'cancelled') setError(run.error || t('memory.busy'));
       else setError(undefined);
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setDreaming(false); }
+    finally { setMaintaining(false); }
   };
   const forget = async (id: string) => {
     if (!window.confirm(t('memory.forgetConfirm'))) return;
@@ -615,9 +772,9 @@ function MemoryDialog({ project, agents, initialAgentId, onClose }: { project: P
   const confirmCandidate = async (id: string) => { await requestProject(project.name, `/memory/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: { confirmedBy: 'desktop-user' } }); await load(); };
   const formatTime = (value?: string) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
   return <div className="app-no-drag fixed inset-0 z-50 grid place-items-center bg-stone-950/30 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section role="dialog" aria-modal="true" aria-labelledby="memory-title" className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-oat-line bg-[#faf9f7] shadow-2xl">
-    <header className="flex items-start justify-between gap-4 border-b border-oat-line bg-white px-5 py-4"><div><div className="flex items-center gap-2"><IconBrain className="h-5 w-5 text-oat-taupe" /><h2 id="memory-title" className="text-base font-semibold">{t('memory.title')}</h2></div><p className="mt-1 text-xs text-stone-500">{t('memory.subtitle')}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => void dream()} disabled={dreaming || !project.alive} className="flex items-center gap-2 rounded-lg bg-oat-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"><IconSparkles className={`h-3.5 w-3.5 ${dreaming ? 'animate-pulse' : ''}`} />{dreaming ? t('memory.dreaming') : t('memory.dream')}</button><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-stone-500 hover:bg-stone-100" aria-label={t('docker.close')}><IconClose className="h-4 w-4" /></button></div></header>
+    <header className="flex items-start justify-between gap-4 border-b border-oat-line bg-white px-5 py-4"><div><div className="flex items-center gap-2"><IconBrain className="h-5 w-5 text-oat-taupe" /><h2 id="memory-title" className="text-base font-semibold">{t('memory.title')}</h2></div><p className="mt-1 text-xs text-stone-500">{t('memory.subtitle')}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => void maintain()} disabled={maintaining || !project.alive} className="flex items-center gap-2 rounded-lg bg-oat-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"><IconSparkles className={`h-3.5 w-3.5 ${maintaining ? 'animate-pulse' : ''}`} />{maintaining ? t('memory.dreaming') : t('memory.dream')}</button><button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-stone-500 hover:bg-stone-100" aria-label={t('docker.close')}><IconClose className="h-4 w-4" /></button></div></header>
     {!project.alive ? <div className="m-auto text-sm text-stone-500">{t('memory.startProject')}</div> : <><div className="grid grid-cols-4 gap-3 border-b border-oat-line p-4">{(['L1', 'L2', 'L3'] as MemoryLevel[]).map((item) => <button type="button" key={item} onClick={() => setLevel(item)} className={`rounded-xl border p-3 text-left ${level === item ? 'border-oat-taupe bg-white shadow-sm' : 'border-oat-line bg-white/60 hover:bg-white'}`}><span className="text-xs font-semibold">{item} · {t(`memory.${item.toLowerCase()}`)}</span><strong className="mt-2 block text-xl">{overview?.counts[item] ?? 0}</strong></button>)}<article className="rounded-xl border border-oat-line bg-white/60 p-3"><span className="text-xs font-semibold">{t('memory.pending')}</span><strong className="mt-2 block text-xl">{overview?.pendingEvents ?? 0}</strong></article></div>
-      <div className="flex min-h-0 flex-1"><aside className="w-60 shrink-0 border-r border-oat-line bg-white p-3"><label className="text-micro font-semibold text-stone-500">{t('memory.agent')}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-2 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-oat-ink">{agents.map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}</select></label><label className="mt-3 block text-micro font-semibold text-stone-500">{t('memory.status')}<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="mt-2 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-oat-ink"><option value="active">{t('memory.statusActive')}</option><option value="candidate">{t('memory.statusCandidate')}</option><option value="disputed">{t('memory.statusDisputed')}</option><option value="superseded">{t('memory.statusSuperseded')}</option></select></label>{overview?.retrieval && <section className={`mt-4 rounded-lg border p-3 text-xs ${overview.retrieval.effectiveBackend === 'lexical' && overview.retrieval.configuredBackend !== 'lexical' ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-stone-50'}`}><h3 className="font-semibold text-stone-700">{t('memory.retrieval')}</h3><dl className="mt-2 space-y-2"><div><dt className="text-stone-400">{t('memory.retrievalMode')}</dt><dd>{overview.retrieval.mode}</dd></div><div><dt className="text-stone-400">{t('memory.effectiveBackend')}</dt><dd>{overview.retrieval.effectiveBackend}</dd></div><div><dt className="text-stone-400">{t('memory.circuit')}</dt><dd>{overview.retrieval.circuitState}{overview.retrieval.consecutiveFailures ? ` · ${overview.retrieval.consecutiveFailures}` : ''}</dd></div><div><dt className="text-stone-400">{t('memory.fallbacks')}</dt><dd>{overview.retrieval.fallbackCount}</dd></div>{overview.retrieval.lastFallbackReason && <div><dt className="text-stone-400">{t('memory.lastFallback')}</dt><dd className="break-words text-amber-800">{overview.retrieval.lastFallbackReason}</dd></div>}</dl></section>}<dl className="mt-5 space-y-3 text-xs"><div><dt className="text-stone-400">{t('memory.lastActivity')}</dt><dd className="mt-1 text-stone-600">{formatTime(overview?.lastActivityAt)}</dd></div><div><dt className="text-stone-400">{t('memory.lastDream')}</dt><dd className="mt-1 text-stone-600">{overview?.lastDream ? `${overview.lastDream.status} · ${formatTime(overview.lastDream.completedAt || overview.lastDream.startedAt)}` : '—'}</dd></div>{overview?.lastDream && <div><dt className="text-stone-400">{t('memory.dreamResult')}</dt><dd className="mt-1 text-stone-600">{overview.lastDream.processedEvents} / +{overview.lastDream.createdL2} L2 / +{overview.lastDream.promotedL3} L3</dd></div>}</dl><button type="button" onClick={() => void load()} className="mt-5 flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 text-xs text-stone-600 hover:bg-stone-50"><IconRefresh className="h-3.5 w-3.5" />{t('memory.refresh')}</button></aside>
+      <div className="flex min-h-0 flex-1"><aside className="w-60 shrink-0 border-r border-oat-line bg-white p-3"><label className="text-micro font-semibold text-stone-500">{t('memory.agent')}<select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="mt-2 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-oat-ink">{agents.map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}</select></label><label className="mt-3 block text-micro font-semibold text-stone-500">{t('memory.status')}<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className="mt-2 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-oat-ink"><option value="active">{t('memory.statusActive')}</option><option value="candidate">{t('memory.statusCandidate')}</option><option value="disputed">{t('memory.statusDisputed')}</option><option value="superseded">{t('memory.statusSuperseded')}</option></select></label>{overview?.retrieval && <section className={`mt-4 rounded-lg border p-3 text-xs ${overview.retrieval.effectiveBackend === 'lexical' && overview.retrieval.configuredBackend !== 'lexical' ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-stone-50'}`}><h3 className="font-semibold text-stone-700">{t('memory.retrieval')}</h3><dl className="mt-2 space-y-2"><div><dt className="text-stone-400">{t('memory.retrievalMode')}</dt><dd>{overview.retrieval.mode}</dd></div><div><dt className="text-stone-400">{t('memory.effectiveBackend')}</dt><dd>{overview.retrieval.effectiveBackend}</dd></div><div><dt className="text-stone-400">{t('memory.circuit')}</dt><dd>{overview.retrieval.circuitState}{overview.retrieval.consecutiveFailures ? ` · ${overview.retrieval.consecutiveFailures}` : ''}</dd></div><div><dt className="text-stone-400">{t('memory.fallbacks')}</dt><dd>{overview.retrieval.fallbackCount}</dd></div>{overview.retrieval.lastFallbackReason && <div><dt className="text-stone-400">{t('memory.lastFallback')}</dt><dd className="break-words text-amber-800">{overview.retrieval.lastFallbackReason}</dd></div>}</dl></section>}<dl className="mt-5 space-y-3 text-xs"><div><dt className="text-stone-400">{t('memory.lastActivity')}</dt><dd className="mt-1 text-stone-600">{formatTime(overview?.lastActivityAt)}</dd></div><div><dt className="text-stone-400">{t('memory.lastDream')}</dt><dd className="mt-1 text-stone-600">{overview?.lastMaintenance ? `${overview.lastMaintenance.status} · ${formatTime(overview.lastMaintenance.completedAt || overview.lastMaintenance.startedAt)}` : '—'}</dd></div>{overview?.lastMaintenance && <div><dt className="text-stone-400">{t('memory.dreamResult')}</dt><dd className="mt-1 text-stone-600">{overview.lastMaintenance.proposedMutations} / {overview.lastMaintenance.appliedMutations} / {overview.lastMaintenance.rejectedMutations}</dd></div>}</dl><button type="button" onClick={() => void load()} className="mt-5 flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 text-xs text-stone-600 hover:bg-stone-50"><IconRefresh className="h-3.5 w-3.5" />{t('memory.refresh')}</button></aside>
       <main className="oat-scrollbar min-h-0 flex-1 overflow-auto p-4">
         {error && <p className="mb-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}
         {loading && !items.length ? <p className="p-4 text-sm text-stone-400">{t('loading')}</p> : items.length ? <div className="grid gap-3">{items.map((memory) => <article key={memory.id} className="rounded-xl border border-oat-line bg-white p-4 shadow-sm">
@@ -801,6 +958,7 @@ function GlobalSettingsWorkspace({ section, onSection, project, projects, select
     { id: 'general', label: t('settings.generalMenu'), description: t('settings.generalMenuHint'), icon: IconCog },
     { id: 'models', label: t('settings.modelsMenu'), description: t('settings.modelsMenuHint'), icon: IconSparkles },
     { id: 'memory', label: t('settings.memoryMenu'), description: t('settings.memoryMenuHint'), icon: IconBrain },
+    { id: 'knowledge', label: t('settings.knowledgeMenu'), description: t('settings.knowledgeMenuHint'), icon: IconLibrary },
     { id: 'channels', label: t('settings.channelsMenu'), description: t('settings.channelsMenuHint'), icon: IconCable },
     { id: 'logs', label: t('settings.logsMenu'), description: t('settings.logsMenuHint'), icon: IconScrollText },
   ];
@@ -811,7 +969,7 @@ function GlobalSettingsWorkspace({ section, onSection, project, projects, select
       <nav>{sections.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={section === item.id ? 'is-active' : ''} onClick={() => onSection(item.id)}><Icon /><span><strong>{item.label}</strong><small>{item.description}</small></span></button>; })}</nav>
     </aside>
     <div className="global-settings-content">
-      {section === 'general' || section === 'models' ? <ManagementWorkspace kind="settings" settingsPage={section} embedded project={project} projects={projects} selectedTeam={selectedTeam} onBack={onBack} onProjectsChanged={onProjectsChanged} /> : section === 'memory' ? <MemoryManagementWorkspace project={project} projects={projects} /> : section === 'channels' ? <NativeFeatureWorkspace kind="channels" embedded project={project} projects={projects} onBack={onBack} /> : <LogMaintenanceWorkspace project={project} embedded onBack={onBack} />}
+      {section === 'general' || section === 'models' ? <ManagementWorkspace kind="settings" settingsPage={section} embedded project={project} projects={projects} selectedTeam={selectedTeam} onBack={onBack} onProjectsChanged={onProjectsChanged} /> : section === 'memory' ? <MemoryManagementWorkspace project={project} projects={projects} /> : section === 'knowledge' ? <KnowledgeManagementWorkspace project={project} projects={projects} selectedTeam={selectedTeam} /> : section === 'channels' ? <NativeFeatureWorkspace kind="channels" embedded project={project} projects={projects} onBack={onBack} /> : <LogMaintenanceWorkspace project={project} embedded onBack={onBack} />}
     </div>
   </section>;
 }

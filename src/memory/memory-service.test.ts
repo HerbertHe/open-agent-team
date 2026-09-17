@@ -15,7 +15,7 @@ import type { MemoryActor } from "./types";
 
 const config: MemoryConfig = {
   enabled: true,
-  roles: ["admin", "leader"],
+  roles: ["admin", "leader", "worker"],
   retrieval: { backend: "lexical", fallback: "lexical", shadow: false, productionEnabled: false, candidateLimit: 30, maxResults: 8, maxPromptTokens: 1800, timeoutMs: 3_000, circuitBreakerFailureThreshold: 3, circuitBreakerCooldownSeconds: 60 },
   zvec: { path: "memory/zvec", index: "flat", metric: "cosine", readOnlyFallback: true, batchSize: 64, maxAttempts: 8, optimizePendingThreshold: 100_000 },
   extraction: { enabled: false, version: "m11-v1", timeoutMs: 15_000, maxInputChars: 4_000, maxOutputTokens: 800, maxFactsPerEvent: 5, maxAttempts: 3 },
@@ -30,11 +30,11 @@ function indexedMemory(id: string, summary: string): MemoryRecord {
     id, projectId: "project-test", agentId: "admin", level: "L2", kind: "decision", content: summary, summary,
     confidence: 1, salience: 1, evidenceCount: 1, sourceEventIds: [], sources: [], status: "active",
     createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z", lastConfirmedAt: "2026-09-10T00:00:00.000Z",
-    schemaVersion: 2, scope: "project", trustLevel: 100, contradictionIds: [], contentHash: id, indexState: "indexed",
+    schemaVersion: 2, scope: "private", trustLevel: 100, contradictionIds: [], contentHash: id, indexState: "indexed",
   };
 }
 
-test("consolidates Admin/Leader observations through L1, L2 and L3", async () => {
+test("consolidates each Agent's observations into owner-private L1, L2 and L3", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "oat-memory-"));
   const hub = new ObservabilityHub();
   const memory = new MemoryService("project-test", root, config, hub);
@@ -58,7 +58,8 @@ test("consolidates Admin/Leader observations through L1, L2 and L3", async () =>
     });
 
     assert.equal(memory.list({ agentId: "admin", level: "L1" }).length, 1);
-    assert.equal(memory.list({ agentId: "team-a-lead", level: "L1" }).length, 1);
+    assert.equal(memory.list({ agentId: "team-a-worker-0", level: "L1" }).length, 1);
+    assert.equal(memory.list({ agentId: "team-a-lead", level: "L1" }).length, 0);
     const dream = await memory.runDream("manual");
     assert.equal(dream.status, "completed");
     assert.equal(dream.processedEvents, 3);
@@ -66,9 +67,9 @@ test("consolidates Admin/Leader observations through L1, L2 and L3", async () =>
     assert.equal(memory.list({ agentId: "admin", level: "L2" })[0]?.independentEvidenceCount, 2);
     assert.equal(memory.list({ agentId: "admin", level: "L2" })[0]?.sources.length, 2);
     assert.equal(memory.list({ agentId: "admin", level: "L3" }).length, 1);
-    const workerMemory = memory.list({ agentId: "team-a-lead", level: "L2" })[0];
+    const workerMemory = memory.list({ agentId: "team-a-worker-0", level: "L2" })[0];
     assert.equal(workerMemory?.sources[0]?.agentId, "team-a-worker-0");
-    assert.equal(workerMemory?.sources[0]?.role, AgentRoleEnum.Leader);
+    assert.equal(workerMemory?.sources[0]?.role, AgentRoleEnum.Worker);
     assert.equal(workerMemory?.trustLevel, 80);
     const context = await memory.buildContext("admin", "project configuration");
     assert.match(context, /L3 deep memory/);
@@ -94,6 +95,45 @@ test("does not dream while project work is active", async () => {
     await memory.stop();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("runs owner-scoped Agent maintenance without consolidating another Agent's memory", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-agent-maintenance-"));
+  const hub = new ObservabilityHub();
+  const memory = new MemoryService("project-test", root, config, hub);
+  try {
+    hub.emit({ source: "orchestrator", type: "report_progress", agentId: "team-a-worker-0", role: AgentRoleEnum.Worker, payload: { message: "Worker-owned implementation observation" } });
+    hub.emit({ source: "orchestrator", type: "report_progress", agentId: "admin", role: AgentRoleEnum.Admin, payload: { message: "Admin-owned planning observation" } });
+    const run = await memory.runAgentMaintenance("team-a-worker-0", "manual");
+    assert.equal(run.status, "completed");
+    assert.equal(run.proposedMutations, 1);
+    assert.equal(run.appliedMutations, 1);
+    assert.equal(memory.list({ agentId: "team-a-worker-0", level: "L2" }).length, 1);
+    assert.equal(memory.list({ agentId: "admin", level: "L2" }).length, 0);
+    assert.equal(memory.list({ agentId: "admin", level: "L1" }).length, 1);
+    const database = new Database(path.join(root, "memory", "memory.db"), { readonly: true });
+    try {
+      const stored = database.prepare("SELECT agent_id, trigger, status FROM maintenance_runs").get();
+      assert.deepEqual(stored, { agent_id: "team-a-worker-0", trigger: "manual", status: "completed" });
+    } finally { database.close(); }
+    assert.ok(hub.snapshot().some(({ type, agentId }) => type === "agent.memory_maintenance.completed" && agentId === "team-a-worker-0"));
+  } finally { await memory.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("automatically starts Agent maintenance after task completion", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-agent-maintenance-auto-"));
+  const hub = new ObservabilityHub();
+  const memory = new MemoryService("project-test", root, config, hub);
+  try {
+    hub.emit({
+      source: "orchestrator", type: "task.completed", agentId: "team-a-worker-0", role: AgentRoleEnum.Worker,
+      payload: { task: { id: "task-auto", prompt: "Publish the result", status: "completed" } },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(memory.list({ agentId: "team-a-worker-0", level: "L2" }).length, 1);
+    assert.ok(hub.snapshot().some(({ type }) => type === "agent.memory_maintenance.started"));
+    assert.ok(hub.snapshot().some(({ type }) => type === "agent.memory_maintenance.completed"));
+  } finally { await memory.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test("M13 denies external Worker retrieval and canonical mutation while auditing both attempts", async () => {

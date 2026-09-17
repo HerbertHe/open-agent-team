@@ -1,65 +1,59 @@
-# Three-tier memory for Admin and Leader agents
+# Owner-private Agent memory and shared file knowledge
 
-> Status: implemented on 2026-08-26. This document describes current behavior.
+> Status: implemented through SQLite schema v9 and the fourth knowledge-operations batch on 2026-09-16.
 
-Memory is enabled for Admin and Leader agents. Useful Worker events belong to the matching Leader; Workers do not own an independent long-term memory. Retrieved memories are explicitly marked as fallible historical context, never as new operator instructions.
+Admin, Leader, and Worker each own an isolated three-tier memory. Worker events remain owned by the Worker; they are not assigned to the Leader. Runtime Agents can retrieve only their own memory. The trusted local user can inspect and govern records by owner.
 
-## Storage and tiers
+Shared information is a separate file-backed knowledge domain. Project knowledge lives under `knowledge/project`, team knowledge under `knowledge/teams/<teamId>`, and Desktop uploads under `knowledge/uploads`. Private memory is never automatically promoted into shared knowledge.
 
-The implementation uses local `better-sqlite3` with WAL, foreign keys, and a busy timeout. The default database is `<state_dir>/memory/memory.db`.
+## Storage and maintenance
+
+The canonical store is `<state_dir>/memory/memory.db`, using `better-sqlite3` with WAL, foreign keys, and a busy timeout.
 
 | Tier | Purpose | Lifecycle |
 | --- | --- | --- |
-| L1 | Recent tasks, progress, replies, and failures | Captured from observability events, capped per agent, deleted after its configured TTL during a dream run |
-| L2 | Consolidated decisions, episodes, and failure patterns | Created during idle consolidation; repeated content increases evidence, confidence, and salience; expired items become `superseded` |
-| L3 | Stable deep memories and procedures | Promoted when L2 evidence reaches the threshold, or manually promoted in Desktop |
+| L1 | Recent work, progress, replies, and failures | Captured per owner, bounded and TTL-pruned |
+| L2 | Governed decisions, episodes, procedures, and failure patterns | Produced only from that owner's events; candidates and disputes are not injected |
+| L3 | Stable deep memory | Promoted after evidence/governance checks or explicit user action |
 
-The current summarizer and ranker are deterministic. Retrieval combines lexical overlap, salience, confidence, and age; embeddings and a temporal graph are not current runtime dependencies. Admin can retrieve project-wide L2/L3 records. A Leader can only retrieve its own L2/L3 records. L1 is always agent-local.
+There is no central Dream Agent. Task completion and idle scheduling start an owner-scoped maintenance run for each Agent independently. Runs are recorded in `maintenance_runs` and streamed as `agent.memory_maintenance.*`. The legacy `dream_runs` path remains only for migration history and internal compatibility tests; runtime timers, HTTP, and Desktop no longer invoke project-wide consolidation.
 
-## Dream mode and safety
+## Retrieval and vector indexing
 
-Dream mode runs only after the idle delay and only when no prompt is active and no task is `queued`, `running`, `waiting`, or `review_pending`. One bounded transaction consolidates pending events, updates evidence, promotes eligible L2 records to L3, expires old L2 records, prunes old L1 records, and records an auditable result. A new task requests cancellation. Interrupted `running` records are marked `failed` at the next startup.
+Before a managed prompt, memory and shared knowledge are retrieved in parallel. Both are marked as fallible reference data, never as operator instructions.
 
-Only useful extracted text is stored, not the complete raw event payload. Common token, API-key, and secret forms are redacted, content is capped at 4,000 characters, and `memory.*` events are excluded to prevent recursion. Streaming `pi.message_update` snapshots are ignored; only a completed `pi.message_end` Assistant message is retained, and unsupported pending snapshots from an older build are cleaned up at startup. Forgetting marks a record `forgotten`; it disappears from normal retrieval and prompt injection.
+SQLite remains authoritative. Memory and knowledge share the Embedding Profile, collection revision, Semantic Outbox, retry/dead-letter behavior, rebuild/activation/rollback lifecycle, and Zvec batch optimization. Zvec candidate filters are followed by canonical SQLite authorization hydration. Lexical retrieval remains available when no active collection exists.
 
-## Configuration
-
-```json
-{
-  "memory": {
-    "enabled": true,
-    "roles": ["admin", "leader"],
-    "database": "memory/memory.db",
-    "l1": { "maxItems": 24, "completedTaskTtlHours": 48 },
-    "l2": { "maxResults": 5, "retentionDays": 180 },
-    "l3": { "maxPromptItems": 5, "minEvidence": 2 },
-    "dream": {
-      "enabled": true,
-      "idleAfterSeconds": 300,
-      "pollSeconds": 30,
-      "maxEventsPerRun": 250,
-      "cancelOnNewTask": true
-    }
-  }
-}
-```
-
-A relative database path is resolved from `state_dir`. Defaults are defined in the TypeScript types, Zod loader, and `schema/v1.json`.
+Knowledge retrieval combines lexical, Dense, and FTS routes with reciprocal-rank fusion. Structured knowledge references are persisted with the task and rendered separately in Desktop.
 
 ## API and Desktop
 
-- `GET /memory/overview`
+Memory:
+
+- `GET /memory/overview?agentId=...`
 - `GET /memory?agentId=&level=&status=&limit=`
-- `POST /memory/dream`
-- `POST /memory/:id/promote`
-- `POST /memory/:id/forget`
+- `POST /memory/maintenance` with `{ "agentId": "..." }`
+- `POST /memory/:id/confirm`, `/promote`, or `/forget`
+- the index lifecycle endpoints under `/memory/index/*`
 
-When an Admin or Leader is selected, Desktop exposes a brain icon. Its dialog displays tier counts, pending events, dream status, evidence, source Agent and event type, confidence, and salience. It refreshes every five seconds to tolerate a project-port transition, can run an idle consolidation, promote L2 to L3, and forget a record. Workers do not see the entry.
+Knowledge:
 
-Tables are `memory_events`, `memory_items`, `dream_runs`, and `memory_injections`. Prompt injections record the query and selected memory IDs for auditability.
+- `GET /knowledge/operations`
+- `POST /knowledge/uploads`, `/knowledge/scan`, and `/knowledge/sources/:id/retry`
+- `DELETE /knowledge/sources/:id` for canonical user uploads only
 
-## Validation and limitations
+Desktop exposes Agent memory for Admin, Leader, and Worker. “Settings → Shared knowledge” provides project/team upload, source and chunk status, index status, rescan, retry, and safe deletion. Workspace/Agent-produced files are read-only from this page.
 
-Run `pnpm test:memory`, `pnpm exec tsc --noEmit`, `pnpm run build`, and `pnpm --filter desktop run build`.
+## Validation
 
-The current system has no embedding index, autonomous LLM reflector, cross-project global memory, or resource-conflict knowledge graph. These can later be implemented behind the existing service/API contract. Letta, Mem0, LangGraph persistence, Graphiti, OpenMemory, and Qdrant are relevant references, but none is currently required at runtime.
+Run:
+
+```bash
+pnpm run test:memory
+pnpm exec tsc --noEmit
+pnpm --filter ./desktop run lint
+pnpm run build
+pnpm run build:desktop
+```
+
+The Chinese documentation contains the full operational detail: [memory architecture](../zh-CN/memory-architecture.md), [shared knowledge](../zh-CN/knowledge-architecture.md), and [ADR 0002](../zh-CN/adr/0002-agent-memory-file-knowledge.md).

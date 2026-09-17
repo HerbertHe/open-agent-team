@@ -115,6 +115,8 @@ export function buildAgentSystemPrompt(args: {
   description: string;
   role: AgentRoleEnum;
   promptText: string;
+  teamName?: string;
+  knowledge?: { enabled: boolean; projectRoot: string; teamsRoot: string };
 }): string {
 
   const todayPath = todayRecordsSubPath();
@@ -135,5 +137,13 @@ export function buildAgentSystemPrompt(args: {
     ].join("\n");
   })();
 
-  return `${args.promptText}${recordsHint}${changelogSystem}`;
+  const knowledgeHint = args.knowledge?.enabled ? [
+    `\n\n## Shared knowledge publishing`,
+    `- Private memory remains private to this Agent. Never copy it into shared knowledge automatically.`,
+    `- Publish deliberate, durable project knowledge as reviewed files under \`${args.knowledge.projectRoot}/\`.`,
+    ...(args.teamName ? [`- Publish durable knowledge intended only for team \`${args.teamName}\` under \`${args.knowledge.teamsRoot}/${args.teamName}/\`.`] : []),
+    `- Knowledge becomes shared only after the file is delivered into the project repository; drafts and transient reasoning do not belong there.`,
+  ].join("\n") : "";
+
+  return `${args.promptText}${recordsHint}${knowledgeHint}${changelogSystem}`;
 }

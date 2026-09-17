@@ -264,17 +264,13 @@ export function resolveMemoryExtractor(
 }
 
 export function governExtractedFacts(event: MemoryExtractionEvent, facts: MemoryExtractedFact[]): GovernedMemoryCandidate[] {
-  const maximumScope: MemoryScope = event.sourceType === "internal"
-    ? (event.role === "admin" ? "project" : "team")
-    : "private";
-  const order: MemoryScope[] = ["private", "team", "project", "global"];
-  const maximum = order.indexOf(maximumScope);
+  // Memory is agent-private. Team and project material is published through
+  // the file-backed knowledge domain instead of broadening memory scope.
+  const maximumScope: MemoryScope = "private";
   return facts.map((fact) => {
-    const requested = order.indexOf(fact.scope);
-    const scope = order[Math.min(requested < 0 ? 0 : requested, maximum)]!;
     return {
       ...fact,
-      scope,
+      scope: maximumScope,
       trustLevel: Math.max(0, Math.min(100, event.trustLevel)),
       content: `${fact.subject} ${fact.predicate} ${fact.object}`.slice(0, 2_000),
     };

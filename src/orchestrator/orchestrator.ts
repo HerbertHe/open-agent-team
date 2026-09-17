@@ -26,8 +26,10 @@ import { ChangelogManager } from "../changelog/changelog-manager";
 import { WorkspaceProviderFactory } from "../workspace/workspace-provider";
 import { TaskManager } from "./task-manager";
 import { ObservabilityHub } from "./observability-hub";
+import { RunStreamNormalizer } from "./run-stream-normalizer";
 import { UsageTracker } from "./usage-tracker";
 import { MemoryService } from "../memory/memory-service";
+import { KnowledgeService } from "../knowledge/knowledge-service";
 import { resolveMemoryExtractor } from "../memory/memory-extractor";
 import { parseGlobalModelCatalog } from "../models/global-models";
 import type { MemoryLevel, MemoryStatus } from "../memory/types";
@@ -113,6 +115,7 @@ export class Orchestrator {
   private readonly observabilityHub: ObservabilityHub;
   private readonly usageTracker: UsageTracker;
   private readonly memoryService: MemoryService;
+  private readonly knowledgeService: KnowledgeService;
   private readonly port: number;
   private readonly goal: string;
   private readonly memoryFederationToken = randomUUID();
@@ -142,6 +145,13 @@ export class Orchestrator {
     this.memoryService = new MemoryService(config.project.name, this.stateDir, config.memory, this.observabilityHub, {
       extractor: resolveMemoryExtractor(config.memory.extraction, config.providers),
     });
+    const memoryDatabasePath = config.memory.database
+      ? (path.isAbsolute(config.memory.database) ? config.memory.database : path.resolve(this.stateDir, config.memory.database))
+      : path.join(this.stateDir, "memory", "memory.db");
+    this.knowledgeService = new KnowledgeService(config.project.name, config.project.repo, memoryDatabasePath, config.knowledge, this.observabilityHub, {
+      stateDir: this.stateDir,
+      memory: config.memory,
+    });
     this.usageTracker = new UsageTracker(config.project.name, (agentId, role) => {
       let rawModel = "unknown";
       if (role === AgentRoleEnum.Admin) rawModel = config.admin.model || "unknown";
@@ -160,17 +170,19 @@ export class Orchestrator {
       return config.models?.[rawModel] || rawModel;
     });
     this.usageTracker.attach(this.observabilityHub);
+    const runStreamNormalizer = new RunStreamNormalizer();
 
     const onEvent = ({ agentId, event, role }: { agentId: string; event: { type: string }; role?: AgentRoleEnum }) => {
+        const taskId = this.taskManager?.getRunningTaskId(agentId);
         this.observabilityHub.emit(
           {
             source: "pi",
             type: `pi.${event.type}`,
             agentId,
             role,
+            stream: runStreamNormalizer.normalize(agentId, role, taskId, event as unknown as Record<string, unknown> & { type: string }),
             payload: { piEvent: event as unknown as Record<string, unknown> },
           },
-          { skipBuffer: true },
         );
         this.taskManager?.handleRuntimeEvent(agentId, event);
       };
@@ -200,6 +212,7 @@ export class Orchestrator {
       this.skillResolver,
       this.observabilityHub,
       this.memoryService,
+      this.knowledgeService,
     );
     this.memoryService.setIdleResolver(() => this.taskManager.isSystemIdle());
 
@@ -214,11 +227,54 @@ export class Orchestrator {
       }
       next();
     });
+    this.registerKnowledgeUploadRoute();
     this.app.use(express.json({ limit: "2mb" }));
     this.registerRoutes();
   }
 
+  private registerKnowledgeUploadRoute(): void {
+    const maxBytes = this.config.knowledge.ingestion.maxFileSizeMb * 1024 * 1024;
+    this.app.post("/knowledge/uploads", express.raw({ type: "application/octet-stream", limit: maxBytes }), async (req, res) => {
+      try {
+        const encodedName = req.header("x-oat-knowledge-file-name");
+        if (!encodedName) { res.status(400).json({ error: "Knowledge file name is required." }); return; }
+        let fileName: string;
+        try { fileName = decodeURIComponent(encodedName); }
+        catch { res.status(400).json({ error: "Knowledge file name is invalid." }); return; }
+        if (!Buffer.isBuffer(req.body)) { res.status(400).json({ error: "Knowledge upload must use application/octet-stream." }); return; }
+        const teamId = req.header("x-oat-knowledge-team-id")?.trim() || undefined;
+        if (teamId && !this.config.teams.some((team) => team.name === teamId)) { res.status(400).json({ error: "Knowledge upload references an unknown team." }); return; }
+        res.status(201).json(await this.knowledgeService.upload(fileName, req.body, teamId));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(/too large|between 1 byte/i.test(message) ? 413 : 400).json({ error: message });
+      }
+    });
+  }
+
   private registerRoutes(): void {
+    this.app.get("/knowledge/operations", (req, res) => {
+      try {
+        const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : 100;
+        res.json(this.knowledgeService.operationsSnapshot(Number.isFinite(limit) ? limit : 100));
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/knowledge/scan", async (_req, res) => {
+      try { await this.knowledgeService.rescan(); res.json(this.knowledgeService.operationsSnapshot()); }
+      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/knowledge/sources/:id/retry", async (req, res) => {
+      try { res.json(await this.knowledgeService.retrySource(req.params.id)); }
+      catch (error) { res.status(404).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.delete("/knowledge/sources/:id", async (req, res) => {
+      try { await this.knowledgeService.deleteUploadedSource(req.params.id); res.json({ ok: true }); }
+      catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
     this.app.get("/memory/overview", (req, res) => {
       try { res.json(this.memoryService.overview(typeof req.query.agentId === "string" ? req.query.agentId : undefined)); }
       catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -298,9 +354,12 @@ export class Orchestrator {
       }
     });
 
-    this.app.post("/memory/dream", async (_req, res) => {
-      try { res.json(await this.memoryService.runDream("manual")); }
-      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    this.app.post("/memory/maintenance", async (req, res) => {
+      try {
+        const agentId = typeof req.body?.agentId === "string" ? req.body.agentId.trim() : "";
+        if (!agentId) { res.status(400).json({ error: "Agent id is required for owner-scoped memory maintenance." }); return; }
+        res.json(await this.memoryService.runAgentMaintenance(agentId, "manual"));
+      } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
     });
 
     this.app.post("/memory/:id/forget", (req, res) => {
@@ -495,11 +554,18 @@ export class Orchestrator {
       if (typeof flush === "function") flush.call(res);
 
       const hub = this.observabilityHub;
-      for (const e of hub.snapshot()) {
-        res.write(`data: ${JSON.stringify(e)}\n\n`);
+      const cursor = typeof req.headers["last-event-id"] === "string"
+        ? req.headers["last-event-id"]
+        : typeof req.query.after === "string" ? req.query.after : undefined;
+      const writeEvent = (event: import("../types/observability").ObservabilityEvent) => {
+        if (event.eventId) res.write(`id: ${event.eventId}\n`);
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+      for (const e of hub.snapshotAfter(cursor)) {
+        writeEvent(e);
       }
       const unsub = hub.subscribe((ev) => {
-        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+        writeEvent(ev);
       });
       const ping = setInterval(() => {
         res.write(`: ping\n\n`);
@@ -1600,6 +1666,7 @@ export class Orchestrator {
     // capability readable by other local users.
     await fs.chmod(this.stateFile, 0o600);
     this.memoryService.start();
+    await this.knowledgeService.start();
 
     const adminSpec = this.buildAdminSpec();
     const leadersSpecs = this.config.teams.map((team) =>
@@ -1688,6 +1755,7 @@ export class Orchestrator {
       description: `Admin agent`,
       role: AgentRoleEnum.Admin,
       promptText: adminPromptWithGoal,
+      knowledge: { enabled: this.config.knowledge.enabled, projectRoot: this.config.knowledge.roots.project, teamsRoot: this.config.knowledge.roots.teams },
     });
 
     const adminTools = this.buildOrchestratorTools(adminSpec);
@@ -1786,6 +1854,8 @@ export class Orchestrator {
         description: `Leader agent for ${team.name}`,
         role: AgentRoleEnum.Leader,
         promptText: `${team.leader.prompt}\n\n${leaderPrompt}`,
+        teamName: team.name,
+        knowledge: { enabled: this.config.knowledge.enabled, projectRoot: this.config.knowledge.roots.project, teamsRoot: this.config.knowledge.roots.teams },
       });
 
       const leaderTools = this.buildOrchestratorTools(spec);
@@ -1905,6 +1975,7 @@ export class Orchestrator {
           });
         }
         if (this.logCleanupTimer) clearInterval(this.logCleanupTimer);
+        await this.knowledgeService.stop();
         await this.memoryService.stop();
         await this.taskManager.flushSchedulerState();
         const server = getHttpServer();

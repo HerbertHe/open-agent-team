@@ -13,7 +13,7 @@
   },
   "memory": {
     "enabled": true,
-    "roles": ["admin", "leader"],
+    "roles": ["admin", "leader", "worker"],
     "l1": { "maxItems": 24, "completedTaskTtlHours": 48 },
     "l2": { "maxResults": 5, "retentionDays": 180 },
     "l3": { "maxPromptItems": 5, "minEvidence": 2 },
@@ -24,6 +24,16 @@
       "maxEventsPerRun": 250,
       "cancelOnNewTask": true
     }
+  },
+  "knowledge": {
+    "enabled": true,
+    "roots": {
+      "project": "knowledge/project",
+      "teams": "knowledge/teams",
+      "uploads": "knowledge/uploads"
+    },
+    "watcher": { "enabled": true, "debounceMs": 1000 },
+    "ingestion": { "maxFileSizeMb": 50, "chunkTokens": 1000, "chunkOverlapTokens": 120 }
   },
   "project": {
     "name": "open-agent-team-demo",

@@ -16,7 +16,7 @@ export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 
 export interface MemoryConfig {
   enabled: boolean;
-  roles: Array<"admin" | "leader">;
+  roles: Array<"admin" | "leader" | "worker">;
   /** Explicit grants allowing selected Leaders to read project-scoped memory. */
   access?: { leaderProjectScopeTeams: string[] };
   database?: string;
@@ -76,6 +76,25 @@ export interface MemoryConfig {
   };
 }
 
+/** File-backed shared knowledge. Vectorization reuses the memory semantic profile. */
+export interface KnowledgeConfig {
+  enabled: boolean;
+  roots: {
+    project: string;
+    teams: string;
+    uploads: string;
+  };
+  watcher: {
+    enabled: boolean;
+    debounceMs: number;
+  };
+  ingestion: {
+    maxFileSizeMb: number;
+    chunkTokens: number;
+    chunkOverlapTokens: number;
+  };
+}
+
 /**
  * Admin agent 的声明式配置。
  */
@@ -120,6 +139,12 @@ export interface TeamFileConfig {
     l2?: Partial<MemoryConfig["l2"]>;
     l3?: Partial<MemoryConfig["l3"]>;
     dream?: Partial<MemoryConfig["dream"]>;
+  };
+  /** Shared knowledge roots; indexing uses memory.embeddingRef/retrieval/zvec. */
+  knowledge?: Partial<Omit<KnowledgeConfig, "roots" | "watcher" | "ingestion">> & {
+    roots?: Partial<KnowledgeConfig["roots"]>;
+    watcher?: Partial<KnowledgeConfig["watcher"]>;
+    ingestion?: Partial<KnowledgeConfig["ingestion"]>;
   };
   project: {
     /** 当前项目名称（用于日志与提示） */
@@ -179,6 +204,7 @@ export interface TeamFileConfig {
 export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace"> {
   providers: TeamFileProvidersConfig;
   memory: MemoryConfig;
+  knowledge: KnowledgeConfig;
   runtime: {
     /** 解析后的运行时模式（必填） */
     mode: RuntimeModeEnum;

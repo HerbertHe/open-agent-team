@@ -7,7 +7,7 @@ export const MEMORY_GOVERNANCE_VERSION = "m12-v1";
 export const MEMORY_SEMANTIC_DUPLICATE_THRESHOLD = 0.92;
 
 export interface MemoryCandidateGovernor {
-  govern(limit: number, minL3Evidence: number): Promise<MemoryGovernanceSummary>;
+  govern(limit: number, minL3Evidence: number, agentId?: string): Promise<MemoryGovernanceSummary>;
 }
 
 function normalize(value: unknown): string {
@@ -45,9 +45,9 @@ export class GovernedMemoryCandidates implements MemoryCandidateGovernor {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async govern(limit: number, minL3Evidence: number): Promise<MemoryGovernanceSummary> {
+  async govern(limit: number, minL3Evidence: number, agentId?: string): Promise<MemoryGovernanceSummary> {
     const bounded = Math.min(500, Math.max(1, Math.floor(limit)));
-    const memories = this.repository.listGovernanceMemories(bounded, MEMORY_GOVERNANCE_VERSION);
+    const memories = this.repository.listGovernanceMemories(bounded, MEMORY_GOVERNANCE_VERSION, agentId);
     const candidates = memories.filter((memory) => memory.status === "candidate" && memory.governanceVersion !== MEMORY_GOVERNANCE_VERSION).slice(0, bounded);
     const candidateIds = new Set(candidates.map(({ id }) => id));
     const comparison = [...candidates, ...memories.filter((memory) => !candidateIds.has(memory.id))].slice(0, 500);
@@ -132,7 +132,7 @@ export class ConfiguredMemoryCandidateGovernor implements MemoryCandidateGoverno
     return this.resolved;
   }
 
-  async govern(limit: number, minL3Evidence: number): Promise<MemoryGovernanceSummary> {
-    return (await this.resolve()).govern(limit, minL3Evidence);
+  async govern(limit: number, minL3Evidence: number, agentId?: string): Promise<MemoryGovernanceSummary> {
+    return (await this.resolve()).govern(limit, minL3Evidence, agentId);
   }
 }

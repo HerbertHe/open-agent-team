@@ -23,6 +23,7 @@
 | `runtime` | 否 | object | 见下表 | 运行时模式、状态目录 |
 | `workspace` | 否 | object | 见下表 | workspace 创建策略、根目录、git lfs/sparse-checkout 策略 |
 | `memory` | 否 | object | lexical | 记忆、检索模式和全局 Embedding Profile 引用 |
+| `knowledge` | 否 | object | 启用 | 文件共享知识根目录、监听与分块；复用 `memory` 的 Embedding/Zvec 配置 |
 
 ## 2. `project`
 
@@ -190,6 +191,22 @@ M13 权限配置：
 | `memory.access.leaderProjectScopeTeams` | `[]` | 允许列出的 Team Leader 读取当前 Project 的 `project` scope 记忆；填写 Team 名称 |
 
 Leader 默认只能读取本 Team、本人 private 和项目内 global 记忆。该配置不允许 Leader 读取其他主体的 private，也不会赋予正式 Worker、A2A 外部 Worker或资源主管 canonical 写权限。
+
+## 5.3 `knowledge` 文件共享知识
+
+| 字段 | 必填 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- | --- |
+| `knowledge.enabled` | 否 | boolean | `true` | 启用文件摄取、检索和 Desktop 知识管理 |
+| `knowledge.roots.project` | 否 | string | `knowledge/project` | 整个项目可读的知识文件目录，相对 `project.repo` |
+| `knowledge.roots.teams` | 否 | string | `knowledge/teams` | 团队知识根目录；一级子目录必须为 Team 名称 |
+| `knowledge.roots.uploads` | 否 | string | `knowledge/uploads` | Desktop 用户上传事实源目录 |
+| `knowledge.watcher.enabled` | 否 | boolean | `true` | 启用周期合并扫描 |
+| `knowledge.watcher.debounceMs` | 否 | integer | `1000` | 扫描间隔，范围 100～60000 ms |
+| `knowledge.ingestion.maxFileSizeMb` | 否 | integer | `50` | 单文件上限，范围 1～2048 MiB |
+| `knowledge.ingestion.chunkTokens` | 否 | integer | `1000` | 确定性分块的目标 token 数，范围 128～8192 |
+| `knowledge.ingestion.chunkOverlapTokens` | 否 | integer | `120` | 相邻分块 overlap，范围 0～2048 且必须小于 `chunkTokens` |
+
+三个 root 都必须位于 `project.repo` 内，运行时会 canonicalize 并拒绝路径逃逸。项目知识、团队知识和上传知识使用同一个 `memory.db`、Semantic Outbox 和 active Zvec collection；不要为知识重复配置模型或向量维度。完整行为见[文件共享知识库](./knowledge-architecture.md)。
 
 ## 6. `workspace`
 

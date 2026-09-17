@@ -27,7 +27,7 @@ function externalWorker(projectId = "project-a"): MemoryActor {
   return { id: "vendor-worker", role: "worker", employment: "external", projectId, teamId: "alpha", projectIds: [projectId] };
 }
 
-test("M13 policy separates Admin, Leader, Worker, external Worker, Resource Manager and projects", () => {
+test("M14 private memory is visible only to its owning agent and trusted user", () => {
   const policy = new DefaultMemoryPolicy();
   const records = {
     project: memory("project", "project-a", "admin", "project"),
@@ -37,12 +37,12 @@ test("M13 policy separates Admin, Leader, Worker, external Worker, Resource Mana
     privateAlpha: memory("private-alpha", "project-a", "alpha-lead", "private", "alpha"),
   };
   const visible = (actor: MemoryActor) => Object.values(records).filter((record) => policy.canRead(actor, record)).map(({ id }) => id).sort();
-  assert.deepEqual(visible(projectAgentActor("project-a", "admin", "admin")), ["alpha", "beta", "global", "project"]);
-  assert.deepEqual(visible(projectAgentActor("project-a", "alpha-lead", "leader", "internal", ["project-a"])), ["alpha", "global", "private-alpha", "project"]);
-  assert.deepEqual(visible(projectAgentActor("project-a", "beta-lead", "leader")), ["beta", "global"]);
+  assert.deepEqual(visible(projectAgentActor("project-a", "admin", "admin")), ["global", "project"]);
+  assert.deepEqual(visible(projectAgentActor("project-a", "alpha-lead", "leader", "internal", ["project-a"])), ["alpha", "private-alpha"]);
+  assert.deepEqual(visible(projectAgentActor("project-a", "beta-lead", "leader")), ["beta"]);
   assert.deepEqual(visible(projectAgentActor("project-a", "alpha-worker-0", "worker")), []);
   assert.deepEqual(visible(externalWorker()), []);
-  assert.deepEqual(visible(projectResourceManagerActor(["project-a"])), ["global", "project"]);
+  assert.deepEqual(visible(projectResourceManagerActor(["project-a"])), []);
   assert.deepEqual(visible(projectAgentActor("project-b", "admin", "admin")), []);
   assert.deepEqual(visible(projectUserActor("project-a")), Object.keys(records).map((key) => records[key as keyof typeof records].id).sort());
 });
@@ -59,17 +59,18 @@ test("M13 external A2A workers may only submit private low-trust candidates and 
   assert.equal(policy.canWriteCanonical(projectAgentActor("project-a", "alpha-lead", "leader"), memory("other-team", "project-a", "beta-lead", "team", "beta")), false);
 });
 
-test("M13 Zvec filters mirror actor scope and fail closed for workers and ungranted projects", () => {
+test("M14 Zvec filters enforce private ownership and fail closed for federation", () => {
   const resource = buildZvecMemoryAuthorizationFilter({ projectId: "project-a", actor: projectResourceManagerActor(["project-a"]), nowMs: Date.parse(now) });
-  assert.match(resource, /scope in \('project', 'global'\)/);
-  assert.doesNotMatch(resource, /'team'/);
+  assert.match(resource, /owner_agent_id = '__denied__'/);
   const leader = buildZvecMemoryAuthorizationFilter({ projectId: "project-a", actor: projectAgentActor("project-a", "alpha-lead", "leader", "internal", ["project-a"]), nowMs: Date.parse(now) });
-  assert.match(leader, /team_id = 'alpha'/);
-  assert.match(leader, /scope = 'project'/);
+  assert.match(leader, /owner_agent_id = 'alpha-lead'/);
+  assert.match(leader, /scope = 'private'/);
+  const worker = buildZvecMemoryAuthorizationFilter({ projectId: "project-a", actor: projectAgentActor("project-a", "alpha-worker-0", "worker"), nowMs: Date.parse(now) });
+  assert.match(worker, /owner_agent_id = 'alpha-worker-0'/);
   const external = buildZvecMemoryAuthorizationFilter({ projectId: "project-a", actor: externalWorker(), nowMs: Date.parse(now) });
-  assert.match(external, /level = 'L1'/);
+  assert.match(external, /owner_agent_id = '__denied__'/);
   const crossProject = buildZvecMemoryAuthorizationFilter({ projectId: "project-a", actor: projectAgentActor("project-b", "admin", "admin"), nowMs: Date.parse(now) });
-  assert.match(crossProject, /level = 'L1'/);
+  assert.match(crossProject, /owner_agent_id = '__denied__'/);
 });
 
 test("M13 repository hydration yields zero unauthorized cross-team, external and cross-project hits", () => {
@@ -93,11 +94,11 @@ test("M13 repository hydration yields zero unauthorized cross-team, external and
     raw.close();
     const ids = repository.list({ level: "L2", limit: 20 }).map(({ id }) => id);
     const find = (actor: MemoryActor) => repository.findAuthorizedMemories({ actor, now }, ids).map(({ content }) => content).sort();
-    assert.deepEqual(find(projectAgentActor("project-a", "alpha-lead", "leader", "internal", ["project-a"])), ["alpha", "global", "private-alpha", "project"]);
+    assert.deepEqual(find(projectAgentActor("project-a", "alpha-lead", "leader", "internal", ["project-a"])), ["alpha", "private-alpha"]);
     assert.deepEqual(find(projectAgentActor("project-a", "alpha-worker-0", "worker")), []);
     assert.deepEqual(find(externalWorker()), []);
     assert.deepEqual(find(projectAgentActor("project-b", "admin", "admin")), []);
-    assert.deepEqual(find(projectResourceManagerActor(["project-a"])), ["global", "project"]);
+    assert.deepEqual(find(projectResourceManagerActor(["project-a"])), []);
 
     repository.recordAccessAudit({ action: "retrieve", decision: "denied", actor: externalWorker(), reason: "api_key=top-secret denied", metadata: { error: "token=very-secret" } });
     const audit = repository.listAccessAudits(1)[0]!;
@@ -137,7 +138,7 @@ test("M13 repository rejects an external candidate that bypasses extractor scope
   } finally { repository.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test("M13 Resource Manager federation searches only granted online project services", async () => {
+test("M14 Resource Manager cannot federate private agent memory", async () => {
   const calls: string[] = [];
   const actor = projectResourceManagerActor(["project-a", "project-b"]);
   const result = await federatedMemorySearch({
@@ -149,7 +150,7 @@ test("M13 Resource Manager federation searches only granted online project servi
     ],
   });
   assert.deepEqual(calls, ["a:project-a"]);
-  assert.deepEqual(result.memories.map(({ id }) => id), ["a"]);
+  assert.deepEqual(result.memories.map(({ id }) => id), []);
   assert.deepEqual(result.searchedProjectIds, ["project-a"]);
   assert.deepEqual(result.unavailableProjectIds, ["project-b"]);
   assert.deepEqual(result.deniedProjectIds, ["project-c"]);

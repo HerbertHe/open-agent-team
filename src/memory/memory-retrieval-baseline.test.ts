@@ -14,20 +14,20 @@ test("records the deterministic lexical retrieval baseline", async (context) => 
     // This snapshot intentionally freezes the current production lexical ranker.
     // M09 will compare alternative retrievers against it rather than weakening it.
     [
-      { id: "english-exact-failure", selectedKeys: ["balance-process-retained", "migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain"], firstRelevantRank: 1, forbiddenSelected: [] },
-      { id: "english-paraphrase-failure", selectedKeys: ["migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain", "hive-brand"], firstRelevantRank: undefined, forbiddenSelected: [] },
-      { id: "chinese-exact-channel", selectedKeys: ["channel-default-route", "migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain"], firstRelevantRank: 1, forbiddenSelected: [] },
-      { id: "chinese-paraphrase-channel", selectedKeys: ["migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain", "hive-brand"], firstRelevantRank: undefined, forbiddenSelected: [] },
-      { id: "entity-release-branch", selectedKeys: ["atlas-release", "migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain"], firstRelevantRank: 1, forbiddenSelected: [] },
-      { id: "failure-pattern-migration", selectedKeys: ["migration-current", "migration-obsolete", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain"], firstRelevantRank: 1, forbiddenSelected: ["migration-obsolete"] },
-      { id: "temporal-conflict", selectedKeys: ["migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain", "hive-brand"], firstRelevantRank: 1, forbiddenSelected: [] },
-      { id: "leader-scope-isolation", selectedKeys: ["worker-report-chain"], firstRelevantRank: undefined, forbiddenSelected: [] },
-      { id: "no-result", selectedKeys: ["migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain", "hive-brand"], firstRelevantRank: undefined, forbiddenSelected: ["migration-current", "unrelated-ui-setting", "beta-private-deployment", "worker-report-chain", "hive-brand"] },
+      { id: "english-exact-failure", selectedKeys: ["balance-process-retained", "migration-current", "unrelated-ui-setting", "hive-brand", "atlas-release"], firstRelevantRank: 1, forbiddenSelected: [] },
+      { id: "english-paraphrase-failure", selectedKeys: ["migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained", "atlas-release"], firstRelevantRank: 4, forbiddenSelected: [] },
+      { id: "chinese-exact-channel", selectedKeys: ["channel-default-route", "migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained"], firstRelevantRank: 1, forbiddenSelected: [] },
+      { id: "chinese-paraphrase-channel", selectedKeys: ["migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained", "atlas-release"], firstRelevantRank: undefined, forbiddenSelected: [] },
+      { id: "entity-release-branch", selectedKeys: ["atlas-release", "migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained"], firstRelevantRank: 1, forbiddenSelected: [] },
+      { id: "failure-pattern-migration", selectedKeys: ["migration-current", "migration-obsolete", "unrelated-ui-setting", "hive-brand", "balance-process-retained"], firstRelevantRank: 1, forbiddenSelected: ["migration-obsolete"] },
+      { id: "temporal-conflict", selectedKeys: ["migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained", "atlas-release"], firstRelevantRank: 1, forbiddenSelected: [] },
+      { id: "leader-scope-isolation", selectedKeys: [], firstRelevantRank: undefined, forbiddenSelected: [] },
+      { id: "no-result", selectedKeys: ["migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained", "atlas-release"], firstRelevantRank: undefined, forbiddenSelected: ["migration-current", "unrelated-ui-setting", "hive-brand", "balance-process-retained", "atlas-release"] },
     ],
   );
-  assert.equal(baseline.recallAt5, .7143);
-  assert.equal(baseline.meanReciprocalRank, .7143);
+  assert.equal(baseline.recallAt5, .8571);
+  assert.equal(baseline.meanReciprocalRank, .75);
   assert.equal(baseline.errorInjectionQueryRate, .2222);
-  assert.equal(baseline.errorInjectionItemRate, .1463);
+  assert.equal(baseline.errorInjectionItemRate, .15);
   context.diagnostic(`lexical-baseline=${JSON.stringify(baseline)}`);
 });

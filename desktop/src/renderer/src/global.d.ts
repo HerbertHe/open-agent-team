@@ -16,12 +16,14 @@ interface Window {
     getProjectRestartStatus(name: string): Promise<import('../../shared/resource-types').ProjectRestartStatus>;
     restartProject(name: string): Promise<{ ok: true; newPid?: number }>;
     deleteProject(name: string): Promise<{ ok: true }>;
-    sendResourceAgentMessage(text: string): Promise<import('../../shared/resource-types').ResourceAgentReply>;
+    sendResourceAgentMessage(text: string, requestId?: string): Promise<import('../../shared/resource-types').ResourceAgentReply>;
+    onResourceAgentEvent(listener: (payload: { requestId: string; event: Record<string, unknown> }) => void): () => void;
     getResourceAgentHistory(): Promise<import('../../shared/resource-types').ResourceHistoryMessage[]>;
     confirmResourceProposal(proposalId: string): Promise<import('../../shared/resource-types').ResourceAgentReply>;
     cancelResourceAgent(): Promise<void>;
     listProviderModels(input: { baseUrl: string; apiKey?: string }): Promise<string[]>;
     requestOrchestrator(input: { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;
+    uploadKnowledge(input: { projectName: string; teamId?: string }): Promise<{ uploaded: unknown[] }>;
     requestControlPlane(input: { path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;
     subscribeObservability(projectName: string): Promise<void>;
     unsubscribeObservability(): Promise<void>;

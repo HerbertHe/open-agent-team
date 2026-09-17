@@ -44,7 +44,7 @@ test("SqliteMemoryRepository and LexicalMemoryRetriever satisfy the M02 contract
     assert.equal(result.l1[0]?.contentHash.length, 64);
     assert.equal(result.l2[0]?.content, content);
     assert.equal(result.l3.length, 0);
-    assert.equal(result.l2[0]?.scope, "project");
+    assert.equal(result.l2[0]?.scope, "private");
     assert.equal(result.l2[0]?.indexState, "not_applicable");
 
     const index = new NoopMemoryIndex();

@@ -52,6 +52,7 @@ import type {
 import type { ObservabilityGraph } from "../types";
 import type { ObservabilityHub } from "./observability-hub";
 import type { MemoryService } from "../memory/memory-service";
+import type { KnowledgeService } from "../knowledge/knowledge-service";
 import { GitCollaborationStore } from "./git-collaboration-store";
 
 type SchedulerSnapshot = {
@@ -140,6 +141,7 @@ export class TaskManager {
     private readonly skillResolver: SkillResolver,
     private readonly observabilityHub: ObservabilityHub,
     private readonly memoryService?: MemoryService,
+    private readonly knowledgeService?: KnowledgeService,
   ) {
     this.gitStore = new GitCollaborationStore(config.runtime.persistence.state_dir);
   }
@@ -150,6 +152,10 @@ export class TaskManager {
 
   getAllAgents(): AgentRuntimeState[] {
     return Array.from(this.agents.values());
+  }
+
+  getRunningTaskId(agentId: string): string | undefined {
+    return this.runningTaskByAgent.get(agentId);
   }
 
   isSystemIdle(): boolean {
@@ -711,8 +717,47 @@ export class TaskManager {
   private async sendManagedPrompt(agentId: string, prompt: string): Promise<void> {
     this.promptActiveAgents.add(agentId);
     try {
-      const memory = await this.memoryService?.buildContext(agentId, prompt);
-      await this.runtimeProvider.sendPrompt(agentId, memory ? `${memory}\n\n${prompt}` : prompt);
+      const agent = this.agents.get(agentId);
+      const [memory, knowledge] = await Promise.all([
+        this.memoryService?.buildContext(agentId, prompt),
+        this.knowledgeService?.buildContext({ agentId, projectId: this.config.project.name, teamId: agent?.spec.teamName, role: agent?.spec.role }, prompt),
+      ]);
+      let persistReferences = false;
+      if (memory) {
+        const references = memory.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
+        if (references.length) {
+          const taskId = this.currentWorkflowTaskId(agentId);
+          const task = taskId ? this.taskById.get(taskId) : undefined;
+          if (task) {
+            task.memoryReferences = [...new Set([...(task.memoryReferences ?? []), ...references])];
+            persistReferences = true;
+          }
+          this.observabilityHub.emit({
+            source: "orchestrator",
+            type: "memory.context.injected",
+            agentId,
+            role: agent?.spec.role,
+            sessionId: agent?.sessionId,
+            payload: { taskId, references },
+          });
+        }
+      }
+      if (knowledge?.references.length) {
+        const taskId = this.currentWorkflowTaskId(agentId);
+        const task = taskId ? this.taskById.get(taskId) : undefined;
+        if (task) {
+          const references = new Map([...(task.knowledgeReferences ?? []), ...knowledge.references].map((reference) => [reference.documentId, reference]));
+          task.knowledgeReferences = [...references.values()];
+          persistReferences = true;
+        }
+        this.observabilityHub.emit({
+          source: "orchestrator", type: "knowledge.context.injected", agentId, role: agent?.spec.role, sessionId: agent?.sessionId,
+          payload: { taskId, references: knowledge.references },
+        });
+      }
+      if (persistReferences) await this.persistSchedulerState();
+      const context = [memory, knowledge?.context].filter(Boolean).join("\n\n");
+      await this.runtimeProvider.sendPrompt(agentId, context ? `${context}\n\n${prompt}` : prompt);
       // IPC delivery is not prompt completion. Keep the Agent occupied until
       // the runtime emits agent_end (or the crash path clears the slot).
     } catch (error) {
@@ -956,7 +1001,7 @@ export class TaskManager {
           `OPERATOR_INSTRUCTION:`,
           task.prompt,
           ``,
-          `Operator delivery requirement: write a concise answer directly for the operator by calling report-progress with stage="user_response" and the exact reply in message.`,
+          `Operator delivery requirement: write a concise Markdown answer directly for the operator in your final assistant message so it can stream to the UI. Also call report-progress with stage="user_response" and the same answer for compatibility and durable task history.`,
           `For greetings or questions, answer directly without delegating. For concrete work, acknowledge the request and state the next step after assigning the appropriate leader.`,
           `Then call notify-complete with agentRole="admin" to finish this operator task.`,
         ].join("\n"));
@@ -1933,6 +1978,8 @@ export class TaskManager {
       description: `Worker agent for ${team.name} (index ${workerIndex})`,
       role: AgentRoleEnum.Worker,
       promptText: team.worker.prompt,
+      teamName: team.name,
+      knowledge: { enabled: this.config.knowledge.enabled, projectRoot: this.config.knowledge.roots.project, teamsRoot: this.config.knowledge.roots.teams },
     });
 
     const workerTools = this.buildWorkerTools(spec);
@@ -2740,7 +2787,7 @@ export class TaskManager {
       targetAgentId: admin.spec.id,
       createdBy: leaderId,
       parentTaskId: rootTask?.id,
-      prompt: `RELEASE_PROPOSAL:\n${JSON.stringify({ id: proposal.id, team: proposal.teamName, branch: proposal.integrationBranch, headSha: proposal.headSha, artifactPaths: proposal.artifactPaths, note: proposal.note, reportingChain: rootTask?.deliveryReports ?? [] }, null, 2)}\n\nThe Leader has already reviewed the Worker delivery and its decision is authoritative. Unconditionally accept the result and call approve-release to perform the serialized main/master merge. Do not rerun tests, inspect the implementation for quality, or reject the delivery. Use the Worker → Leader reporting chain only to prepare the final operator-facing summary. After the merge, call report-progress with stage="user_response" and report the full chain and concise delivery result. If the merge tool returns an operational error, report the merge as blocked; do not reinterpret it as a failed Leader review.`,
+      prompt: `RELEASE_PROPOSAL:\n${JSON.stringify({ id: proposal.id, team: proposal.teamName, branch: proposal.integrationBranch, headSha: proposal.headSha, artifactPaths: proposal.artifactPaths, note: proposal.note, reportingChain: rootTask?.deliveryReports ?? [] }, null, 2)}\n\nThe Leader has already reviewed the Worker delivery and its decision is authoritative. Unconditionally accept the result and call approve-release to perform the serialized main/master merge. Do not rerun tests, inspect the implementation for quality, or reject the delivery. Use the Worker → Leader reporting chain only to prepare the final operator-facing summary. After the merge, write that concise summary as your final Markdown assistant message and also call report-progress with stage="user_response" and the same content for compatibility. If the merge tool returns an operational error, report the merge as blocked; do not reinterpret it as a failed Leader review.`,
     });
     return { ok: true, releaseProposalId: proposalId, changelog };
 

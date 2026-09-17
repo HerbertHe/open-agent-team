@@ -11,7 +11,7 @@ import { SqliteMemoryRepository } from "./memory-repository";
 
 const baseCandidate: GovernedMemoryCandidate = {
   kind: "decision", summary: "SQLite is the authority", subject: "memory storage", predicate: "authority", object: "SQLite",
-  scope: "project", confidence: .9, salience: .8, validFrom: null, validTo: null, trustLevel: 100,
+  scope: "private", confidence: .9, salience: .8, validFrom: null, validTo: null, trustLevel: 100,
   content: "memory storage authority SQLite",
 };
 

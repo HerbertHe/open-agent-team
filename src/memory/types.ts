@@ -129,6 +129,8 @@ export interface MemoryOverview {
   pendingEvents: number;
   lastDream?: DreamRun;
   runningDream?: DreamRun;
+  lastMaintenance?: MemoryMaintenanceRun;
+  runningMaintenance?: MemoryMaintenanceRun;
   lastActivityAt?: string;
   retrieval: MemoryRetrievalRuntimeStatus;
 }
@@ -147,3 +149,4 @@ export interface MemoryRetrievalRuntimeStatus {
   lastSuccessAt?: string;
   circuitOpenUntil?: string;
 }
+import type { MemoryMaintenanceRun } from "./maintenance-types";

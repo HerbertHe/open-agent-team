@@ -18,6 +18,8 @@ export class ObservabilityHub {
   private readonly maxLogLinesPerAgent: number;
   private globalLocalShareLines: string[] = [];
   private readonly maxGlobalLocalLines: number;
+  private deliverySequence = 0;
+  private readonly bootId = Date.now().toString(36);
 
   /** agentId → disk log write stream info */
   private readonly diskLoggers = new Map<string, { logsDir: string; agentId: string }>();
@@ -67,9 +69,12 @@ export class ObservabilityHub {
     event: Omit<ObservabilityEvent, "ts"> & { ts?: string },
     options?: { skipBuffer?: boolean }
   ): void {
+    const deliverySequence = ++this.deliverySequence;
     const full: ObservabilityEvent = {
       ...event,
       ts: event.ts ?? new Date().toISOString(),
+      seq: event.seq ?? deliverySequence,
+      eventId: event.eventId ?? `${this.bootId}:${deliverySequence}`,
     };
     if (!options?.skipBuffer) {
       this.buffer.push(full);
@@ -94,6 +99,13 @@ export class ObservabilityHub {
 
   snapshot(): ObservabilityEvent[] {
     return [...this.buffer];
+  }
+
+  /** Return events after a delivered cursor; an expired cursor falls back to the bounded snapshot. */
+  snapshotAfter(eventId?: string): ObservabilityEvent[] {
+    if (!eventId) return this.snapshot();
+    const index = this.buffer.findIndex((event) => event.eventId === eventId);
+    return index >= 0 ? this.buffer.slice(index + 1) : this.snapshot();
   }
 
   appendAgentProcessLog(agentId: string, line: string): void {

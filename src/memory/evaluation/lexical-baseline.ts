@@ -30,7 +30,7 @@ export type LexicalBaselineResult = {
 
 const BASELINE_CONFIG: MemoryConfig = {
   enabled: true,
-  roles: ["admin", "leader"],
+  roles: ["admin", "leader", "worker"],
   retrieval: { backend: "lexical", fallback: "lexical", shadow: false, productionEnabled: false, candidateLimit: 30, maxResults: 8, maxPromptTokens: 1800, timeoutMs: 3_000, circuitBreakerFailureThreshold: 3, circuitBreakerCooldownSeconds: 60 },
   zvec: { path: "memory/zvec", index: "flat", metric: "cosine", readOnlyFallback: true, batchSize: 64, maxAttempts: 8, optimizePendingThreshold: 100_000 },
   extraction: { enabled: false, version: "m11-v1", timeoutMs: 15_000, maxInputChars: 4_000, maxOutputTokens: 800, maxFactsPerEvent: 5, maxAttempts: 3 },

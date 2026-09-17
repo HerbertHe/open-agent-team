@@ -2,13 +2,45 @@ import type { AgentRoleEnum } from "./enums";
 
 export type ObservabilitySource = "orchestrator" | "pi";
 
+export type RunStreamKind =
+  | "run.started"
+  | "run.completed"
+  | "message.started"
+  | "message.completed"
+  | "content.block.started"
+  | "content.delta"
+  | "content.block.completed"
+  | "reasoning.block.started"
+  | "reasoning.delta"
+  | "reasoning.completed"
+  | "tool.started"
+  | "tool.updated"
+  | "tool.completed";
+
+export interface RunStreamMetadata {
+  schemaVersion: 1;
+  kind: RunStreamKind;
+  taskId?: string;
+  runId: string;
+  turnId: string;
+  messageId?: string;
+  blockIndex?: number;
+  /** Monotonic within a run, independent from the hub-wide delivery sequence. */
+  seq: number;
+}
+
 export interface ObservabilityEvent {
   ts: string;
+  /** Stable delivery cursor assigned by ObservabilityHub. */
+  eventId?: string;
+  /** Monotonic delivery order within the current orchestrator process. */
+  seq?: number;
   source: ObservabilitySource;
   type: string;
   agentId?: string;
   role?: AgentRoleEnum;
   sessionId?: string;
+  stream?: RunStreamMetadata;
   payload?: Record<string, unknown>;
 }
 

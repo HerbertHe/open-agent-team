@@ -58,7 +58,7 @@ electron-vite 打包动态模块时还会生成 CommonJS `require` 适配代码�
 | --- | --- | --- |
 | macOS arm64 | 本地 unsigned packaged app 已通过 | 可继续开发；正式发布前仍需签名/公证验证 |
 | macOS x64 | 未验证，且 Zvec 0.7.0 未声明对应预编译 binding | Zvec 保持禁用 |
-| Linux x64/arm64 | M15 已加入对应原生 runner 的 packaged smoke | CI 产物通过后允许 Project opt-in |
+| Linux x64/arm64 | binding 与运行时路径保留 | 当前 CI 不构建 Linux App；如恢复发布需重新加入原生 runner packaged smoke |
 | Windows x64 | M15 已迁移 Desktop target 并加入 packaged smoke | CI 产物通过后允许 Project opt-in |
 | Windows ia32 | 不受 Zvec 0.7.0 支持 | M15 已从 Desktop release target 移除 |
 

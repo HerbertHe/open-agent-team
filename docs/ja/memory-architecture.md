@@ -1,25 +1,17 @@
-# Admin / Leader 向け3層メモリ
+# Agent 所有者ごとのプライベートメモリ
 
-> 状態：2026-08-26 実装済み。
+> 状態：SQLite Schema v9 として実装済みです。
 
-メモリの所有者は Admin と Leader です。Worker の有効なイベントは対応する Leader に帰属します。取得したメモリは「誤りうる過去の文脈」として明示され、現在の指示を上書きしません。
+Admin、Leader、Worker は、それぞれタスクをまたぐ独立したプライベートメモリを持ちます。Worker のイベントは Worker 自身に帰属し、Leader へ移し替えません。取得された内容は誤りうる過去の参考情報であり、現在の指示を上書きしません。
 
-保存には WAL モードのローカル `better-sqlite3` を使い、既定のパスは `<state_dir>/memory/memory.db` です。
+正本は WAL モードの `better-sqlite3` に保存され、既定の場所は `<state_dir>/memory/memory.db` です。L1 は最近の活動、L2 は統治済みの事実やエピソード、L3 は安定したプライベート知識を保持します。プロンプトへ注入できるのは active 項目だけです。検索は lexical が既定で、Project ごとの設定とグローバル許可がある場合のみ Zvec を有効化でき、失敗時は lexical へフォールバックします。
 
-| 層 | 用途 |
-| --- | --- |
-| L1 | 最近のタスク、進捗、応答、失敗。Agent ごとの上限と TTL あり |
-| L2 | アイドル時に統合されたエピソード、判断、失敗パターン。反復で証拠数・信頼度・重要度が上昇 |
-| L3 | 証拠閾値で自動昇格、または Desktop から手動昇格した安定知識 |
+中央の Dream Agent は存在しません。タスク完了時またはアイドル時に、各 Agent が自分のイベントだけを対象とする所有者メンテナンスを個別に実行します。実行履歴は `maintenance_runs` に保存され、`agent.memory_maintenance.*` として配信されます。旧 `dream_runs` は移行履歴と互換性テストのためだけに残ります。
 
-夢モードは、実行中の prompt がなく、`queued`、`running`、`waiting`、`review_pending` のタスクもない場合だけ動作します。処理件数を制限したトランザクションで L2 統合、L3 昇格、L2 期限切れ、L1 TTL 清掃を行います。新規タスクはキャンセルを要求します。
+主な API は `GET /memory/overview`、`GET /memory`、`POST /memory/maintenance`（`{ "agentId": "..." }`）、`POST /memory/:id/promote`、`POST /memory/:id/confirm`、`POST /memory/:id/forget` です。
 
-生の payload 全体は保存しません。有用なテキストだけを最大 4,000 文字で保存し、一般的な API key、token、secret の形式を伏せ字にします。Admin はプロジェクト内の L2/L3 を検索でき、Leader は自分のメモリだけを検索できます。
+Desktop のメモリ入口は、Worker を含む選択中のすべての内部 Agent に表示されます。ローカルの信頼されたユーザーは所有者ごとに管理できますが、Agent の実行時読み取りは本人のメモリだけに制限されます。
 
-API は `GET /memory/overview`、`GET /memory`、`POST /memory/dream`、`POST /memory/:id/promote`、`POST /memory/:id/forget` です。
+共有知識はプライベートメモリとは別です。レビュー済みの Project / Team ファイルとユーザーがアップロードしたファイルを取り込み、同じ SQLite DB と Semantic/Zvec パイプラインで分割・ベクトル化します。完全な契約は中国語版 `knowledge-architecture.md` を参照してください。
 
-Desktop では Admin / Leader 選択時に脳アイコンが表示されます。ダイアログから各層、証拠数、ソース数、信頼度、重要度、夢モードの状態を確認し、L2 の昇格と忘却を実行できます。Worker には表示されません。
-
-現在の検索は語彙の一致、重要度、信頼度、経過時間による決定的な方式です。Embedding、時間知識グラフ、LLM リフレクターは将来の拡張であり、現時点の依存関係ではありません。
-
-検証：`pnpm test:memory`、`pnpm exec tsc --noEmit`、`pnpm run build`、`pnpm --filter desktop run build`。
+検証：`pnpm test:memory`、`pnpm exec tsc --noEmit`、`pnpm run build`、`pnpm --filter ./desktop run build`。

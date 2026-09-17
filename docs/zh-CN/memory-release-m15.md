@@ -11,7 +11,7 @@ M15 已补齐发布矩阵、跨进程重建限流、保守资源预算、备份�
 原因：
 
 1. macOS arm64 的本地未签名 packaged smoke 已有实测证据，但签名和公证产物仍需在正式发布身份下验证；
-2. Linux x64/arm64、Windows x64 的真实 packaged smoke 已加入 CI，必须以对应构建产物通过为准；
+2. 当前 CI 只构建 macOS arm64 与 Windows x64 App；Linux binding 保留兼容性与测试说明，但 CI 不构建 Linux App；
 3. Zvec 0.7.0 没有 macOS x64 binding，该平台不能发布 Zvec 能力；
 4. M09 的确定性 fixture 证明检索管线，不代表任意生产 Embedding Profile 的质量；每个 Project 仍需单独评测后进入主动白名单。
 
@@ -23,8 +23,8 @@ M15 已补齐发布矩阵、跨进程重建限流、保守资源预算、备份�
 | --- | --- | --- | --- |
 | macOS arm64 | `@zvec/bindings-darwin-arm64` | 支持 | DMG 构建、asar unpack、Jieba 中文 FTS、真实 packaged smoke；正式发布另需签名/公证 |
 | macOS x64 | 无 | 不发布 Zvec | 保持 lexical；不得把 x64 artifact 标为 Zvec-ready |
-| Linux x64 | `@zvec/bindings-linux-x64` / musl variant | 支持 | AppImage、xvfb packaged smoke |
-| Linux arm64 | `@zvec/bindings-linux-arm64` / musl variant | 支持 | arm64 runner 上构建和 packaged smoke |
+| Linux x64 | `@zvec/bindings-linux-x64` / musl variant | binding 支持 | 当前 CI 不构建 Linux App |
+| Linux arm64 | `@zvec/bindings-linux-arm64` / musl variant | binding 支持 | 当前 CI 不构建 Linux App |
 | Windows x64 | `@zvec/bindings-win32-x64` | 支持 | NSIS x64、packaged smoke |
 | Windows ia32 | 无 | 不支持 | Desktop target 已移除 |
 

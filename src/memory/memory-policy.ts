@@ -53,28 +53,13 @@ export class DefaultMemoryPolicy implements MemoryPolicy {
     if (!grantedProject(actor, memory.projectId)) return { allowed: false, reason: "project_not_granted" };
     if (actor.role === "user") return { allowed: true, reason: "trusted_local_principal" };
     if (memory.status !== "active") return { allowed: false, reason: "memory_not_active" };
-    if (actor.employment === "external") return { allowed: false, reason: "external_worker_has_no_long_term_read" };
-    if (actor.role === "worker") return { allowed: false, reason: "worker_has_no_long_term_read" };
-    if (memory.level === "L1") {
-      const allowed = actor.role === "system" || memory.agentId === actor.id;
-      return { allowed, reason: allowed ? "working_memory_owner" : "working_memory_is_private" };
-    }
+    if (actor.employment === "external") return { allowed: false, reason: "external_agent_has_no_long_term_read" };
     if (actor.role === "system") return { allowed: true, reason: "trusted_local_principal" };
-    if (actor.role === "resource_manager") {
-      const allowed = memory.scope === "project" || memory.scope === "global";
-      return { allowed, reason: allowed ? "federated_project_grant" : "resource_manager_cannot_read_team_or_private" };
-    }
-    if (memory.scope === "private") {
-      const allowed = memory.agentId === actor.id;
-      return { allowed, reason: allowed ? "private_owner" : "private_owner_mismatch" };
-    }
-    if (actor.role === "admin") return { allowed: true, reason: "project_admin" };
-    if (memory.scope === "team") {
-      const allowed = Boolean(actor.teamId && memory.teamId === actor.teamId);
-      return { allowed, reason: allowed ? "team_match" : "team_mismatch" };
-    }
-    if (memory.scope === "project") return { allowed: actor.projectIds.includes(memory.projectId), reason: actor.projectIds.includes(memory.projectId) ? "explicit_project_grant" : "project_scope_not_granted" };
-    return { allowed: true, reason: "project_global_memory" };
+    const owner = memory.agentId === actor.id;
+    if (memory.level === "L1") return { allowed: owner, reason: owner ? "working_memory_owner" : "working_memory_is_private" };
+    // Agent memories are private regardless of their legacy scope value. Shared
+    // material belongs to the file-backed knowledge domain instead.
+    return { allowed: owner, reason: owner ? "private_owner" : "private_owner_mismatch" };
   }
 
   canRead(actor: MemoryActor, memory: MemoryRecord): boolean {
@@ -84,13 +69,10 @@ export class DefaultMemoryPolicy implements MemoryPolicy {
   canonicalWriteDecision(actor: MemoryActor, memory: CanonicalMemoryWrite): MemoryPolicyDecision {
     if (!grantedProject(actor, memory.projectId)) return { allowed: false, reason: "project_not_granted" };
     if (actor.employment === "external") return { allowed: false, reason: "external_worker_cannot_write_canonical" };
-    if (actor.role === "worker" || actor.role === "resource_manager") return { allowed: false, reason: `${actor.role}_cannot_write_canonical` };
+    if (actor.role === "resource_manager") return { allowed: false, reason: "resource_manager_cannot_write_canonical" };
     if (actor.role === "user" || actor.role === "system") return { allowed: true, reason: "trusted_local_principal" };
-    if (memory.scope === "private") return { allowed: memory.agentId === actor.id, reason: memory.agentId === actor.id ? "private_owner" : "private_owner_mismatch" };
-    if (actor.role === "admin") return { allowed: true, reason: "project_admin" };
-    if (memory.scope === "team") return { allowed: Boolean(actor.teamId && memory.teamId === actor.teamId), reason: actor.teamId && memory.teamId === actor.teamId ? "team_match" : "team_mismatch" };
-    const allowed = memory.scope === "project" && actor.projectIds.includes(memory.projectId);
-    return { allowed, reason: allowed ? "explicit_project_manage_grant" : "leader_scope_not_writable" };
+    const allowed = memory.agentId === actor.id;
+    return { allowed, reason: allowed ? "private_owner" : "private_owner_mismatch" };
   }
 
   canWriteCanonical(actor: MemoryActor, memory: CanonicalMemoryWrite): boolean {
@@ -99,6 +81,7 @@ export class DefaultMemoryPolicy implements MemoryPolicy {
 
   candidateWriteDecision(actor: MemoryActor, input: { projectId: string; teamId?: string; scope: MemoryScope; trustLevel: number }): MemoryPolicyDecision {
     if (!grantedProject(actor, input.projectId)) return { allowed: false, reason: "project_not_granted" };
+    if (input.scope !== "private") return { allowed: false, reason: "shared_content_belongs_to_knowledge" };
     if (actor.employment === "external") {
       const allowed = actor.role === "worker" && input.scope === "private" && input.trustLevel <= 30 && (!input.teamId || input.teamId === actor.teamId);
       return { allowed, reason: allowed ? "external_private_candidate" : "external_candidate_must_be_private_and_low_trust" };

@@ -68,8 +68,8 @@
         "enabled": { "type": "boolean", "default": true },
         "roles": {
           "type": "array",
-          "items": { "type": "string", "enum": ["admin", "leader"] },
-          "default": ["admin", "leader"]
+          "items": { "type": "string", "enum": ["admin", "leader", "worker"] },
+          "default": ["admin", "leader", "worker"]
         },
         "access": {
           "type": "object",
@@ -169,6 +169,40 @@
             "pollSeconds": { "type": "integer", "minimum": 5, "maximum": 3600, "default": 30 },
             "maxEventsPerRun": { "type": "integer", "minimum": 10, "maximum": 5000, "default": 250 },
             "cancelOnNewTask": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "File-backed team and project knowledge. Embedding, retrieval and Zvec settings are inherited from memory.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "roots": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project": { "type": "string", "minLength": 1, "default": "knowledge/project" },
+            "teams": { "type": "string", "minLength": 1, "default": "knowledge/teams" },
+            "uploads": { "type": "string", "minLength": 1, "default": "knowledge/uploads" }
+          }
+        },
+        "watcher": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "debounceMs": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 1000 }
+          }
+        },
+        "ingestion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxFileSizeMb": { "type": "integer", "minimum": 1, "maximum": 2048, "default": 50 },
+            "chunkTokens": { "type": "integer", "minimum": 128, "maximum": 8192, "default": 1000 },
+            "chunkOverlapTokens": { "type": "integer", "minimum": 0, "maximum": 2048, "default": 120 }
           }
         }
       }

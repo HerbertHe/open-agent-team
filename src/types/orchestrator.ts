@@ -1,5 +1,6 @@
 import type { AgentInstanceSpec } from "./agent";
 import type { TeamConfig } from "./team";
+import type { KnowledgeReference } from "../knowledge/types";
 import {
   AgentRoleEnum,
   QueuedTaskStatusEnum,
@@ -53,6 +54,10 @@ export interface QueuedTask {
   completedAt?: string;
   error?: string;
   lastProgress?: { stage?: string; message: string; at: string };
+  /** Memory summaries injected into this task's prompt, retained for UI citations. */
+  memoryReferences?: string[];
+  /** File-backed knowledge chunks injected into this task, retained as structured citations. */
+  knowledgeReferences?: KnowledgeReference[];
   /** Durable completion reports shown in the parent task conversation. */
   deliveryReports?: TaskDeliveryReport[];
   /** Durable checkpoints used by startup recovery and the task board. */

@@ -94,7 +94,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   if (unknownMemoryTeams.length) throw new Error(`memory.access.leaderProjectScopeTeams contains unknown teams: ${unknownMemoryTeams.join(", ")}`);
   const memory = {
     enabled: withInheritance.memory?.enabled ?? true,
-    roles: withInheritance.memory?.roles ?? ["admin", "leader"],
+    roles: withInheritance.memory?.roles ?? ["admin", "leader", "worker"],
     access: {
       leaderProjectScopeTeams,
     },
@@ -152,6 +152,24 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     },
   };
 
+  const knowledge = {
+    enabled: withInheritance.knowledge?.enabled ?? true,
+    roots: {
+      project: withInheritance.knowledge?.roots?.project ?? "knowledge/project",
+      teams: withInheritance.knowledge?.roots?.teams ?? "knowledge/teams",
+      uploads: withInheritance.knowledge?.roots?.uploads ?? "knowledge/uploads",
+    },
+    watcher: {
+      enabled: withInheritance.knowledge?.watcher?.enabled ?? true,
+      debounceMs: withInheritance.knowledge?.watcher?.debounceMs ?? 1_000,
+    },
+    ingestion: {
+      maxFileSizeMb: withInheritance.knowledge?.ingestion?.maxFileSizeMb ?? 50,
+      chunkTokens: withInheritance.knowledge?.ingestion?.chunkTokens ?? 1_000,
+      chunkOverlapTokens: withInheritance.knowledge?.ingestion?.chunkOverlapTokens ?? 120,
+    },
+  };
+
   const workspaceDefaults = {
     provider: WorkspaceProviderTypeEnum.Worktree,
     root_dir: path.join(baseDir, "workspaces"),
@@ -166,6 +184,7 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
   return {
     ...withInheritance,
     memory,
+    knowledge,
     project: {
       ...withInheritance.project,
       // Resolve repo relative to team.json location, not process.cwd().

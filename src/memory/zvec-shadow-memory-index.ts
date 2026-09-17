@@ -53,12 +53,6 @@ function quoteFilterString(value: string): string {
   return `'${value}'`;
 }
 
-function teamFor(agentId: string): string | undefined {
-  if (agentId === "admin") return undefined;
-  const team = agentId.replace(/-(?:lead|leader)$/, "");
-  return team === agentId ? undefined : team;
-}
-
 function authorizationValueError(projectId: string, actor: MemoryActor): string | undefined {
   try {
     quoteFilterString(projectId);
@@ -82,16 +76,11 @@ export function buildZvecMemoryAuthorizationFilter(input: {
   const agent = quoteFilterString(actor.id);
   const trust = Math.min(100, Math.max(0, Math.floor(input.minTrustLevel ?? 0)));
   const projectGranted = actor.projectId === input.projectId || actor.projectIds.includes(input.projectId);
-  const team = actor.teamId ?? teamFor(actor.id);
-  const visibility = !projectGranted || actor.employment === "external" || actor.role === "worker"
-    ? `(scope = 'private' AND owner_agent_id = ${agent} AND level = 'L1')`
+  const visibility = !projectGranted || actor.employment === "external" || actor.role === "resource_manager"
+    ? `owner_agent_id = '__denied__'`
     : actor.role === "user" || actor.role === "system"
-      ? `scope in ('private', 'team', 'project', 'global')`
-      : actor.role === "resource_manager"
-        ? `scope in ('project', 'global')`
-        : actor.role === "admin"
-          ? `(scope in ('project', 'team', 'global') OR (scope = 'private' AND owner_agent_id = ${agent}))`
-          : `(scope = 'global' OR (scope = 'private' AND owner_agent_id = ${agent})${actor.projectIds.includes(input.projectId) ? " OR scope = 'project'" : ""}${team ? ` OR (scope = 'team' AND team_id = ${quoteFilterString(team)})` : ""})`;
+      ? `scope = 'private'`
+      : `(scope = 'private' AND owner_agent_id = ${agent})`;
   return [
     `project_id = ${project}`,
     `status = 'active'`,
@@ -168,7 +157,7 @@ export class ZvecShadowMemoryIndex implements MemoryIndex {
     const scopeJson = JSON.stringify({ projectId: this.options.projectId, actorId: actor.id, role: actor.role, employment: actor.employment, teamId: actor.teamId, policyVersion: MEMORY_POLICY_VERSION });
     const projectGranted = actor.projectId === this.options.projectId || actor.projectIds.includes(this.options.projectId);
     const valueError = authorizationValueError(this.options.projectId, actor);
-    if (valueError || !projectGranted || actor.role === "worker" || actor.employment === "external") {
+    if (valueError || !projectGranted || actor.employment === "external") {
       const reason = valueError ?? (!projectGranted ? "project_not_granted" : "actor_has_no_long_term_read");
       this.options.repository.recordRetrievalRun({
         id: randomUUID(), actor, query: input.query, scopeJson, backend: this.backend,
@@ -262,7 +251,7 @@ export class ConfiguredZvecShadowMemoryIndex implements MemoryIndex {
     const actor = input.actor ?? projectAgentActor(this.options.projectId, input.agentId);
     const projectGranted = actor.projectId === this.options.projectId || actor.projectIds.includes(this.options.projectId);
     const valueError = authorizationValueError(this.options.projectId, actor);
-    if (valueError || !projectGranted || actor.role === "worker" || actor.employment === "external") {
+    if (valueError || !projectGranted || actor.employment === "external") {
       const reason = valueError ?? (!projectGranted ? "project_not_granted" : "actor_has_no_long_term_read");
       this.lastError = reason;
       this.options.repository.recordRetrievalRun({

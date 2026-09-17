@@ -56,6 +56,41 @@ test("startup gate, pause, snapshots, and recall keep queue work durable", async
   }
 });
 
+test("injects private memory and structured shared-knowledge citations into a managed prompt", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "oat-task-knowledge-"));
+  const prompts: string[] = [];
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const reference = {
+    documentId: "knowledge:chunk-1", sourceId: "source-1", chunkId: "chunk-1", path: "knowledge/project/guide.md",
+    title: "Release guide", visibility: "project", contentHash: "hash-1", lineStart: 4, lineEnd: 8,
+  } as const;
+  const manager = new TaskManager(
+    {
+      project: { name: "knowledge-project", project_name: "Knowledge", repo: stateDir, base_branch: "main" },
+      runtime: { persistence: { state_dir: stateDir } }, workspace: { git: {} }, admin: { name: "Admin" }, teams: [],
+    } as never,
+    {} as never,
+    { sendPrompt: async (_agentId: string, text: string) => { prompts.push(text); } } as never,
+    {} as never,
+    "http://127.0.0.1:1",
+    {} as never,
+    { emit: (event: { type: string; payload?: Record<string, unknown> }) => { events.push(event); } } as never,
+    { buildContext: async () => "<MEMORY_CONTEXT>\n- [decision] private fact\n</MEMORY_CONTEXT>" } as never,
+    { buildContext: async () => ({ context: "<KNOWLEDGE_CONTEXT>\n[K1] release guide\n</KNOWLEDGE_CONTEXT>", references: [reference] }) } as never,
+  );
+  manager.registerAgent({ spec: { id: "admin", role: AgentRoleEnum.Admin, name: "Admin", branch: "main", workspacePath: stateDir, model: "test/model", skills: [] }, sessionId: "admin", workers: [] });
+  try {
+    const task = await manager.createTask({ targetAgentId: "admin", createdBy: "operator", prompt: "Prepare release" }, { schedule: false });
+    task.status = QueuedTaskStatusEnum.Running;
+    (manager as unknown as { runningTaskByAgent: Map<string, string> }).runningTaskByAgent.set("admin", task.id);
+    await (manager as unknown as { sendManagedPrompt(agentId: string, prompt: string): Promise<void> }).sendManagedPrompt("admin", task.prompt);
+    assert.match(prompts[0] ?? "", /<MEMORY_CONTEXT>[\s\S]*<KNOWLEDGE_CONTEXT>[\s\S]*Prepare release/);
+    assert.deepEqual(task.knowledgeReferences, [reference]);
+    assert.deepEqual(task.memoryReferences, ["[decision] private fact"]);
+    assert.ok(events.some(({ type, payload }) => type === "knowledge.context.injected" && Array.isArray(payload?.references)));
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test("delegated roots wait for delivery, prompt locks follow runtime end, and retries ignore their predecessor", async () => {
   const stateDir = await mkdtemp(path.join(tmpdir(), "oat-task-audit-"));
   const prompts: Array<{ agentId: string; text: string }> = [];

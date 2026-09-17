@@ -3,6 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DreamRun, MemoryAccessAction, MemoryAccessAuditRecord, MemoryAccessDecision, MemoryActor, MemoryCandidateMatch, MemoryGovernanceResult, MemoryKind, MemoryLevel, MemoryOverview, MemoryRecord, MemorySource } from "./types";
 import type { GovernedMemoryCandidate, MemoryEventSourceType, MemoryExtractionEvent } from "./memory-extractor";
 import { DefaultMemoryPolicy, type MemoryPolicy } from "./memory-policy";
+import type { SemanticDocument } from "../semantic/types";
+import type { MemoryMaintenanceRun } from "./maintenance-types";
 
 type MemoryRow = {
   id: string;
@@ -13,6 +15,7 @@ type MemoryRow = {
   kind: MemoryKind;
   content: string;
   summary: string;
+  fingerprint: string;
   confidence: number;
   salience: number;
   evidence_count: number;
@@ -92,6 +95,7 @@ export type CapturedMemoryEvent = {
 };
 
 export type ConsolidateInput = {
+  agentId?: string;
   maxEvents: number;
   minEvidence: number;
   retentionDays: number;
@@ -235,6 +239,20 @@ export type MemoryRetrievalRunInput = {
 
 export type MemoryRetrievalRunRecord = Omit<MemoryRetrievalRunInput, "actor"> & { agentId: string };
 
+export type SemanticIndexOutboxItem = {
+  id: string;
+  semanticDocumentId: string;
+  operation: "upsert" | "delete";
+  collectionRevision: string;
+  contentHash: string;
+  attempts: number;
+  leaseOwner: string;
+  leaseExpiresAt: string;
+  document: SemanticDocument;
+};
+
+export type ClaimSemanticIndexOutboxOptions = ClaimMemoryIndexOutboxOptions;
+
 export interface MemoryRepository {
   close(): void;
   get(id: string): MemoryRecord | undefined;
@@ -250,12 +268,15 @@ export interface MemoryRepository {
   currentDream(): DreamRun | undefined;
   insertDream(run: DreamRun): void;
   finishDream(run: DreamRun): void;
+  insertMaintenanceRun(run: MemoryMaintenanceRun, createdAt: string): void;
+  finishMaintenanceRun(run: MemoryMaintenanceRun, updatedAt: string): void;
+  pendingMaintenanceAgentIds?(limit?: number): string[];
   consolidate(input: ConsolidateInput): ConsolidateResult;
-  listPendingExtractionEvents(limit: number, maxAttempts: number): MemoryExtractionEvent[];
+  listPendingExtractionEvents(limit: number, maxAttempts: number, agentId?: string): MemoryExtractionEvent[];
   commitExtraction(event: MemoryExtractionEvent, candidates: GovernedMemoryCandidate[], run: MemoryExtractionRunInput): number;
   recordExtractionFailure(eventId: string, maxAttempts: number, run: MemoryExtractionRunInput): void;
-  finishStructuredConsolidation(retentionDays: number, l1MaxItems: number, l1TtlHours: number): void;
-  listGovernanceMemories(limit: number, version: string): MemoryRecord[];
+  finishStructuredConsolidation(retentionDays: number, l1MaxItems: number, l1TtlHours: number, agentId?: string): void;
+  listGovernanceMemories(limit: number, version: string, agentId?: string): MemoryRecord[];
   governCandidate(input: { candidateId: string; matches: MemoryCandidateMatch[]; version: string; now: string; autoActivateMinEvidence: number; autoPromoteMinEvidence: number; semanticIdentity?: string; semanticError?: string }): MemoryGovernanceResult | undefined;
   confirmCandidate(id: string, confirmedBy: string, confirmedAt: string): MemoryRecord | undefined;
   overview(enabled: boolean, agentId?: string): Omit<MemoryOverview, "retrieval">;
@@ -282,6 +303,10 @@ export interface MemoryRepository {
   listRetrievalRuns(limit?: number): MemoryRetrievalRunRecord[];
   recordAccessAudit(input: MemoryAccessAuditInput): void;
   listAccessAudits(limit?: number): MemoryAccessAuditRecord[];
+  reconcileSemanticIndexRevision(collectionRevision: string, now: string): number;
+  claimSemanticIndexOutbox(options: ClaimSemanticIndexOutboxOptions): SemanticIndexOutboxItem[];
+  completeSemanticIndexOutbox(id: string, workerId: string, indexedAt: string): boolean;
+  failSemanticIndexOutbox(id: string, workerId: string, error: string, retryAt: string, deadLetter: boolean, updatedAt: string): boolean;
 }
 
 export class DreamCancelledError extends Error {
@@ -324,6 +349,13 @@ function parseJsonArray(value: string): string[] {
   } catch {
     return [];
   }
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch { return {}; }
 }
 
 function rowToDream(row: DreamRow): DreamRun {
@@ -711,6 +743,234 @@ export class SqliteMemoryRepository implements MemoryRepository {
       this.db.pragma("user_version = 7");
     });
     migrateV7.immediate();
+
+    const migrateV8 = this.db.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_collections (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          visibility TEXT NOT NULL CHECK(visibility IN ('team','project','restricted')),
+          team_id TEXT,
+          allowed_agent_ids TEXT NOT NULL DEFAULT '[]',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(project_id, name)
+        );
+        CREATE TABLE IF NOT EXISTS knowledge_sources (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          collection_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          canonical_path TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          size INTEGER NOT NULL DEFAULT 0,
+          origin TEXT NOT NULL CHECK(origin IN ('agent_output','user_upload','workspace_file','migration')),
+          created_by_agent_id TEXT,
+          source_task_id TEXT,
+          status TEXT NOT NULL CHECK(status IN ('pending','parsing','indexing','ready','unsupported','failed','deleted')),
+          version INTEGER NOT NULL DEFAULT 1,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          indexed_at TEXT,
+          UNIQUE(project_id, canonical_path),
+          FOREIGN KEY(collection_id) REFERENCES knowledge_collections(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_sources_collection_status
+          ON knowledge_sources(collection_id, status, updated_at DESC);
+        CREATE TABLE IF NOT EXISTS knowledge_chunks (
+          id TEXT PRIMARY KEY,
+          source_id TEXT NOT NULL,
+          ordinal INTEGER NOT NULL,
+          heading TEXT,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          token_count INTEGER NOT NULL DEFAULT 0,
+          page_number INTEGER,
+          line_start INTEGER,
+          line_end INTEGER,
+          index_state TEXT NOT NULL DEFAULT 'pending' CHECK(index_state IN ('pending','indexed','failed','not_applicable')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(source_id, ordinal),
+          FOREIGN KEY(source_id) REFERENCES knowledge_sources(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_source ON knowledge_chunks(source_id, ordinal);
+        CREATE TABLE IF NOT EXISTS semantic_documents (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          resource_type TEXT NOT NULL CHECK(resource_type IN ('memory','knowledge')),
+          resource_id TEXT NOT NULL,
+          source_id TEXT,
+          owner_agent_id TEXT,
+          visibility TEXT NOT NULL CHECK(visibility IN ('private','team','project','restricted')),
+          team_id TEXT,
+          allowed_agent_ids TEXT NOT NULL DEFAULT '[]',
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('active','superseded','deleted')),
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          index_state TEXT NOT NULL DEFAULT 'pending' CHECK(index_state IN ('pending','indexed','failed','not_applicable')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(project_id, resource_type, resource_id),
+          CHECK((resource_type='memory' AND visibility='private' AND owner_agent_id IS NOT NULL)
+             OR (resource_type='knowledge' AND source_id IS NOT NULL AND visibility<>'private'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_documents_lookup
+          ON semantic_documents(project_id, resource_type, owner_agent_id, visibility, team_id, status, updated_at DESC);
+        CREATE TABLE IF NOT EXISTS semantic_index_outbox (
+          id TEXT PRIMARY KEY,
+          semantic_document_id TEXT NOT NULL,
+          operation TEXT NOT NULL CHECK(operation IN ('upsert','delete')),
+          collection_revision TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','completed','dead_letter')),
+          lease_owner TEXT,
+          lease_expires_at TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(semantic_document_id, operation, content_hash, collection_revision),
+          FOREIGN KEY(semantic_document_id) REFERENCES semantic_documents(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_outbox_claim
+          ON semantic_index_outbox(collection_revision, status, next_attempt_at, lease_expires_at, created_at);
+        CREATE TABLE IF NOT EXISTS maintenance_runs (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          trigger TEXT NOT NULL CHECK(trigger IN ('task_completed','session_ending','event_threshold','manual','task_resume')),
+          status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled')),
+          pending_event_ids TEXT NOT NULL DEFAULT '[]',
+          proposed_mutations INTEGER NOT NULL DEFAULT 0,
+          applied_mutations INTEGER NOT NULL DEFAULT 0,
+          rejected_mutations INTEGER NOT NULL DEFAULT 0,
+          started_at TEXT,
+          completed_at TEXT,
+          error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_maintenance_runs_agent_status
+          ON maintenance_runs(project_id, agent_id, status, created_at DESC);
+        CREATE TABLE IF NOT EXISTS memory_ownership_quarantine (
+          memory_id TEXT PRIMARY KEY,
+          previous_owner_agent_id TEXT NOT NULL,
+          proposed_owner_agent_id TEXT,
+          reason TEXT NOT NULL,
+          source_event_ids TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(memory_id) REFERENCES memory_items(id)
+        );
+        CREATE TRIGGER IF NOT EXISTS trg_memory_semantic_insert
+        AFTER INSERT ON memory_items BEGIN
+          INSERT INTO semantic_documents
+            (id, project_id, resource_type, resource_id, owner_agent_id, visibility, content, content_hash,
+             status, metadata_json, index_state, created_at, updated_at)
+          VALUES
+            ('memory:' || NEW.id, NEW.project_id, 'memory', NEW.id, NEW.agent_id, 'private',
+             NEW.summary || char(10) || NEW.content, NEW.content_hash,
+             CASE WHEN NEW.status='active' THEN 'active' ELSE 'superseded' END,
+             json_object('level', NEW.level, 'kind', NEW.kind, 'confidence', NEW.confidence, 'salience', NEW.salience),
+             CASE WHEN NEW.level='L1' THEN 'not_applicable' ELSE NEW.index_state END, NEW.created_at, NEW.updated_at)
+          ON CONFLICT(project_id, resource_type, resource_id) DO UPDATE SET
+            owner_agent_id=excluded.owner_agent_id, visibility='private', content=excluded.content,
+            content_hash=excluded.content_hash, status=excluded.status, metadata_json=excluded.metadata_json,
+            index_state=excluded.index_state, updated_at=excluded.updated_at;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_memory_semantic_update
+        AFTER UPDATE ON memory_items BEGIN
+          INSERT INTO semantic_documents
+            (id, project_id, resource_type, resource_id, owner_agent_id, visibility, content, content_hash,
+             status, metadata_json, index_state, created_at, updated_at)
+          VALUES
+            ('memory:' || NEW.id, NEW.project_id, 'memory', NEW.id, NEW.agent_id, 'private',
+             NEW.summary || char(10) || NEW.content, NEW.content_hash,
+             CASE WHEN NEW.status='active' THEN 'active' ELSE 'superseded' END,
+             json_object('level', NEW.level, 'kind', NEW.kind, 'confidence', NEW.confidence, 'salience', NEW.salience),
+             CASE WHEN NEW.level='L1' THEN 'not_applicable' ELSE NEW.index_state END, NEW.created_at, NEW.updated_at)
+          ON CONFLICT(project_id, resource_type, resource_id) DO UPDATE SET
+            owner_agent_id=excluded.owner_agent_id, visibility='private', content=excluded.content,
+            content_hash=excluded.content_hash, status=excluded.status, metadata_json=excluded.metadata_json,
+            index_state=excluded.index_state, updated_at=excluded.updated_at;
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_memory_semantic_delete
+        AFTER DELETE ON memory_items BEGIN
+          UPDATE semantic_documents SET status='deleted', index_state='pending', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE project_id=OLD.project_id AND resource_type='memory' AND resource_id=OLD.id;
+        END;
+      `);
+
+      const now = new Date().toISOString();
+      const rows = this.db.prepare("SELECT * FROM memory_items WHERE project_id=?").all(this.projectId) as MemoryRow[];
+      const eventOwners = this.db.prepare(`SELECT source_agent_id, role FROM memory_events WHERE id IN (SELECT value FROM json_each(?))`) as Database.Statement<[string]>;
+      const conflicting = this.db.prepare("SELECT id FROM memory_items WHERE project_id=? AND agent_id=? AND level=? AND fingerprint=? AND id<>?");
+      const quarantine = this.db.prepare(`INSERT OR REPLACE INTO memory_ownership_quarantine
+        (memory_id, previous_owner_agent_id, proposed_owner_agent_id, reason, source_event_ids, created_at) VALUES (?, ?, ?, ?, ?, ?)`);
+      const reassign = this.db.prepare("UPDATE memory_items SET agent_id=?, team_id=?, scope='private', index_state=CASE WHEN level IN ('L2','L3') AND status='active' THEN 'pending' ELSE 'not_applicable' END, updated_at=? WHERE id=?");
+      const makePrivate = this.db.prepare("UPDATE memory_items SET scope='private', index_state=CASE WHEN level IN ('L2','L3') AND status='active' THEN 'pending' ELSE 'not_applicable' END WHERE id=?");
+      for (const row of rows) {
+        const sources = parseJsonArray(row.source_event_ids);
+        const owners = sources.length
+          ? [...new Set((eventOwners.all(safeJson(sources)) as Array<{ source_agent_id: string | null; role: string }>)
+              .filter((event) => event.role === 'worker' && event.source_agent_id)
+              .map((event) => event.source_agent_id!))]
+          : [];
+        if (owners.length === 1 && owners[0] !== row.agent_id) {
+          const owner = owners[0]!;
+          const conflict = conflicting.get(this.projectId, owner, row.level, row.fingerprint, row.id) as { id: string } | undefined;
+          if (conflict) quarantine.run(row.id, row.agent_id, owner, "target_owner_fingerprint_conflict", safeJson(sources), now);
+          else reassign.run(owner, this.teamFor(owner), now, row.id);
+        } else {
+          if (owners.length > 1) quarantine.run(row.id, row.agent_id, null, "mixed_worker_sources", safeJson(sources), now);
+          makePrivate.run(row.id);
+        }
+      }
+      this.db.prepare("UPDATE memory_events SET owner_agent_id=source_agent_id WHERE role='worker' AND source_agent_id IS NOT NULL AND source_agent_id<>owner_agent_id").run();
+
+      const refreshed = this.db.prepare("SELECT * FROM memory_items WHERE project_id=?").all(this.projectId) as MemoryRow[];
+      const updateHash = this.db.prepare("UPDATE memory_items SET content_hash=? WHERE id=?");
+      const upsertSemantic = this.db.prepare(`INSERT INTO semantic_documents
+        (id, project_id, resource_type, resource_id, owner_agent_id, visibility, content, content_hash, status, metadata_json, index_state, created_at, updated_at)
+        VALUES (?, ?, 'memory', ?, ?, 'private', ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, resource_type, resource_id) DO UPDATE SET owner_agent_id=excluded.owner_agent_id,
+          visibility='private', content=excluded.content, content_hash=excluded.content_hash, status=excluded.status,
+          metadata_json=excluded.metadata_json, index_state=excluded.index_state, updated_at=excluded.updated_at`);
+      for (const row of refreshed) {
+        const hash = indexProjectionHash({ ...row, scope: "private" });
+        updateHash.run(hash, row.id);
+        upsertSemantic.run(`memory:${row.id}`, this.projectId, row.id, row.agent_id, `${row.summary}\n${row.content}`, hash,
+          row.status === "active" ? "active" : "superseded", safeJson({ level: row.level, kind: row.kind, confidence: row.confidence, salience: row.salience }),
+          row.level === "L1" ? "not_applicable" : row.index_state, row.created_at, row.updated_at);
+      }
+      this.db.pragma("user_version = 8");
+    });
+    migrateV8.immediate();
+    const migrateV9 = this.db.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS semantic_index_memberships (
+          semantic_document_id TEXT NOT NULL,
+          collection_revision TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','indexed','failed','deleted')),
+          indexed_at TEXT,
+          error TEXT,
+          PRIMARY KEY(semantic_document_id, collection_revision),
+          FOREIGN KEY(semantic_document_id) REFERENCES semantic_documents(id),
+          FOREIGN KEY(collection_revision) REFERENCES memory_index_registry(collection_revision)
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_memberships_revision_status
+          ON semantic_index_memberships(collection_revision, status, semantic_document_id);
+      `);
+      this.db.pragma("user_version = 9");
+    });
+    migrateV9.immediate();
     this.db.prepare("UPDATE dream_runs SET status='failed', completed_at=?, error=COALESCE(error, 'Interrupted by process restart') WHERE status='running'")
       .run(new Date().toISOString());
   }
@@ -896,7 +1156,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       this.db.prepare(`INSERT INTO memory_items
         (id, project_id, agent_id, team_id, level, kind, content, summary, fingerprint, confidence, salience, source_event_ids, created_at, updated_at, last_confirmed_at,
          schema_version, scope, trust_level, contradiction_ids, content_hash, index_state)
-        VALUES (?, ?, ?, ?, 'L1', 'working', ?, ?, ?, 1, 1, ?, ?, ?, ?, 2, 'project', ?, '[]', '', 'not_applicable')
+        VALUES (?, ?, ?, ?, 'L1', 'working', ?, ?, ?, 1, 1, ?, ?, ?, ?, 2, 'private', ?, '[]', '', 'not_applicable')
         ON CONFLICT(agent_id, level, fingerprint) DO UPDATE SET updated_at=excluded.updated_at, last_confirmed_at=excluded.last_confirmed_at`)
         .run(randomUUID(), this.projectId, input.ownerAgentId, input.teamId ?? null, input.content, input.content, input.fingerprint,
           safeJson([input.id]), input.createdAt, input.createdAt, input.createdAt, input.trustLevel);
@@ -1005,13 +1265,40 @@ export class SqliteMemoryRepository implements MemoryRepository {
       .run(run.status, run.completedAt ?? null, run.processedEvents, run.createdL2, run.promotedL3, run.error ?? null, run.id);
   }
 
+  insertMaintenanceRun(run: MemoryMaintenanceRun, createdAt: string): void {
+    this.db.prepare(`INSERT INTO maintenance_runs
+      (id, project_id, agent_id, trigger, status, pending_event_ids, proposed_mutations, applied_mutations,
+       rejected_mutations, started_at, completed_at, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      run.id, run.projectId, run.agentId, run.trigger, run.status, safeJson(run.pendingEventIds),
+      run.proposedMutations, run.appliedMutations, run.rejectedMutations, run.startedAt ?? null,
+      run.completedAt ?? null, run.error ?? null, createdAt, createdAt,
+    );
+  }
+
+  finishMaintenanceRun(run: MemoryMaintenanceRun, updatedAt: string): void {
+    this.db.prepare(`UPDATE maintenance_runs SET status=?, pending_event_ids=?, proposed_mutations=?,
+      applied_mutations=?, rejected_mutations=?, started_at=?, completed_at=?, error=?, updated_at=? WHERE id=?`).run(
+      run.status, safeJson(run.pendingEventIds), run.proposedMutations, run.appliedMutations,
+      run.rejectedMutations, run.startedAt ?? null, run.completedAt ?? null, run.error ?? null, updatedAt, run.id,
+    );
+  }
+
+  pendingMaintenanceAgentIds(limit = 100): string[] {
+    return (this.db.prepare(`SELECT owner_agent_id FROM memory_events
+      WHERE project_id=? AND consolidated=0 GROUP BY owner_agent_id ORDER BY MIN(created_at) LIMIT ?`)
+      .all(this.projectId, Math.min(500, Math.max(1, Math.floor(limit)))) as Array<{ owner_agent_id: string }>)
+      .map(({ owner_agent_id }) => owner_agent_id);
+  }
+
   consolidate(input: ConsolidateInput): ConsolidateResult {
     const result: ConsolidateResult = { processedEvents: 0, createdL2: 0, promotedL3: 0 };
+    const ownerClause = input.agentId ? " AND owner_agent_id=?" : "";
     const events = this.db.prepare(`SELECT id, owner_agent_id, kind, content, created_at,
       COALESCE(CAST(json_extract(metadata_json, '$.trustLevel') AS INTEGER),
         CASE WHEN source_agent_id GLOB '*-worker-[0-9]*' THEN 80 WHEN role='leader' THEN 90 ELSE 100 END) AS trust_level
-      FROM memory_events WHERE project_id=? AND consolidated=0 ORDER BY created_at LIMIT ?`)
-      .all(this.projectId, input.maxEvents) as PendingEventRow[];
+      FROM memory_events WHERE project_id=? AND consolidated=0${ownerClause} ORDER BY created_at LIMIT ?`)
+      .all(...(input.agentId ? [this.projectId, input.agentId, input.maxEvents] : [this.projectId, input.maxEvents])) as PendingEventRow[];
     this.db.transaction(() => {
       for (const event of events) {
         if (input.isCancelled()) throw new DreamCancelledError();
@@ -1036,7 +1323,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
             VALUES (?, ?, ?, ?, 'L2', ?, ?, ?, ?, .65, .6, 1, ?, 'active', ?, ?, ?, 2, ?, ?, '[]', '', 'pending')`)
             .run(id, this.projectId, event.owner_agent_id, this.teamFor(event.owner_agent_id), event.kind, event.content, event.content,
               fingerprint, safeJson([event.id]), event.created_at, event.created_at, event.created_at,
-              this.teamFor(event.owner_agent_id) ? "team" : "project", event.trust_level);
+              "private", event.trust_level);
           this.enqueueIndex(this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(id) as MemoryRow, "upsert");
           result.createdL2 += 1;
         }
@@ -1049,10 +1336,12 @@ export class SqliteMemoryRepository implements MemoryRepository {
         result.processedEvents += 1;
       }
 
-      const promotable = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=? AND level='L2' AND status='active'
+      const promotable = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=?${input.agentId ? " AND agent_id=?" : ""} AND level='L2' AND status='active'
         AND independent_evidence_count>=? AND trust_level>=80 AND contradiction_ids='[]'
         AND (valid_from IS NULL OR valid_from<=?) AND (valid_to IS NULL OR valid_to>?)`)
-        .all(this.projectId, input.minEvidence, new Date().toISOString(), new Date().toISOString()) as MemoryRow[];
+        .all(...(input.agentId
+          ? [this.projectId, input.agentId, input.minEvidence, new Date().toISOString(), new Date().toISOString()]
+          : [this.projectId, input.minEvidence, new Date().toISOString(), new Date().toISOString()])) as MemoryRow[];
       for (const memory of promotable) {
         if (input.isCancelled()) throw new DreamCancelledError();
         const before = (this.db.prepare("SELECT COUNT(*) AS count FROM memory_items WHERE project_id=? AND agent_id=? AND level='L3'").get(this.projectId, memory.agent_id) as { count: number }).count;
@@ -1062,16 +1351,18 @@ export class SqliteMemoryRepository implements MemoryRepository {
       }
 
       const cutoff = new Date(Date.now() - input.retentionDays * 86_400_000).toISOString();
-      const expiring = this.db.prepare("SELECT * FROM memory_items WHERE project_id=? AND level='L2' AND updated_at<? AND status='active'").all(this.projectId, cutoff) as MemoryRow[];
-      this.db.prepare("UPDATE memory_items SET status='superseded', index_state='pending', updated_at=? WHERE project_id=? AND level='L2' AND updated_at<? AND status='active'")
-        .run(new Date().toISOString(), this.projectId, cutoff);
+      const expiryOwnerClause = input.agentId ? " AND agent_id=?" : "";
+      const expiring = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=?${expiryOwnerClause} AND level='L2' AND updated_at<? AND status='active'`)
+        .all(...(input.agentId ? [this.projectId, input.agentId, cutoff] : [this.projectId, cutoff])) as MemoryRow[];
+      this.db.prepare(`UPDATE memory_items SET status='superseded', index_state='pending', updated_at=? WHERE project_id=?${expiryOwnerClause} AND level='L2' AND updated_at<? AND status='active'`)
+        .run(...(input.agentId ? [new Date().toISOString(), this.projectId, input.agentId, cutoff] : [new Date().toISOString(), this.projectId, cutoff]));
       for (const row of expiring) this.enqueueIndex(this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(row.id) as MemoryRow, "delete");
       this.enforceL1Retention(input.l1TtlHours, input.l1MaxItems);
     })();
     return result;
   }
 
-  listPendingExtractionEvents(limit: number, maxAttempts: number): MemoryExtractionEvent[] {
+  listPendingExtractionEvents(limit: number, maxAttempts: number, agentId?: string): MemoryExtractionEvent[] {
     const rows = this.db.prepare(`SELECT event.id, event.owner_agent_id, event.source_agent_id, event.role, event.event_type,
       event.kind, event.content, event.created_at, event.extraction_attempts,
       CASE
@@ -1085,9 +1376,11 @@ export class SqliteMemoryRepository implements MemoryRepository {
       FROM memory_events event
       LEFT JOIN memory_items memory ON memory.level='L1' AND memory.project_id=event.project_id
         AND memory.agent_id=event.owner_agent_id AND memory.source_event_ids=json_array(event.id)
-      WHERE event.project_id=? AND event.consolidated=0 AND event.extraction_attempts<?
+      WHERE event.project_id=? AND event.consolidated=0 AND event.extraction_attempts<?${agentId ? " AND event.owner_agent_id=?" : ""}
       ORDER BY event.created_at, event.id LIMIT ?`)
-      .all(this.projectId, Math.max(1, Math.floor(maxAttempts)), Math.min(5_000, Math.max(1, Math.floor(limit)))) as PendingEventRow[];
+      .all(...(agentId
+        ? [this.projectId, Math.max(1, Math.floor(maxAttempts)), agentId, Math.min(5_000, Math.max(1, Math.floor(limit)))]
+        : [this.projectId, Math.max(1, Math.floor(maxAttempts)), Math.min(5_000, Math.max(1, Math.floor(limit)))])) as PendingEventRow[];
     return rows.map((row) => ({
       id: row.id,
       ownerAgentId: row.owner_agent_id,
@@ -1160,25 +1453,28 @@ export class SqliteMemoryRepository implements MemoryRepository {
     })();
   }
 
-  finishStructuredConsolidation(retentionDays: number, l1MaxItems: number, l1TtlHours: number): void {
+  finishStructuredConsolidation(retentionDays: number, l1MaxItems: number, l1TtlHours: number, agentId?: string): void {
     this.db.transaction(() => {
       const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-      const expiring = this.db.prepare("SELECT * FROM memory_items WHERE project_id=? AND level='L2' AND updated_at<? AND status='active'").all(this.projectId, cutoff) as MemoryRow[];
-      this.db.prepare("UPDATE memory_items SET status='superseded', index_state='pending', updated_at=? WHERE project_id=? AND level='L2' AND updated_at<? AND status='active'")
-        .run(new Date().toISOString(), this.projectId, cutoff);
+      const ownerClause = agentId ? " AND agent_id=?" : "";
+      const expiring = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=?${ownerClause} AND level='L2' AND updated_at<? AND status='active'`)
+        .all(...(agentId ? [this.projectId, agentId, cutoff] : [this.projectId, cutoff])) as MemoryRow[];
+      this.db.prepare(`UPDATE memory_items SET status='superseded', index_state='pending', updated_at=? WHERE project_id=?${ownerClause} AND level='L2' AND updated_at<? AND status='active'`)
+        .run(...(agentId ? [new Date().toISOString(), this.projectId, agentId, cutoff] : [new Date().toISOString(), this.projectId, cutoff]));
       for (const row of expiring) this.enqueueIndex(this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(row.id) as MemoryRow, "delete");
       this.enforceL1Retention(l1TtlHours, l1MaxItems);
     })();
   }
 
-  listGovernanceMemories(_limit: number, version: string): MemoryRecord[] {
-    const candidates = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=? AND level='L2'
+  listGovernanceMemories(_limit: number, version: string, agentId?: string): MemoryRecord[] {
+    const ownerClause = agentId ? " AND agent_id=?" : "";
+    const candidates = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=?${ownerClause} AND level='L2'
       AND status='candidate' AND subject IS NOT NULL AND predicate IS NOT NULL
       ORDER BY CASE WHEN governance_version IS NULL OR governance_version<>? THEN 0 ELSE 1 END, created_at, id LIMIT 5000`)
-      .all(this.projectId, version) as MemoryRow[];
-    const peers = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=? AND level='L2'
+      .all(...(agentId ? [this.projectId, agentId, version] : [this.projectId, version])) as MemoryRow[];
+    const peers = this.db.prepare(`SELECT * FROM memory_items WHERE project_id=?${ownerClause} AND level='L2'
       AND status IN ('active','disputed') AND subject IS NOT NULL AND predicate IS NOT NULL ORDER BY updated_at DESC, id LIMIT 5000`)
-      .all(this.projectId) as MemoryRow[];
+      .all(...(agentId ? [this.projectId, agentId] : [this.projectId])) as MemoryRow[];
     return [...candidates, ...peers].map((row) => this.rowToMemory(row));
   }
 
@@ -1562,6 +1858,112 @@ export class SqliteMemoryRepository implements MemoryRepository {
     })();
   }
 
+  reconcileSemanticIndexRevision(collectionRevision: string, now: string): number {
+    return this.db.transaction(() => {
+      const target = this.db.prepare("SELECT state FROM memory_index_registry WHERE project_id=? AND collection_revision=?")
+        .get(this.projectId, collectionRevision) as { state: MemoryIndexRegistryState } | undefined;
+      if (!target || !["building", "ready", "active"].includes(target.state)) throw new Error(`Collection '${collectionRevision}' is not writable.`);
+      let scheduled = 0;
+      // During the compatibility window canonical memories continue through
+      // memory_index_outbox. Knowledge joins the same collection here without
+      // duplicating memory vectors under semantic IDs.
+      const documents = this.db.prepare("SELECT * FROM semantic_documents WHERE project_id=? AND resource_type='knowledge'").all(this.projectId) as Array<Record<string, unknown>>;
+      const readMembership = this.db.prepare(`SELECT content_hash, status FROM semantic_index_memberships
+        WHERE semantic_document_id=? AND collection_revision=?`);
+      const membership = this.db.prepare(`INSERT INTO semantic_index_memberships
+        (semantic_document_id, collection_revision, content_hash, status)
+        VALUES (?, ?, ?, 'pending') ON CONFLICT(semantic_document_id, collection_revision) DO UPDATE SET
+          content_hash=excluded.content_hash, status='pending', indexed_at=NULL, error=NULL`);
+      const enqueue = this.db.prepare(`INSERT INTO semantic_index_outbox
+        (id, semantic_document_id, operation, collection_revision, content_hash, next_attempt_at, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        ON CONFLICT(semantic_document_id, operation, content_hash, collection_revision) DO UPDATE SET
+          attempts=0, next_attempt_at=excluded.next_attempt_at, status='pending', lease_owner=NULL,
+          lease_expires_at=NULL, error=NULL, updated_at=excluded.updated_at`);
+      for (const document of documents) {
+        const operation = document.status === "active" ? "upsert" : "delete";
+        const current = readMembership.get(document.id, collectionRevision) as { content_hash: string; status: MemoryIndexMembershipState } | undefined;
+        const desiredStatus = operation === "upsert" ? "indexed" : "deleted";
+        const shouldEnqueue = !current || current.content_hash !== document.content_hash
+          || (current.status !== "pending" && current.status !== "failed" && current.status !== desiredStatus);
+        if (!shouldEnqueue) continue;
+        membership.run(document.id, collectionRevision, document.content_hash);
+        enqueue.run(randomUUID(), document.id, operation, collectionRevision, document.content_hash, now, now, now);
+        scheduled += 1;
+      }
+      this.db.prepare("UPDATE semantic_index_outbox SET next_attempt_at=?, updated_at=? WHERE collection_revision=? AND status='pending' AND next_attempt_at>?")
+        .run(now, now, collectionRevision, now);
+      return scheduled;
+    })();
+  }
+
+  claimSemanticIndexOutbox(options: ClaimSemanticIndexOutboxOptions): SemanticIndexOutboxItem[] {
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit)));
+    const leaseExpiresAt = new Date(Date.parse(options.now) + Math.max(1_000, options.leaseMs)).toISOString();
+    return this.db.transaction(() => {
+      this.db.prepare(`UPDATE semantic_index_outbox SET status='pending', lease_owner=NULL, lease_expires_at=NULL, updated_at=?
+        WHERE collection_revision=? AND status='processing' AND lease_expires_at<=?`).run(options.now, options.collectionRevision, options.now);
+      const rows = this.db.prepare(`SELECT id FROM semantic_index_outbox WHERE collection_revision=? AND status='pending' AND next_attempt_at<=?
+        ORDER BY created_at, id LIMIT ?`).all(options.collectionRevision, options.now, limit) as Array<{ id: string }>;
+      const claim = this.db.prepare(`UPDATE semantic_index_outbox SET status='processing', attempts=attempts+1, lease_owner=?, lease_expires_at=?, updated_at=?
+        WHERE id=? AND status='pending'`);
+      const read = this.db.prepare(`SELECT outbox.*,
+        outbox.id AS outbox_id, outbox.content_hash AS outbox_content_hash, outbox.attempts AS outbox_attempts,
+        document.id AS document_id, document.project_id AS document_project_id,
+        document.resource_type AS document_resource_type, document.resource_id AS document_resource_id,
+        document.source_id AS document_source_id, document.owner_agent_id AS document_owner_agent_id,
+        document.visibility AS document_visibility, document.team_id AS document_team_id,
+        document.allowed_agent_ids AS document_allowed_agent_ids, document.content AS document_content,
+        document.content_hash AS document_content_hash, document.status AS document_status,
+        document.metadata_json AS document_metadata_json, document.index_state AS document_index_state,
+        document.created_at AS document_created_at, document.updated_at AS document_updated_at
+        FROM semantic_index_outbox outbox JOIN semantic_documents document ON document.id=outbox.semantic_document_id WHERE outbox.id=?`);
+      const claimed = rows.filter((row) => claim.run(options.workerId, leaseExpiresAt, options.now, row.id).changes > 0);
+      return claimed.map(({ id }) => {
+        const row = read.get(id) as Record<string, unknown>;
+        const document: SemanticDocument = {
+          id: String(row.document_id), projectId: String(row.document_project_id), resourceType: row.document_resource_type as SemanticDocument["resourceType"],
+          resourceId: String(row.document_resource_id), sourceId: row.document_source_id ? String(row.document_source_id) : undefined,
+          ownerAgentId: row.document_owner_agent_id ? String(row.document_owner_agent_id) : undefined, visibility: row.document_visibility as SemanticDocument["visibility"],
+          teamId: row.document_team_id ? String(row.document_team_id) : undefined, allowedAgentIds: parseJsonArray(String(row.document_allowed_agent_ids)),
+          content: String(row.document_content), contentHash: String(row.document_content_hash), status: row.document_status as SemanticDocument["status"],
+          metadata: parseJsonObject(String(row.document_metadata_json)), indexState: row.document_index_state as SemanticDocument["indexState"],
+          createdAt: String(row.document_created_at), updatedAt: String(row.document_updated_at),
+        };
+        return { id: String(row.outbox_id), semanticDocumentId: document.id, operation: row.operation as "upsert" | "delete",
+          collectionRevision: String(row.collection_revision), contentHash: String(row.outbox_content_hash), attempts: Number(row.outbox_attempts),
+          leaseOwner: options.workerId, leaseExpiresAt, document };
+      });
+    })();
+  }
+
+  completeSemanticIndexOutbox(id: string, workerId: string, indexedAt: string): boolean {
+    return this.db.transaction(() => {
+      const row = this.db.prepare("SELECT semantic_document_id, collection_revision, operation, content_hash FROM semantic_index_outbox WHERE id=? AND status='processing' AND lease_owner=? AND lease_expires_at>?")
+        .get(id, workerId, indexedAt) as { semantic_document_id: string; collection_revision: string; operation: "upsert" | "delete"; content_hash: string } | undefined;
+      if (!row) return false;
+      this.db.prepare("UPDATE semantic_index_outbox SET status='completed', error=NULL, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE id=?").run(indexedAt, id);
+      this.db.prepare("UPDATE semantic_index_memberships SET status=?, content_hash=?, indexed_at=?, error=NULL WHERE semantic_document_id=? AND collection_revision=?")
+        .run(row.operation === "delete" ? "deleted" : "indexed", row.content_hash, indexedAt, row.semantic_document_id, row.collection_revision);
+      this.db.prepare("UPDATE semantic_documents SET index_state=? WHERE id=?").run(row.operation === "delete" ? "not_applicable" : "indexed", row.semantic_document_id);
+      return true;
+    })();
+  }
+
+  failSemanticIndexOutbox(id: string, workerId: string, error: string, retryAt: string, deadLetter: boolean, updatedAt: string): boolean {
+    return this.db.transaction(() => {
+      const row = this.db.prepare("SELECT semantic_document_id, collection_revision FROM semantic_index_outbox WHERE id=? AND status='processing' AND lease_owner=? AND lease_expires_at>?")
+        .get(id, workerId, updatedAt) as { semantic_document_id: string; collection_revision: string } | undefined;
+      if (!row) return false;
+      this.db.prepare("UPDATE semantic_index_outbox SET status=?, error=?, next_attempt_at=?, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE id=?")
+        .run(deadLetter ? "dead_letter" : "pending", error.slice(0, 800), retryAt, updatedAt, id);
+      this.db.prepare("UPDATE semantic_index_memberships SET status=?, error=? WHERE semantic_document_id=? AND collection_revision=?")
+        .run(deadLetter ? "failed" : "pending", error.slice(0, 800), row.semantic_document_id, row.collection_revision);
+      this.db.prepare("UPDATE semantic_documents SET index_state=? WHERE id=?").run(deadLetter ? "failed" : "pending", row.semantic_document_id);
+      return true;
+    })();
+  }
+
   getIndexMigration(collectionRevision: string): MemoryIndexMigrationRecord | undefined {
     const row = this.db.prepare("SELECT * FROM memory_index_migrations WHERE collection_revision=?").get(collectionRevision) as Record<string, unknown> | undefined;
     if (!row) return undefined;
@@ -1787,18 +2189,36 @@ export class SqliteMemoryRepository implements MemoryRepository {
     const pending = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_events WHERE project_id=?${ownerClause} AND consolidated=0`).get(...params) as { count: number };
     const latest = this.db.prepare(`SELECT created_at FROM memory_events WHERE project_id=?${ownerClause} ORDER BY created_at DESC LIMIT 1`).get(...params) as { created_at?: string } | undefined;
     const last = this.db.prepare("SELECT * FROM dream_runs ORDER BY started_at DESC LIMIT 1").get() as DreamRow | undefined;
+    const maintenanceParams = agentId ? [this.projectId, agentId] : [this.projectId];
+    const maintenanceClause = agentId ? " AND agent_id=?" : "";
+    const maintenance = this.db.prepare(`SELECT * FROM maintenance_runs WHERE project_id=?${maintenanceClause} ORDER BY created_at DESC LIMIT 1`)
+      .get(...maintenanceParams) as Record<string, unknown> | undefined;
+    const runningMaintenance = this.db.prepare(`SELECT * FROM maintenance_runs WHERE project_id=?${maintenanceClause} AND status='running' ORDER BY created_at DESC LIMIT 1`)
+      .get(...maintenanceParams) as Record<string, unknown> | undefined;
+    const rowToMaintenance = (row: Record<string, unknown>): MemoryMaintenanceRun => ({
+      id: String(row.id), projectId: String(row.project_id), agentId: String(row.agent_id),
+      trigger: row.trigger as MemoryMaintenanceRun["trigger"], status: row.status as MemoryMaintenanceRun["status"],
+      pendingEventIds: parseJsonArray(String(row.pending_event_ids)), proposedMutations: Number(row.proposed_mutations),
+      appliedMutations: Number(row.applied_mutations), rejectedMutations: Number(row.rejected_mutations),
+      startedAt: row.started_at ? String(row.started_at) : undefined, completedAt: row.completed_at ? String(row.completed_at) : undefined,
+      error: row.error ? String(row.error) : undefined,
+    });
     return {
       enabled,
       counts,
       pendingEvents: pending.count,
       lastDream: last ? rowToDream(last) : undefined,
       runningDream: this.currentDream(),
+      lastMaintenance: maintenance ? rowToMaintenance(maintenance) : undefined,
+      runningMaintenance: runningMaintenance ? rowToMaintenance(runningMaintenance) : undefined,
       lastActivityAt: latest?.created_at,
     };
   }
 
   private teamFor(agentId: string): string | null {
     if (agentId === "admin") return null;
-    return agentId.replace(/-(?:lead|leader)$/, "") || null;
+    const leader = agentId.match(/^(.+)-(?:lead|leader)$/u);
+    if (leader?.[1]) return leader[1];
+    return agentId.match(/^(.+)-worker-\d+$/u)?.[1] ?? null;
   }
 }

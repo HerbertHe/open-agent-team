@@ -60,14 +60,45 @@ export class ResourceAgentTransport implements ChatTransport<UIMessage> {
   async sendMessages({ messages, abortSignal }: Parameters<ChatTransport<UIMessage>['sendMessages']>[0]): Promise<ReadableStream<UIMessageChunk>> {
     const prompt = textFrom(messages.at(-1));
     if (abortSignal?.aborted) throw new DOMException('The Resource Manager request was cancelled.', 'AbortError');
-    const cancel = () => { void window.oatDesktop.cancelResourceAgent(); };
-    abortSignal?.addEventListener('abort', cancel, { once: true });
-    let reply: ResourceAgentReply;
-    try { reply = await window.oatDesktop.sendResourceAgentMessage(prompt); }
-    finally { abortSignal?.removeEventListener('abort', cancel); }
-    if (abortSignal?.aborted) throw new DOMException('The Resource Manager request was cancelled.', 'AbortError');
-    this.onReply?.(reply);
-    return response(reply.text);
+    const requestId = crypto.randomUUID();
+    const partId = `resource-${requestId}`;
+    return new ReadableStream<UIMessageChunk>({
+      start: (controller) => {
+        let streamed = '';
+        let closed = false;
+        const reasoningParts = new Set<string>();
+        const close = () => { if (!closed) { closed = true; for (const id of reasoningParts) controller.enqueue({ type: 'reasoning-end', id }); controller.enqueue({ type: 'text-end', id: partId }); controller.close(); } };
+        controller.enqueue({ type: 'text-start', id: partId });
+        const unsubscribe = window.oatDesktop.onResourceAgentEvent((payload) => {
+          if (payload.requestId !== requestId || closed) return;
+          const event = payload.event;
+          const assistantEvent = event.assistantMessageEvent && typeof event.assistantMessageEvent === 'object' ? event.assistantMessageEvent as Record<string, unknown> : undefined;
+          if (event.type === 'message_update' && assistantEvent?.type === 'text_delta' && typeof assistantEvent.delta === 'string') {
+            streamed += assistantEvent.delta;
+            controller.enqueue({ type: 'text-delta', id: partId, delta: assistantEvent.delta });
+          }
+          if (event.type === 'message_update' && ['thinking_start', 'thinking_delta', 'thinking_end'].includes(String(assistantEvent?.type))) {
+            const reasoningId = `${partId}:reasoning:${typeof assistantEvent?.contentIndex === 'number' ? assistantEvent.contentIndex : 0}`;
+            if (!reasoningParts.has(reasoningId)) { reasoningParts.add(reasoningId); controller.enqueue({ type: 'reasoning-start', id: reasoningId }); }
+            if (assistantEvent?.type === 'thinking_delta' && typeof assistantEvent.delta === 'string') controller.enqueue({ type: 'reasoning-delta', id: reasoningId, delta: assistantEvent.delta });
+            if (assistantEvent?.type === 'thinking_end') { controller.enqueue({ type: 'reasoning-end', id: reasoningId }); reasoningParts.delete(reasoningId); }
+          }
+        });
+        const cancel = () => { unsubscribe(); void window.oatDesktop.cancelResourceAgent(); close(); };
+        abortSignal?.addEventListener('abort', cancel, { once: true });
+        void window.oatDesktop.sendResourceAgentMessage(prompt, requestId).then((reply) => {
+          if (closed) return;
+          this.onReply?.(reply);
+          if (!streamed && reply.text) controller.enqueue({ type: 'text-delta', id: partId, delta: reply.text });
+          close();
+        }).catch((error: unknown) => {
+          if (!closed) controller.error(error);
+        }).finally(() => {
+          unsubscribe();
+          abortSignal?.removeEventListener('abort', cancel);
+        });
+      },
+    });
   }
 
   async reconnectToStream(): Promise<null> { return null; }

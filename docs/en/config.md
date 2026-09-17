@@ -22,6 +22,8 @@ Below is a field-by-field dictionary (type / requiredness / default / purpose).
 | `teams` | Yes | array | - | Each team contains one Leader and one Worker definition |
 | `runtime` | No | object | See tables below | Execution mode and state directory |
 | `workspace` | No | object | See tables below | Workspace strategy, root dir, git lfs/sparse-checkout behavior |
+| `memory` | No | object | lexical | Owner-private Agent memory, retrieval, and the global Embedding Profile reference |
+| `knowledge` | No | object | enabled | File-backed project/team knowledge; reuses the memory Embedding and Zvec lifecycle |
 
 ## 2. `project`
 
@@ -90,6 +92,22 @@ Notes:
 3. Model IDs in `models` can use `<providerKey>/<modelName>` with any `providerKey` defined in `providers` (e.g. `cli_proxy_api/deepseek-v4-pro`). At runtime, the loader rewrites the provider prefix to the corresponding `compatible_type` (`openai/<modelName>` or `anthropic/<modelName>`) before creating pi sessions.
 
 > pi-coding-agent reads API keys from process environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.). `providers` only sets those variables before pi sessions start.
+
+## 5.2 `knowledge` (file-backed shared knowledge)
+
+| Field | Required | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `knowledge.enabled` | No | boolean | `true` | Enable ingestion, retrieval, and Desktop knowledge operations |
+| `knowledge.roots.project` | No | string | `knowledge/project` | Project-visible files, relative to `project.repo` |
+| `knowledge.roots.teams` | No | string | `knowledge/teams` | Team root; its first path segment is the Team name |
+| `knowledge.roots.uploads` | No | string | `knowledge/uploads` | Canonical source directory for user uploads |
+| `knowledge.watcher.enabled` | No | boolean | `true` | Enable coalesced periodic scanning |
+| `knowledge.watcher.debounceMs` | No | integer | `1000` | Scan interval from 100 to 60000 ms |
+| `knowledge.ingestion.maxFileSizeMb` | No | integer | `50` | Per-file limit from 1 to 2048 MiB |
+| `knowledge.ingestion.chunkTokens` | No | integer | `1000` | Deterministic target chunk size from 128 to 8192 tokens |
+| `knowledge.ingestion.chunkOverlapTokens` | No | integer | `120` | Chunk overlap; must be smaller than `chunkTokens` |
+
+All roots must remain inside `project.repo`. Knowledge shares `memory.db`, Semantic Outbox, the active Zvec collection revision, and `memory.embeddingRef`; it has no separate vector identity configuration.
 
 ## 6. `workspace`
 

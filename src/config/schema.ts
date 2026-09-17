@@ -49,7 +49,7 @@ export const TeamFileSchema = z.object({
     .optional(),
   memory: z.object({
     enabled: z.boolean().default(true),
-    roles: z.array(z.enum(["admin", "leader"])).default(["admin", "leader"]),
+    roles: z.array(z.enum(["admin", "leader", "worker"])).default(["admin", "leader", "worker"]),
     access: z.object({
       leaderProjectScopeTeams: z.array(z.string().trim().min(1)).max(200).default([]),
     }).strict().default({ leaderProjectScopeTeams: [] }),
@@ -105,6 +105,25 @@ export const TeamFileSchema = z.object({
       cancelOnNewTask: z.boolean().default(true),
     }).default({ enabled: true, idleAfterSeconds: 300, pollSeconds: 30, maxEventsPerRun: 250, cancelOnNewTask: true }),
   }).optional(),
+  knowledge: z.object({
+    enabled: z.boolean().default(true),
+    roots: z.object({
+      project: z.string().trim().min(1).default("knowledge/project"),
+      teams: z.string().trim().min(1).default("knowledge/teams"),
+      uploads: z.string().trim().min(1).default("knowledge/uploads"),
+    }).strict().default({ project: "knowledge/project", teams: "knowledge/teams", uploads: "knowledge/uploads" }),
+    watcher: z.object({
+      enabled: z.boolean().default(true),
+      debounceMs: z.number().int().min(100).max(60_000).default(1_000),
+    }).strict().default({ enabled: true, debounceMs: 1_000 }),
+    ingestion: z.object({
+      maxFileSizeMb: z.number().int().min(1).max(2_048).default(50),
+      chunkTokens: z.number().int().min(128).max(8_192).default(1_000),
+      chunkOverlapTokens: z.number().int().min(0).max(2_048).default(120),
+    }).strict().superRefine((value, context) => {
+      if (value.chunkOverlapTokens >= value.chunkTokens) context.addIssue({ code: "custom", path: ["chunkOverlapTokens"], message: "chunkOverlapTokens must be smaller than chunkTokens" });
+    }).default({ maxFileSizeMb: 50, chunkTokens: 1_000, chunkOverlapTokens: 120 }),
+  }).strict().optional(),
   project: z.object({
     name: z.string().min(1),
     repo: z.string().min(1),

@@ -6,6 +6,7 @@ import type { MemoryConfig } from "../types/config";
 import { loadGlobalModelCatalog, embeddingIdentityRevision, type GlobalModelCatalog } from "../models/global-models";
 import { resolveEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider";
 import { MemoryIndexWorker, type MemoryIndexWorkerRun } from "./memory-index-worker";
+import { SemanticIndexWorker } from "../semantic/index-worker";
 import type { MemoryRepository } from "./memory-repository";
 import type { MemoryOverview, MemoryRetrievalRuntimeStatus } from "./types";
 import { createZvecIndexManifest, type ZvecIndexManifest } from "./zvec-index-identity";
@@ -355,6 +356,22 @@ export class MemoryOperations {
         now: this.now,
       });
       const run = await worker.runOnce();
+      this.options.repository.reconcileSemanticIndexRevision(pointer.collectionRevision, this.timestamp());
+      const semanticRun = await new SemanticIndexWorker({
+        repository: this.options.repository,
+        index,
+        embeddingProvider: provider,
+        workerId: `semantic-active-${this.options.projectId}-${process.pid}`,
+        batchSize: this.options.config.zvec.batchSize,
+        maxAttempts: this.options.config.zvec.maxAttempts,
+        now: this.now,
+      }).runOnce();
+      run.claimed += semanticRun.claimed;
+      run.indexed += semanticRun.indexed;
+      run.deleted += semanticRun.deleted;
+      run.retried += semanticRun.retried;
+      run.deadLettered += semanticRun.deadLettered;
+      run.lostLeases += semanticRun.lostLeases;
       this.indexedSinceOptimize += run.indexed + run.deleted;
       const stats = await index.stats();
       const completeness = stats.indexCompleteness.dense_embedding ?? 1;
