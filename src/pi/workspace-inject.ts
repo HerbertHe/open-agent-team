@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AgentRoleEnum } from "../types";
-import { RECORDS_DIR, todayRecordsSubPath } from "../utils/records";
+import { todayRecordsSubPath } from "../utils/records";
 
 /** 用于计算各 Agent 可触碰的目录前缀（绝对路径，统一带尾部 path.sep） */
 export type OatWorkspaceScopeContext = {
@@ -122,8 +122,10 @@ export function buildAgentSystemPrompt(args: {
   const todayPath = todayRecordsSubPath();
   const recordsHint = [
     `\n\n## File placement rules (ALL roles must follow)`,
-    `- Keep the Git worktree clean: only repository source, tests, and deliberate project documentation may be created there.`,
-    `- Do NOT create logs, drafts, records, skills, or runtime metadata inside the Git worktree; report evidence paths through the orchestration tools instead.`,
+    `- Keep the Git worktree clean: outside the dated archive below, only repository source, tests, deliberate project documentation, and the required CHANGELOG.md may be created there.`,
+    `- Archive every work-process file (analysis notes, drafts, logs, intermediate outputs, and temporary evidence) under \`${todayPath}/\`. Create this date directory before writing the first such file.`,
+    `- Do NOT place work-process files at the workspace root or in an undated \`records/\` location. Keep only repository source, tests, deliberate project documentation, and the required CHANGELOG.md outside the dated archive.`,
+    `- When referring to archived evidence, report its full date-based path so it remains searchable.`,
   ].join("\n");
 
   const changelogSystem = (() => {

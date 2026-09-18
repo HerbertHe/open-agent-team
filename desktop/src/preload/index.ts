@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('oatDesktop', {
   getRuntimeStatus: () => ipcRenderer.invoke('runtime:status'),
   prepareRuntime: () => ipcRenderer.invoke('runtime:prepare'),
+  getStartupLog: () => ipcRenderer.invoke('runtime:startup-log'),
   ensureNodeRuntime: () => ipcRenderer.invoke('runtime:ensure-node'),
   ensureOatTool: () => ipcRenderer.invoke('runtime:ensure-oat'),
   installRuntime: () => ipcRenderer.invoke('runtime:install'),

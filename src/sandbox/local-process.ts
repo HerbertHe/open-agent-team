@@ -78,15 +78,18 @@ const __dirname = path.dirname(__filename);
  * - 当前文件为 .ts（tsx 开发模式）→ 用 tsx 运行 agent-runner.ts
  * - 当前文件为 .js（tsup 编译产物）→ 直接 fork agent-runner.js
  */
-function resolveRunnerExec(): { execPath: string | undefined; runnerPath: string } {
+export function resolveRunnerExec(): { execPath: string | undefined; execArgv: string[]; runnerPath: string } {
   const isTsSource = __filename.endsWith(".ts");
   if (isTsSource) {
-    const tsxBin = path.join(process.cwd(), "node_modules", ".bin", "tsx");
     const runnerTs = path.join(__dirname, "agent-runner.ts");
-    return { execPath: tsxBin, runnerPath: runnerTs };
+    // Run TypeScript in the forked Node process itself. Using the `tsx`
+    // executable as execPath creates a wrapper process which then spawns the
+    // real runner; killing the wrapper can orphan the Agent and doubles the
+    // process count for large teams.
+    return { execPath: process.execPath, execArgv: ["--import", "tsx"], runnerPath: runnerTs };
   }
   const runnerJs = path.join(__dirname, "sandbox", "agent-runner.js");
-  return { execPath: undefined, runnerPath: runnerJs };
+  return { execPath: undefined, execArgv: [], runnerPath: runnerJs };
 }
 
 // ─── 工具辅助 ─────────────────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ export class PiSessionProvider implements RuntimeProvider {
     const toolDefs: SerializableToolDef[] = customTools.map(extractToolMeta);
     const toolRegistry = new Map<string, ToolExecuteFn>(customTools.map(extractToolExecute));
 
-    const { execPath, runnerPath } = resolveRunnerExec();
+    const { execPath, execArgv, runnerPath } = resolveRunnerExec();
 
     if (!existsSync(runnerPath)) {
       throw new Error(
@@ -153,6 +156,7 @@ export class PiSessionProvider implements RuntimeProvider {
 
     const child = fork(runnerPath, [], {
       execPath,
+      execArgv,
       stdio: ["pipe", "pipe", "pipe", "ipc"],
       env: childEnv,
     });
@@ -379,9 +383,7 @@ export class PiSessionProvider implements RuntimeProvider {
   }
 
   async stopAll(): Promise<void> {
-    for (const agentId of [...this.entries.keys()]) {
-      await this.stop(agentId);
-    }
+    await Promise.all([...this.entries.keys()].map((agentId) => this.stop(agentId)));
   }
 
   async health(agentId: string): Promise<boolean> {

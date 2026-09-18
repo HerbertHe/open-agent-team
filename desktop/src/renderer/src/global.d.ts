@@ -4,6 +4,7 @@ interface Window {
   oatDesktop: {
     getRuntimeStatus(): Promise<RuntimeStatus>;
     prepareRuntime(): Promise<RuntimeStatus>;
+    getStartupLog(): Promise<string>;
     ensureNodeRuntime(): Promise<RuntimeStatus>;
     ensureOatTool(): Promise<RuntimeStatus>;
     installRuntime(): Promise<RuntimeStatus>;

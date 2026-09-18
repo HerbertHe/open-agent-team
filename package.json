@@ -3,6 +3,10 @@
   "description": "Declarative multi-agent orchestration powered by pi-coding-agent: Admin → Leader → Worker hierarchy, team.json config, isolated workspaces (git worktree), and the oat CLI.",
   "version": "2026.9.17",
   "private": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "packageManager": "pnpm@9.15.9",
   "type": "module",
   "engines": {
@@ -42,6 +46,7 @@
     "test:memory:operations": "node --import tsx --test src/memory/memory-operations.test.ts desktop/src/main/memory-profile-policy.test.ts",
     "test:memory:release": "node --import tsx --test src/memory/memory-backup.test.ts src/memory/zvec-index-migration.test.ts scripts/verify-zvec-release.test.mjs",
     "test:channels": "node --import tsx --test src/plugins/loader.test.ts desktop/src/main/channel-routing.test.ts",
+    "test:release-automation": "node --test scripts/verify-release-automation.test.mjs scripts/create-github-npm-package.test.mjs",
     "test:release-version": "node --test scripts/set-release-version.test.mjs",
     "version:date": "node scripts/set-release-version.mjs",
     "dev:www": "pnpm --filter www run dev",

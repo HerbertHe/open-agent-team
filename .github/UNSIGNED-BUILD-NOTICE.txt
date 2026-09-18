@@ -1,0 +1,19 @@
+OAT DESKTOP UNSIGNED BUILD NOTICE
+
+The Windows installer in this release does not have an Authenticode signature.
+The macOS app uses only a certificate-free ad-hoc signature so it can run on
+Apple Silicon. It has no Apple Developer ID identity and has not been notarized
+by Apple.
+
+Before installing, verify the file against SHA256SUMS.txt and the GitHub
+Artifact Attestation attached to the repository build. Windows may display an
+Unknown publisher or SmartScreen warning. macOS may require System Settings >
+Privacy & Security > Open Anyway.
+
+OAT DESKTOP 未签名构建说明
+
+本 Release 中的 Windows 安装程序没有 Authenticode 签名；macOS 应用仅使用不含
+开发者身份、无需证书的 ad-hoc 签名，以保证 Apple Silicon 可以运行。它没有
+Apple Developer ID 身份，也没有经过 Apple 公证。安装前请核对 SHA256SUMS.txt
+并验证 GitHub Artifact Attestation。Windows 可能显示“未知发布者”或 SmartScreen
+警告；macOS 可能需要在“系统设置 > 隐私与安全性”中选择“仍要打开”。

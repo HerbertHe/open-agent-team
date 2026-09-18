@@ -491,7 +491,15 @@ export class Orchestrator {
           const entries = directoryEntries
             .filter((entry) => entry.isDirectory() || entry.isFile())
             .map((entry) => ({ name: entry.name, path: [relativePath, entry.name].filter(Boolean).join("/"), type: entry.isDirectory() ? "directory" : "file" }))
-            .sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.type === "directory" ? -1 : 1);
+            .sort((a, b) => {
+              if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+              // Date archives are a timeline: keep the newest day in immediate
+              // reach while retaining the normal alphabetical workspace order.
+              if (relativePath === "records" && /^\d{4}-\d{2}-\d{2}$/.test(a.name) && /^\d{4}-\d{2}-\d{2}$/.test(b.name)) {
+                return b.name.localeCompare(a.name);
+              }
+              return a.name.localeCompare(b.name, undefined, { numeric: true });
+            });
           res.json({ kind: "directory", path: relativePath, entries });
           return;
         }
@@ -1583,6 +1591,26 @@ export class Orchestrator {
   }
 
   async start(): Promise<void> {
+    // A project must have exactly one Orchestrator. Port auto-selection alone
+    // is not a lock: an older instance can keep its saved port while a second
+    // startup silently chooses another port and doubles every Agent process.
+    let activeInstance: { pid: number; startedAt?: unknown } | undefined;
+    try {
+      const state = JSON.parse(await fs.readFile(this.stateFile, "utf8")) as { pid?: unknown; startedAt?: unknown };
+      if (typeof state.pid === "number" && state.pid !== process.pid) {
+        try {
+          process.kill(state.pid, 0);
+          activeInstance = { pid: state.pid, startedAt: state.startedAt };
+        } catch { /* stale state */ }
+      }
+    } catch { /* first start or unreadable stale state */ }
+    if (activeInstance) {
+      throw new Error(
+        `Project Orchestrator is already running (PID: ${activeInstance.pid}, started: ${String(activeInstance.startedAt ?? "unknown")}). ` +
+        `Stop the existing project before starting another instance.`,
+      );
+    }
+
     // Enforce the irreversible Docker boundary before loading plugins or
     // starting any runtime-related work.
     const runtimePolicyPath = path.join(path.dirname(this.configPath), ".oat", "runtime-policy.json");

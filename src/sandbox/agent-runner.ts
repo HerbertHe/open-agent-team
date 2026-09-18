@@ -294,6 +294,26 @@ process.on("message", (rawMsg: unknown) => {
   handleMessage(rawMsg);
 });
 
+function stopRunner(): void {
+  if (stopping) return;
+  stopping = true;
+  if (agentSession) {
+    try { agentSession.dispose(); } catch { /* noop */ }
+  }
+  for (const [callId, pending] of pendingToolResults) {
+    pending.reject(new Error(`Agent stopped before tool_result arrived (callId=${callId})`));
+  }
+  pendingToolResults.clear();
+  process.exit(0);
+}
+
+// Never outlive the Orchestrator. In development a crashed tsx wrapper used
+// to leave the real runner orphaned; OS termination and IPC disconnect now
+// follow the same cleanup path as an explicit stop message.
+process.once("disconnect", stopRunner);
+process.once("SIGTERM", stopRunner);
+process.once("SIGINT", stopRunner);
+
 function handleMessage(rawMsg: unknown): void {
   const msg = rawMsg as MainToChild;
 
@@ -327,16 +347,7 @@ function handleMessage(rawMsg: unknown): void {
   }
 
   if (msg.type === "stop") {
-    stopping = true;
-    if (agentSession) {
-      try { agentSession.dispose(); } catch { /* noop */ }
-    }
-    // 拒绝所有仍在等待的 tool_result，防止子进程退出时挂起
-    for (const [callId, pending] of pendingToolResults) {
-      pending.reject(new Error(`Agent stopped before tool_result arrived (callId=${callId})`));
-    }
-    pendingToolResults.clear();
-    process.exit(0);
+    stopRunner();
     return;
   }
 

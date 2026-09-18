@@ -61,6 +61,8 @@
     ],
     "mac": {
       "icon": "logo.icns",
+      "identity": "-",
+      "hardenedRuntime": false,
       "target": [
         {
           "target": "dmg",
@@ -72,6 +74,7 @@
     },
     "win": {
       "icon": "logo.ico",
+      "signExecutable": false,
       "target": [
         {
           "target": "nsis",

@@ -4,10 +4,8 @@
 
 ## 触发规则
 
-- 每次提交到 `main` 都会在 Linux、Windows 和 macOS 上构建 Desktop，并保存 14 天的 Actions 构建产物。
-- 每天北京时间 18:00（GitHub cron `10:00 UTC`）创建当天唯一正式版本。
+- 每天北京时间 18:00（GitHub cron `10:00 UTC`）检查一次 `main`，不会因每次 push 重复打包。
 - 只有最新正式 Release 之后存在新 commit 时，才会创建新的日期版本；没有新 commit 时，定时和手动任务会跳过 Desktop 构建与发布。
-- 如果定时任务未执行或失败，18:00 后当天第一次提交到 `main` 会尝试补发。
 - `workflow_dispatch` 可以手动补发；已正式发布的当天版本不会重复发布，失败留下的草稿会继续补齐。
 
 ## 版本格式
@@ -29,13 +27,31 @@ chore(release): YYYY.MM.DD [skip ci]
 
 1. Actions 的 `GITHUB_TOKEN` 具有 `contents: write` 权限。
 2. `main` 分支规则允许 `github-actions[bot]` 写入每日版本提交，或为该工作流配置相应的绕过权限。
-3. Repository secret `NPM_TOKEN`，拥有发布 `open-agent-team` 的权限。
+3. 在 npm 包 `open-agent-team` 的 Settings → Trusted publishing 中添加 GitHub Actions：用户/组织 `herberthe`、仓库 `open-agent-team`、工作流文件 `daily-release.yml`，并允许 `npm publish`。
+4. npmjs 发布只使用 OIDC，不读取 `NPM_TOKEN`；建议在 npm 启用 “Require two-factor authentication and disallow tokens”。
 
 正式发布顺序为：
 
 1. 计算北京时间日期，检查当日 Release，并比较最新正式 Release 与 `main` 是否存在新 commit。
 2. 没有新 commit 时结束；存在新 commit 时同步 CLI 与 Desktop 版本并提交到 `main`。
-3. 构建 Linux AppImage、Windows NSIS 和 macOS DMG。
-4. 构建并发布 npm CLI；已存在的当日 npm 版本会被安全跳过。
+3. 并行构建 Windows x64 NSIS、macOS arm64 DMG 和 npm CLI 压缩包；所有产物保留 14 天。
+4. 检查 npm 压缩包必须包含 CLI 入口与 `package.json`，并从同一压缩包生成 GitHub scope 镜像；分别发布 `open-agent-team` 到 npmjs、`@herberthe/open-agent-team` 到 GitHub Packages。两个仓库中已存在的当日版本都会被安全跳过。
 5. 生成 `SHA256SUMS.txt`。
-6. 创建 GitHub Release 草稿、上传所有 Desktop 安装包，上传成功后再正式发布。失败留下的草稿可由后续触发安全重试。
+6. 通过 GitHub OIDC 为 Desktop 产物生成 Artifact Attestation，可使用 `gh attestation verify <文件> -R herberthe/open-agent-team` 验证来源。
+7. 创建 GitHub Release 草稿、上传所有 Desktop 安装包，上传成功后再正式发布。失败留下的草稿可由后续触发安全重试。
+
+## Desktop 未签名发布策略
+
+- Windows 构建显式设置 `signExecutable: false`；macOS 使用无需证书的 ad-hoc 签名 `identity: "-"`，并关闭仅对 Developer ID/notarization 有意义的 Hardened Runtime，以保证包含原生模块的 Apple Silicon 应用可以启动。该签名不提供开发者身份，也不能替代 Developer ID 或 notarization。发布任务不读取任何代码签名证书。
+- CI 在上传前验证 Windows 安装程序没有 Authenticode 签名、macOS App 仅有 ad-hoc 签名且 DMG 没有分发签名，避免发布状态与说明不一致。
+- EXE、DMG、更新元数据、`SHA256SUMS.txt` 和 `UNSIGNED-BUILD-NOTICE.txt` 一并上传到正式 GitHub Release。
+- Release 页面必须明确说明 Windows 的未知发布者/SmartScreen 警告，以及 macOS 的“隐私与安全性 → 仍要打开”操作。
+- 未签名不代表不可校验：所有 Desktop 文件仍生成 SHA-256 校验和与 GitHub Artifact Attestation。
+
+## 签名边界
+
+- npm Trusted Publishing 会自动生成 npm provenance，证明包来自指定仓库与工作流，不需要长期写入型 npm token。
+- GitHub Packages 使用工作流自带的短期 `GITHUB_TOKEN` 和 `packages: write` 权限，不需要额外 PAT。安装包名为 `@herberthe/open-agent-team`，内容与 npmjs 的 `open-agent-team` 来自同一次构建。
+- GitHub Artifact Attestation 是构建来源证明，不是操作系统代码签名。
+- 如果未来希望消除 macOS 的未识别开发者警告，仍需加入 Apple Developer Program、使用 Developer ID Application 证书并完成 notarization。
+- 如果未来希望消除 Windows 的未知发布者警告，仍需为 NSIS 加入 Authenticode 证书或 Azure Trusted Signing。签名凭据应由 GitHub Secrets / OIDC 注入，不能提交到仓库。

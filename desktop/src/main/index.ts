@@ -481,15 +481,38 @@ async function prepareRuntime(): Promise<RuntimeStatus> {
     const teamReady = process.env.OAT_DESKTOP_TEAM_READY_SIGNAL;
     if (runtimeReady && teamReady) {
       await fs.writeFile(runtimeReady, 'ready', { encoding: 'utf8', mode: 0o600 });
-      const deadline = Date.now() + 35_000;
       while (!(await exists(teamReady))) {
-        if (Date.now() >= deadline) throw new Error('Timed out waiting for the development test team to start.');
+        const startupError = process.env.OAT_DESKTOP_STARTUP_ERROR_SIGNAL;
+        if (startupError && await exists(startupError)) {
+          const detail = (await fs.readFile(startupError, 'utf8')).trim();
+          throw new Error(detail || 'A development team failed to start.');
+        }
         await delay(150);
       }
     }
     return status;
   }
   return status.node.compatible && status.oat.installed ? status : ensureOat(false);
+}
+
+async function developmentStartupLog(): Promise<string> {
+  if (app.isPackaged) return '';
+  const logPath = process.env.OAT_DESKTOP_STARTUP_LOG;
+  if (!logPath) return '';
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(logPath, 'r');
+    const { size } = await handle.stat();
+    const length = Math.min(size, 24_000);
+    if (length === 0) return '';
+    const buffer = Buffer.allocUnsafe(length);
+    await handle.read(buffer, 0, length, size - length);
+    return buffer.toString('utf8').replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+  } catch {
+    return '';
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 async function ensureNodeRuntime(): Promise<RuntimeStatus> {
@@ -1941,6 +1964,7 @@ app.whenReady().then(async () => {
   void processChannelInbox().catch(() => undefined);
   ipcMain.handle('runtime:status', (event) => { requireTrustedRenderer(event); return getRuntimeStatus(); });
   ipcMain.handle('runtime:prepare', (event) => { requireTrustedRenderer(event); return prepareRuntime(); });
+  ipcMain.handle('runtime:startup-log', (event) => { requireTrustedRenderer(event); return developmentStartupLog(); });
   ipcMain.handle('runtime:ensure-node', (event) => { requireTrustedRenderer(event); return ensureNodeRuntime(); });
   ipcMain.handle('runtime:ensure-oat', (event) => { requireTrustedRenderer(event); return ensureOatTool(); });
   ipcMain.handle('runtime:install', (event) => { requireTrustedRenderer(event); return ensureOat(false); });

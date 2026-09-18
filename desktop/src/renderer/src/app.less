@@ -195,6 +195,10 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 @keyframes hive-steward-scan-neutral { 50% { border-color: var(--status-busy); box-shadow: 0 0 0 4px rgb(245 158 11 / 10%); } }
 @media (prefers-reduced-motion: reduce) { .hive-bee-slot { animation: none !important; } }
 .chat-bubble { box-shadow: 0 4px 20px rgb(45 42 38 / 6%); }
+.chat-message-row { display: flex; width: 100%; max-width: 48rem; margin-right: auto; margin-left: auto; }
+.chat-message-row.is-user { justify-content: flex-end; }
+.chat-message-row.is-assistant { justify-content: flex-start; }
+.chat-message-row > .chat-bubble { min-width: 0; max-width: min(44rem, 100%); }
 .conversation-scroll-shell { position: relative; min-height: 0; flex: 1; }
 .conversation-scroll-viewport { display: flex; height: 100%; flex-direction: column; gap: 1rem; overflow: auto; padding: 2rem clamp(1.25rem, 7vw, 6rem); }
 .conversation-new-content { position: absolute; right: 1.25rem; bottom: 1rem; border: 1px solid #d8d3cd; border-radius: 999px; background: #fff; box-shadow: 0 5px 18px rgb(45 42 38 / 12%); color: #625d57; font-size: .68rem; font-weight: 700; padding: .42rem .7rem; }
@@ -295,9 +299,103 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 .docker-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; margin-top: 1.1rem; }.docker-form-grid label { display: grid; gap: .42rem; min-width: 0; color: #66727a; font-size: .72rem; font-weight: 650; }.docker-form-grid input, .docker-form-grid select { width: 100%; min-width: 0; border: 1px solid #d9e2e8; border-radius: .6rem; background: #fcfdfe; color: #27333b; font-size: .82rem; padding: .62rem .72rem; outline: 0; }.docker-form-grid input:focus, .docker-form-grid select:focus { border-color: var(--docker-blue); box-shadow: 0 0 0 3px rgb(36 150 237 / 12%); }.docker-safe-hint { margin: .7rem 0 1rem; color: #8b969d; font-size: .69rem; line-height: 1.5; }
 .docker-container-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-top: 1.15rem; }.docker-container-card { min-width: 0; border: 1px solid #e0e8ed; border-radius: .8rem; background: #fcfdfe; padding: .95rem; }.docker-container-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }.docker-container-card header strong, .docker-container-card header span { display: block; }.docker-container-card header strong { overflow: hidden; color: #27333b; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }.docker-container-card header span:not(.docker-container-state) { margin-top: .22rem; overflow: hidden; color: #88949b; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }.docker-container-state { border-radius: 999px; background: #f1f5f7; color: #71808a; font-size: .64rem; font-weight: 700; padding: .25rem .42rem; }.docker-container-state.is-running { background: #dff3ff; color: var(--docker-blue-dark); }.docker-container-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: .95rem 0 0; }.docker-container-card dt { color: #89959c; font-size: .64rem; }.docker-container-card dd { overflow: hidden; margin: .2rem 0 0; color: #4a5861; font-size: .69rem; text-overflow: ellipsis; white-space: nowrap; }.docker-container-error { overflow: hidden; margin: .75rem 0 0; border-radius: .45rem; background: #fff1f1; color: #c32727; font-size: .68rem; padding: .45rem .55rem; text-overflow: ellipsis; white-space: nowrap; }.docker-container-card footer { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .95rem; }.docker-container-card footer button { border: 1px solid #c9e7fa; border-radius: .45rem; background: white; color: var(--docker-blue-dark); font-size: .67rem; font-weight: 650; padding: .4rem .55rem; }.docker-container-card footer button:hover:not(:disabled) { background: var(--docker-blue-soft); }.docker-container-card footer button:disabled { opacity: .4; }.docker-container-card footer .is-danger { border-color: #fecaca; color: #c32727; }.docker-empty-state { display: flex; align-items: center; gap: .6rem; margin-top: 1.1rem; border: 1px dashed #c9e0ed; border-radius: .75rem; background: #fbfdff; color: #6d7d86; font-size: .76rem; padding: 1rem; }.docker-empty-state svg { color: var(--docker-blue); }.docker-log-output { max-height: 21rem; margin: 1rem 0 0; overflow: auto; border-radius: .75rem; background: #10212c; color: #d7eaf5; font-size: .72rem; line-height: 1.55; padding: 1rem; white-space: pre-wrap; }
 @media (max-width: 760px) { .docker-page-header, .docker-engine-banner { align-items: flex-start; flex-direction: column; }.docker-overview-grid, .docker-form-grid, .docker-container-grid { grid-template-columns: 1fr; }.docker-banner-actions { align-items: flex-start; flex-direction: column; } }
-.startup-screen { position: relative; display: grid; height: 100%; overflow: hidden; place-items: center; background: radial-gradient(circle at 50% 0%, #fff 0 20%, transparent 56%), #f7f6f4; }
+
+/* Shared control surfaces -------------------------------------------------
+   Runtime, memory, workspace files and Git settings use the same visual
+   grammar as the rest of Desktop: warm canvas, ink actions and quiet state
+   colors. Product-specific colors are reserved for status, never chrome. */
+.control-dialog-heading { display: flex; min-width: 0; align-items: center; gap: .8rem; }
+.control-dialog-mark { display: grid; width: 2.55rem; height: 2.55rem; flex: none; place-items: center; border-radius: .78rem; background: #2d2a26; color: #fff; box-shadow: 0 6px 16px rgb(45 42 38 / 14%); }
+.control-dialog-mark svg { width: 1.1rem; height: 1.1rem; }
+.control-dialog-eyebrow { margin: 0 0 .14rem !important; color: #918983 !important; font-size: .58rem !important; font-weight: 800; letter-spacing: .13em; line-height: 1.2; }
+.control-dialog-heading h2 { margin: 0; color: #2d2a26; letter-spacing: -.015em; }
+.control-dialog-badge { flex: none; border: 1px solid #ddd8d2; border-radius: 999px; background: #f5f3f0; color: #77706a; font-size: .56rem; font-weight: 800; letter-spacing: .06em; padding: .2rem .42rem; }
+.control-primary-button { border: 1px solid #2d2a26; border-radius: .58rem; background: #2d2a26; color: white; font-size: .7rem; font-weight: 700; padding: .55rem .75rem; }
+.control-primary-button:hover:not(:disabled) { background: #49443f; }
+.control-primary-button:disabled { cursor: not-allowed; opacity: .38; }
+.control-workspace-page { background: linear-gradient(180deg, #faf9f7 0, #f7f6f4 18rem); }
+.control-workspace-shell { display: flex; width: min(72rem, 100%); min-height: 100%; margin: 0 auto; flex-direction: column; }
+.control-workspace-shell.is-settings { width: min(52rem, 100%); }
+.control-workspace-shell > .docker-back { width: auto; align-self: flex-start; text-align: left; }
+.control-workspace-header { display: flex; min-height: 4rem; align-items: center; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.15rem; padding: 0 0 1.25rem; border-bottom: 1px solid #e2ded9; }
+.control-workspace-header h1 { margin: 0; color: #2d2a26; font-size: 1.3rem; letter-spacing: -.025em; }
+.control-workspace-header p:not(.control-dialog-eyebrow) { margin: .25rem 0 0; color: #78716c; font-size: .76rem; }
+.control-workspace-panel { min-height: 0; flex: 1; border-color: #dfdbd6; box-shadow: 0 4px 18px rgb(45 42 38 / 4%); }
+
+.workspace-files-surface .workspace-browser-body { background: #fff; }
+.workspace-files-surface nav { border-color: #e6e2de; background: #f5f3f0; }
+.workspace-files-surface nav button { color: #706a64; font-weight: 650; }
+.workspace-files-surface aside { border-color: #e6e2de; background: #fbfaf8; padding: .65rem; }
+.workspace-files-surface aside button { min-height: 2.15rem; border: 1px solid transparent; border-radius: .58rem; }
+.workspace-files-surface aside button:hover { border-color: #e8e4df; background: #fff; }
+.workspace-files-surface aside button.bg-stone-100 { border-color: #d8d3cd; background: #eeebe7; box-shadow: 0 1px 3px rgb(45 42 38 / 5%); }
+.workspace-files-surface main { background: #fff; }
+.workspace-files-surface main > div.sticky { border-color: #e7e3df; background: rgb(255 255 255 / 94%); }
+.workspace-file-preview { color: #4e4944; line-height: 1.65; }
+.workspace-archive-banner { display: flex; align-items: center; gap: .65rem; border-bottom: 1px solid #e3dfda; background: #eeece8; color: #57514c; padding: .6rem 1rem; }
+.workspace-archive-banner > span { display: grid; width: 1.8rem; height: 1.8rem; flex: none; place-items: center; border-radius: .5rem; background: #2d2a26; color: white; }
+.workspace-archive-banner svg { width: .85rem; height: .85rem; }.workspace-archive-banner strong, .workspace-archive-banner small { display: block; }.workspace-archive-banner strong { font-size: .68rem; }.workspace-archive-banner small { margin-top: .12rem; color: #817a73; font-size: .59rem; }
+
+.memory-dialog > div.grid { background: #f3f1ee; padding: .75rem 1rem; }
+.memory-dialog > div.grid > button, .memory-dialog > div.grid > article { min-height: 4.6rem; border-color: #dfdbd6; border-radius: .78rem; background: #fff; padding: .8rem .9rem; box-shadow: none; }
+.memory-dialog > div.grid > button:hover { border-color: #aaa39b; }
+.memory-dialog > div.grid > button.border-oat-taupe { border-color: #625d57; background: #f9f7f4; box-shadow: 0 0 0 1px #625d57 inset; }
+.memory-dialog > div.grid strong { color: #2d2a26; font-size: 1.1rem; }
+.memory-dialog aside { border-color: #e3dfda; background: #fbfaf8; padding: 1rem; }
+.memory-dialog aside label { color: #77706a; font-size: .62rem; font-weight: 750; letter-spacing: .03em; }
+.memory-dialog aside select { height: 2.2rem; border-color: #d8d3cd; border-radius: .55rem; background: #fff; }
+.memory-dialog aside section { border-color: #e2ded9; border-radius: .7rem; background: #f4f2ef; }
+.memory-dialog main { background: #f8f7f5; padding: 1rem; }
+.memory-dialog main article { border-color: #e0dcd7; border-radius: .82rem; box-shadow: 0 3px 12px rgb(45 42 38 / 4%); }
+.memory-dialog main article:hover { border-color: #cbc5bf; }
+.memory-dialog main article > div:first-child button { border-radius: .45rem; background: #fff; }
+
+.git-settings-dialog { width: min(42rem, calc(100vw - 2rem)); }
+.git-settings-content { padding: 1rem 1.15rem 1.15rem; }
+.git-settings-status { display: flex; min-height: 2.5rem; align-items: center; gap: .5rem; margin-bottom: .8rem; border: 1px solid #e2ded9; border-radius: .65rem; background: #f5f3f0; color: #6f6963; font-size: .68rem; padding: .55rem .7rem; }
+.git-status-dot { width: .42rem; height: .42rem; flex: none; border-radius: 50%; background: #a8a29e; }
+.git-status-dot.is-remote { background: var(--status-available); }
+.git-settings-status strong { margin-left: auto; font-size: .63rem; font-weight: 750; }.git-settings-status strong.is-valid { color: #287b59; }.git-settings-status strong.is-warning { color: #9a671b; }
+.git-settings-form { display: grid; gap: .75rem; }
+.git-settings-group { border: 1px solid #e2ded9; border-radius: .8rem; background: #fff; padding: .9rem; }
+.git-settings-group-heading { display: flex; align-items: flex-start; gap: .65rem; margin-bottom: .75rem; }
+.git-settings-group-heading > span { display: grid; width: 1.7rem; height: 1.7rem; flex: none; place-items: center; border-radius: .48rem; background: #efede9; color: #77706a; font-size: .58rem; font-weight: 800; }
+.git-settings-group-heading h3 { margin: .05rem 0 0; color: #37332f; font-size: .78rem; }.git-settings-group-heading p { margin: .18rem 0 0; color: #918983; font-size: .62rem; line-height: 1.4; }
+.git-settings-fields { display: grid; gap: .65rem; }.git-settings-fields.is-paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.git-settings-fields label:not(.git-push-toggle) { display: grid; min-width: 0; gap: .32rem; color: #77706a; font-size: .65rem; font-weight: 650; }
+.git-settings-fields input:not([type='checkbox']) { box-sizing: border-box; width: 100%; min-width: 0; height: 2.25rem; border: 1px solid #d8d3cd; border-radius: .55rem; background: #fbfaf8; color: #2d2a26; font-size: .74rem; padding: 0 .65rem; outline: 0; }
+.git-settings-fields input:not([type='checkbox']):focus { border-color: #8b8680; background: #fff; box-shadow: 0 0 0 3px rgb(139 134 128 / 13%); }
+.git-push-toggle { display: flex; align-items: flex-start; gap: .6rem; border-top: 1px solid #eeeae6; color: #57514c; font-size: .67rem; padding-top: .7rem; }
+.git-push-toggle input { margin-top: .05rem; }.git-push-toggle span, .git-push-toggle small { display: block; }.git-push-toggle small { max-width: 34rem; margin-top: .18rem; color: #918983; font-size: .59rem; line-height: 1.4; }
+.git-settings-error { margin: 0; border-radius: .55rem; background: #fff1f1; color: #b32d2d; font-size: .66rem; padding: .55rem .65rem; }
+.git-settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: .7rem; }.git-settings-actions > span { color: #918983; font-size: .63rem; }
+
+/* Docker is an OAT control surface; blue remains unnecessary visual chrome. */
+.docker-workspace { --docker-blue: #2d2a26; --docker-blue-dark: #4f4a45; --docker-blue-soft: #f2f0ed; --docker-blue-line: #ddd8d2; background: linear-gradient(180deg, #faf9f7 0, #f7f6f4 18rem); }
+.docker-back:hover { color: #2d2a26; }
+.docker-brand-mark { background: #2d2a26; box-shadow: 0 8px 20px rgb(45 42 38 / 14%); }
+.docker-eyebrow, .docker-banner-kicker { color: #817a73; }
+.docker-secondary-button, .docker-text-button { border-color: #d6d1cb; color: #57514c; }.docker-secondary-button:hover, .docker-text-button:hover { background: #f5f3f0; }
+.docker-engine-banner { border-color: #ded9d3; background: linear-gradient(110deg, #f1efec, #fff); }
+.docker-engine-banner h2 { color: #3d3935; }.docker-engine-banner p { color: #78716c; }
+.docker-engine-banner.is-ready { border-color: #cde6da; background: linear-gradient(110deg, #eef8f3, #fff); }
+.docker-engine-banner.is-ready h2 { color: #28694f; }.docker-engine-banner.is-ready p { color: #668174; }
+.docker-primary-button { border-color: #2d2a26; background: #2d2a26; box-shadow: 0 4px 12px rgb(45 42 38 / 12%); }.docker-primary-button:hover:not(:disabled) { border-color: #4a453f; background: #4a453f; }
+.docker-online-dot { background: #e5f5ed; color: #277252; }.docker-online-dot::before { background: var(--status-available); }
+.docker-overview-card, .docker-settings-card { border-color: #e1ddd8; box-shadow: 0 4px 18px rgb(45 42 38 / 4%); }
+.docker-overview-card > span, .docker-overview-card small { color: #8b847e; }.docker-overview-card strong, .docker-section-heading h2 { color: #35312e; }
+.docker-config-badge, .docker-container-count { background: #efede9; color: #625d57; }
+.docker-form-grid label { color: #77716b; }.docker-form-grid input, .docker-form-grid select { border-color: #d8d3cd; background: #fbfaf8; color: #2d2a26; }.docker-form-grid input:focus, .docker-form-grid select:focus { border-color: #8b8680; box-shadow: 0 0 0 3px rgb(139 134 128 / 13%); }
+.docker-safe-hint { color: #918983; }
+.docker-container-card { border-color: #e3dfda; background: #fbfaf8; }.docker-container-card header strong { color: #37332f; }.docker-container-card header span:not(.docker-container-state), .docker-container-card dt { color: #918983; }.docker-container-card dd { color: #625d57; }
+.docker-container-state { background: #efede9; color: #77706a; }.docker-container-state.is-running { background: #e5f5ed; color: #277252; }
+.docker-container-card footer button { border-color: #d8d3cd; color: #57514c; }.docker-container-card footer button:hover:not(:disabled) { background: #f1efec; }
+.docker-empty-state { border-color: #d8d3cd; background: #fbfaf8; color: #78716c; }.docker-empty-state svg { color: #8b8680; }
+.docker-log-output { background: #25221f; color: #e9e5df; }
+@media (max-width: 640px) { .control-workspace-page { padding: 1rem; }.control-workspace-header { align-items: flex-start; flex-direction: column; }.git-settings-fields.is-paired { grid-template-columns: 1fr; }.control-dialog-heading { align-items: flex-start; }.control-dialog-mark { width: 2.25rem; height: 2.25rem; }.memory-dialog > div.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.memory-dialog > div.flex { flex-direction: column; }.memory-dialog aside { width: auto; border-right: 0; border-bottom: 1px solid #e3dfda; } }
+.startup-screen { position: relative; display: grid; height: 100%; overflow: auto; place-items: center; background: radial-gradient(circle at 50% 0%, #fff 0 20%, transparent 56%), #f7f6f4; }
 .startup-glow { position: absolute; top: 12%; left: 50%; width: 34rem; height: 24rem; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(ellipse, rgb(139 134 128 / 12%) 0%, transparent 68%); }
-.startup-content { position: relative; z-index: 1; width: min(42rem, calc(100% - 3rem)); margin-top: 2rem; text-align: center; }
+.startup-content { position: relative; z-index: 1; width: min(48rem, calc(100% - 3rem)); margin: 3rem 0; text-align: center; }
 .startup-brand { display: grid; width: 5.25rem; height: 5.25rem; margin: 0 auto 1.75rem; place-items: center; border-radius: 1.5rem; background: #ebe9e5; box-shadow: inset 0 1px rgb(255 255 255 / 80%), 0 8px 24px rgb(45 42 38 / 8%); }
 .startup-brand img { width: 3rem; height: 3rem; }
 .startup-content h1 { margin: 0; font-size: clamp(1.7rem, 2.4vw, 2.6rem); font-weight: 650; letter-spacing: -.035em; }
@@ -317,6 +415,9 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 .startup-step.optional > i { border-color: #aaa39b; background: #aaa39b; box-shadow: inset 0 0 0 2px #fff; }
 .startup-step.warning > i { border-color: #c58a2e; background: #c58a2e; box-shadow: inset 0 0 0 2px #fff; }
 @keyframes startup-spin { to { transform: rotate(360deg); } }
+.startup-log { width: min(46rem, 100%); margin: 1rem auto 0; overflow: hidden; border: 1px solid #dcd7d1; border-radius: .9rem; background: #282522; color: #e7e2db; text-align: left; box-shadow: 0 10px 30px rgb(45 42 38 / 8%); }
+.startup-log header { padding: .6rem .8rem; border-bottom: 1px solid #403c38; color: #aaa39b; font-size: .7rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.startup-log pre { height: 10rem; margin: 0; overflow: auto; padding: .75rem .8rem; color: #e7e2db; font: .72rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
 .startup-error { width: min(38rem, 100%); margin: 1.75rem auto 0; padding: 1rem 1.15rem; border-radius: 1rem; background: rgb(255 235 235 / 86%); color: #a52d2d; text-align: left; }
 .startup-error strong, .startup-error span { display: block; }
 .startup-error span { margin-top: .3rem; font-size: .8rem; line-height: 1.4; }
