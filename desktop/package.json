@@ -25,13 +25,13 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
-    "electron": "^43.4.1",
+    "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "less": "^4.9.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",
-    "unplugin-icons": "^23.0.1",
+    "unplugin-icons": "^24.0.0",
     "vite": "^8.2.2"
   },
   "build": {
@@ -93,8 +93,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.76",
-    "@earendil-works/pi-coding-agent": "^0.84.2",
-    "@zvec/zvec": "0.7.0",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@zvec/zvec": "0.7.1",
     "ai": "^7.0.73",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -104,11 +104,11 @@
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
-    "@zvec/bindings-darwin-arm64": "0.7.0",
-    "@zvec/bindings-linux-arm64": "0.7.0",
-    "@zvec/bindings-linux-arm64-musl": "0.7.0",
-    "@zvec/bindings-linux-x64": "0.7.0",
-    "@zvec/bindings-linux-x64-musl": "0.7.0",
-    "@zvec/bindings-win32-x64": "0.7.0"
+    "@zvec/bindings-darwin-arm64": "0.7.1",
+    "@zvec/bindings-linux-arm64": "0.7.1",
+    "@zvec/bindings-linux-arm64-musl": "0.7.1",
+    "@zvec/bindings-linux-x64": "0.7.1",
+    "@zvec/bindings-linux-x64-musl": "0.7.1",
+    "@zvec/bindings-win32-x64": "0.7.1"
   }
 }
