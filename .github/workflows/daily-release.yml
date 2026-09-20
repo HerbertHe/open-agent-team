@@ -160,7 +160,7 @@ jobs:
         run: node scripts/run-packaged-zvec-smoke.mjs
 
       - name: Upload Desktop package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.name }}-${{ needs.prepare.outputs.sha }}
           if-no-files-found: error
@@ -220,7 +220,7 @@ jobs:
           test -f "npm-package/${github_package_file}"
 
       - name: Upload npm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-package-${{ needs.prepare.outputs.sha }}
           if-no-files-found: error
@@ -265,7 +265,7 @@ jobs:
           [[ "${desktop_version}" == "${EXPECTED_VERSION}" ]]
 
       - name: Download npm package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-package-${{ needs.prepare.outputs.sha }}
           path: npm-package
@@ -286,7 +286,7 @@ jobs:
           else
             package_file="$(node -p "JSON.parse(require('fs').readFileSync('npm-package/manifest.json', 'utf8'))[0].filename")"
             test -f "npm-package/${package_file}"
-            npm publish "npm-package/${package_file}" --access public --provenance
+            npm publish "./npm-package/${package_file}" --access public --provenance
           fi
 
       - name: Configure GitHub Packages registry
@@ -309,11 +309,11 @@ jobs:
           else
             package_file="$(node -p "JSON.parse(require('fs').readFileSync('npm-package/github-manifest.json', 'utf8'))[0].filename")"
             test -f "npm-package/${package_file}"
-            npm publish "npm-package/${package_file}" --registry https://npm.pkg.github.com/
+            npm publish "./npm-package/${package_file}" --registry https://npm.pkg.github.com/
           fi
 
       - name: Download Desktop packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: desktop-*-${{ needs.prepare.outputs.sha }}
           path: release-assets

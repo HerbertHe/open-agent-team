@@ -20,9 +20,12 @@ test('publishes verified Desktop and npm artifacts from one release commit', () 
   assert.match(workflow, /package\/dist\/index\.js/);
   assert.match(workflow, /needs: \[prepare, build-desktop, build-npm-package\]/);
   assert.match(workflow, /npm@11\.19\.1/);
-  assert.match(workflow, /npm publish "npm-package\/\$\{package_file\}" --access public --provenance/);
+  assert.match(workflow, /npm publish "\.\/npm-package\/\$\{package_file\}" --access public --provenance/);
   assert.doesNotMatch(workflow, /secrets\.NPM_TOKEN/);
-  assert.match(workflow, /npm publish "npm-package\/\$\{package_file\}" --registry https:\/\/npm\.pkg\.github\.com\//);
+  assert.match(workflow, /npm publish "\.\/npm-package\/\$\{package_file\}" --registry https:\/\/npm\.pkg\.github\.com\//);
+  assert.doesNotMatch(workflow, /actions\/(?:upload|download)-artifact@v4/);
+  assert.match(workflow, /uses: actions\/upload-artifact@v7/);
+  assert.match(workflow, /uses: actions\/download-artifact@v8/);
   assert.match(workflow, /packages: write/);
   assert.match(workflow, /uses: actions\/attest@v4/);
   assert.match(workflow, /subject-path: release-assets\/\*/);
