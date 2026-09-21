@@ -63,4 +63,6 @@ test("observability cursors replay only events after the acknowledged event", ()
   assert.deepEqual(snapshot.map((event) => event.seq), [1, 2, 3]);
   assert.deepEqual(hub.snapshotAfter(snapshot[0].eventId).map((event) => event.type), ["second", "third"]);
   assert.deepEqual(hub.snapshotAfter("expired-cursor").map((event) => event.type), ["first", "second", "third"]);
+  assert.equal(hub.replayAfter(snapshot[0].eventId).cursorExpired, false);
+  assert.equal(hub.replayAfter("expired-cursor").cursorExpired, true);
 });

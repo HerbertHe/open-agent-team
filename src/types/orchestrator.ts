@@ -54,6 +54,8 @@ export interface QueuedTask {
   completedAt?: string;
   error?: string;
   lastProgress?: { stage?: string; message: string; at: string };
+  /** Durable operator-facing response. Lifecycle progress must never overwrite it. */
+  finalResponse?: TaskFinalResponse;
   /** Memory summaries injected into this task's prompt, retained for UI citations. */
   memoryReferences?: string[];
   /** File-backed knowledge chunks injected into this task, retained as structured citations. */
@@ -97,8 +99,21 @@ export interface TaskSnapshot {
   status: QueuedTaskStatus;
   prompt: string;
   progress?: QueuedTask["lastProgress"];
+  finalResponse?: TaskFinalResponse;
   error?: string;
   git?: GitTaskArtifact;
+}
+
+export interface TaskFinalResponse {
+  content: string;
+  format: "markdown";
+  state: "complete" | "partial" | "failed";
+  messageId: string;
+  runId?: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
 }
 
 export type ReviewStatus = ReviewStatusEnum;

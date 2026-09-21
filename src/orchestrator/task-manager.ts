@@ -42,6 +42,7 @@ import type {
   QueuedTask,
   ReleaseProposal,
   ReviewRequest,
+  RunStreamMetadata,
   SpawnWorkersResult,
   TaskDeliveryReport,
   ToolCreateTaskBody,
@@ -118,6 +119,9 @@ export class TaskManager {
   private readonly lastCompletedWorkflowByAgent = new Map<string, string>();
   /** Coalesces deferred scheduling until the current runtime tool result is returned. */
   private readonly pendingScheduleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Coalesced assistant text checkpoints survive a runtime failure without writing every token. */
+  private readonly partialResponses = new Map<string, { messageId?: string; runId?: string; blocks: Map<number, string> }>();
+  private readonly partialResponseTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Prevents a newly freed queue slot from starting inside the prior prompt turn. */
   private readonly promptActiveAgents = new Set<string>();
   /** Startup gate: restored queues may run only after the complete Agent pool exists. */
@@ -187,7 +191,18 @@ export class TaskManager {
     return { ok: true };
   }
 
-  handleRuntimeEvent(agentId: string, event: { type?: unknown; willRetry?: unknown; messages?: unknown; error?: unknown }): void {
+  handleRuntimeEvent(agentId: string, event: { type?: unknown; willRetry?: unknown; messages?: unknown; error?: unknown; message?: unknown; assistantMessageEvent?: unknown }, stream?: RunStreamMetadata): void {
+    if (event.type === "message_update") this.checkpointRuntimeDelta(agentId, event, stream);
+    if (event.type === "message_end" && isRecord(event.message) && event.message.role === "assistant" && Array.isArray(event.message.content)) {
+      const timer = this.partialResponseTimers.get(agentId);
+      if (timer) clearTimeout(timer);
+      this.partialResponseTimers.delete(agentId);
+      this.partialResponses.delete(agentId);
+      const text = event.message.content
+        .flatMap((part) => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : [])
+        .join("\n\n");
+      if (text.trim()) this.recordAgentFinalResponse(agentId, text, stream);
+    }
     if (event.type === "agent_start") {
       this.promptActiveAgents.add(agentId);
       return;
@@ -198,6 +213,8 @@ export class TaskManager {
         ? [...event.messages].reverse().find((message) => isRecord(message) && message.role === "assistant" && message.stopReason === "error")
         : undefined;
     if (event.type !== "agent_end" && event.type !== "error") return;
+    this.flushPartialResponse(agentId);
+    this.partialResponses.delete(agentId);
     this.promptActiveAgents.delete(agentId);
     if (terminalMessage) {
       const error = isRecord(terminalMessage) && typeof terminalMessage.errorMessage === "string" && terminalMessage.errorMessage.trim()
@@ -282,6 +299,7 @@ export class TaskManager {
       status: task.status,
       prompt: task.prompt,
       progress: task.lastProgress ? structuredClone(task.lastProgress) : undefined,
+      finalResponse: task.finalResponse ? structuredClone(task.finalResponse) : undefined,
       error: task.error,
       git: task.git ? structuredClone(task.git) : undefined,
     };
@@ -393,7 +411,26 @@ export class TaskManager {
       logger.warn(t("scheduler_snapshot_quarantined", { path: quarantine ?? "N/A" }));
       return;
     }
-    if (migrated) await this.gitStore.saveSchedulerState(snapshot);
+    let responseMigrated = false;
+    for (const task of snapshot.tasks) {
+      if (task.finalResponse) continue;
+      const progress = task.lastProgress?.stage === "user_response"
+        ? task.lastProgress
+        : [...(task.snapshots ?? [])].reverse().find((item) => item.progress?.stage === "user_response")?.progress;
+      if (!progress?.message.trim()) continue;
+      task.finalResponse = {
+        content: progress.message,
+        format: "markdown",
+        state: "complete",
+        messageId: `legacy:${task.id}:final`,
+        revision: 1,
+        createdAt: progress.at,
+        updatedAt: progress.at,
+        completedAt: progress.at,
+      };
+      responseMigrated = true;
+    }
+    if (migrated || responseMigrated) await this.gitStore.saveSchedulerState(snapshot);
     this.nextTaskNumber = snapshot.nextTaskNumber;
     this.taskIdDate = snapshot.taskIdDate;
     const configuredAgentIds = this.configuredAgentIds();
@@ -1077,6 +1114,75 @@ export class TaskManager {
 
   private currentWorkflowTaskId(agentId: string): string | undefined {
     return this.runningTaskByAgent.get(agentId);
+  }
+
+  private recordFinalResponse(task: QueuedTask, content: string, input: { messageId?: string; runId?: string; at?: string; state?: "complete" | "partial" | "failed" } = {}): void {
+    const text = content.trim();
+    if (!text) return;
+    const at = input.at ?? new Date().toISOString();
+    const previous = task.finalResponse;
+    task.finalResponse = {
+      content: text,
+      format: "markdown",
+      state: input.state ?? "complete",
+      messageId: input.messageId ?? previous?.messageId ?? `task:${task.id}:final`,
+      runId: input.runId ?? previous?.runId,
+      revision: (previous?.revision ?? 0) + 1,
+      createdAt: previous?.createdAt ?? at,
+      updatedAt: at,
+      completedAt: (input.state ?? "complete") === "complete" ? at : undefined,
+    };
+    task.updatedAt = at;
+    this.checkpointTask(task, "progress");
+    this.emitTaskEvent("task.final_response", task);
+  }
+
+  private recordAgentFinalResponse(agentId: string, content: string, stream?: RunStreamMetadata): void {
+    const taskId = this.runningTaskByAgent.get(agentId) ?? this.lastCompletedWorkflowByAgent.get(agentId);
+    const task = taskId ? this.taskById.get(taskId) : undefined;
+    if (!task) return;
+    const agent = this.agents.get(agentId);
+    const root = agent?.spec.role === AgentRoleEnum.Admin && task.parentTaskId
+      ? this.taskById.get(task.parentTaskId)
+      : undefined;
+    const input = { messageId: stream?.messageId, runId: stream?.runId };
+    this.recordFinalResponse(task, content, input);
+    if (root) this.recordFinalResponse(root, content, input);
+  }
+
+  private flushPartialResponse(agentId: string): void {
+    const timer = this.partialResponseTimers.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.partialResponseTimers.delete(agentId);
+    const partial = this.partialResponses.get(agentId);
+    if (!partial) return;
+    const content = [...partial.blocks.entries()].sort(([a], [b]) => a - b).map(([, text]) => text).filter(Boolean).join("\n\n");
+    if (!content.trim()) return;
+    const taskId = this.runningTaskByAgent.get(agentId) ?? this.lastCompletedWorkflowByAgent.get(agentId);
+    const task = taskId ? this.taskById.get(taskId) : undefined;
+    if (!task) return;
+    const input = { messageId: partial.messageId, runId: partial.runId, state: "partial" as const };
+    this.recordFinalResponse(task, content, input);
+    const agent = this.agents.get(agentId);
+    const root = agent?.spec.role === AgentRoleEnum.Admin && task.parentTaskId ? this.taskById.get(task.parentTaskId) : undefined;
+    if (root) this.recordFinalResponse(root, content, input);
+  }
+
+  private checkpointRuntimeDelta(agentId: string, event: { assistantMessageEvent?: unknown }, stream?: RunStreamMetadata): void {
+    const update = isRecord(event.assistantMessageEvent) ? event.assistantMessageEvent : undefined;
+    if (update?.type !== "text_delta" || typeof update.delta !== "string") return;
+    const messageId = stream?.messageId;
+    let partial = this.partialResponses.get(agentId);
+    if (!partial || (messageId && partial.messageId !== messageId)) {
+      partial = { messageId, runId: stream?.runId, blocks: new Map() };
+      this.partialResponses.set(agentId, partial);
+    }
+    const blockIndex = typeof update.contentIndex === "number" ? update.contentIndex : stream?.blockIndex ?? 0;
+    partial.blocks.set(blockIndex, (partial.blocks.get(blockIndex) ?? "") + update.delta);
+    if (this.partialResponseTimers.has(agentId)) return;
+    const timer = setTimeout(() => this.flushPartialResponse(agentId), 1_000);
+    timer.unref?.();
+    this.partialResponseTimers.set(agentId, timer);
   }
 
   /** Move an interrupted workflow to a terminal state without scheduling a crashed Agent. */
@@ -2548,8 +2654,11 @@ export class TaskManager {
         const task = taskId ? this.taskById.get(taskId) : undefined;
         if (task) {
           task.lastProgress = { stage, message, at: new Date().toISOString() };
-          this.checkpointTask(task, "progress");
-          this.emitTaskEvent("task.progress", task);
+          if (stage === "user_response") this.recordFinalResponse(task, message, { at: task.lastProgress.at });
+          else {
+            this.checkpointTask(task, "progress");
+            this.emitTaskEvent("task.progress", task);
+          }
           // RELEASE_PROPOSAL runs as an Admin child task, but its operator-facing
           // response belongs to the original root conversation. Mirror only the
           // final authored response; intermediate review chatter stays internal.
@@ -2558,9 +2667,7 @@ export class TaskManager {
             : undefined;
           if (root) {
             root.lastProgress = { stage, message, at: new Date().toISOString() };
-            root.updatedAt = root.lastProgress.at;
-            this.checkpointTask(root, "progress");
-            this.emitTaskEvent("task.progress", root);
+            this.recordFinalResponse(root, message, { at: root.lastProgress.at });
             this.observabilityHub.emit({
               source: "orchestrator", type: "report_progress", agentId,
               role: agent.spec.role, sessionId: agent.sessionId,

@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { IpcTaskTransport, ResourceAgentTransport, type ChatTarget } from './chat-transport';
 import { shouldSubmitOnDoubleNewline } from './chat-composer';
+import { resolveTaskReply } from './conversation-recovery';
 import { useI18n, type Language } from './i18n';
 import IconPanelLeftClose from '~icons/lucide/panel-left-close';
 import IconPanelRightClose from '~icons/lucide/panel-right-close';
@@ -52,7 +53,7 @@ import { ChannelConnectionStatusEnum, type ChannelAccountStatus } from '../../sh
 type Agent = Project['agents'][number];
 type DeliveryReport = { id: string; taskId: string; agentId: string; recipientAgentId?: string; role: 'leader' | 'worker'; stage: 'review_submitted' | 'release_submitted'; summary: string; createdAt: string; reviewId?: string; reviewStatus?: string; reviewedAt?: string; reviewer?: string; reviewNote?: string; releaseProposalId?: string; branch?: string; changedFiles?: string[]; tests?: Array<{ command: string; status: string; evidencePath?: string }>; artifactPaths?: string[] };
 type KnowledgeReference = { documentId: string; sourceId: string; chunkId: string; path: string; title: string; visibility: 'team' | 'project' | 'restricted'; teamId?: string; contentHash: string; heading?: string; lineStart?: number; lineEnd?: number; score?: number };
-type Task = { id: string; targetAgentId: string; createdBy?: string; parentTaskId?: string; prompt: string; status: string; createdAt?: string; startedAt?: string; updatedAt?: string; completedAt?: string; lastProgress?: { stage?: string; message: string; at: string }; memoryReferences?: string[]; knowledgeReferences?: KnowledgeReference[]; deliveryReports?: DeliveryReport[] };
+type Task = { id: string; targetAgentId: string; createdBy?: string; parentTaskId?: string; prompt: string; status: string; createdAt?: string; startedAt?: string; updatedAt?: string; completedAt?: string; lastProgress?: { stage?: string; message: string; at: string }; finalResponse?: { content: string; state: 'complete' | 'partial' | 'failed'; messageId: string; revision: number; updatedAt: string }; memoryReferences?: string[]; knowledgeReferences?: KnowledgeReference[]; deliveryReports?: DeliveryReport[] };
 type RunStreamMetadata = { schemaVersion: 1; kind: string; taskId?: string; runId: string; turnId: string; messageId?: string; blockIndex?: number; seq: number };
 type ObservabilityEvent = { ts: string; eventId?: string; seq?: number; source: 'orchestrator' | 'pi'; type: string; agentId?: string; stream?: RunStreamMetadata; payload?: Record<string, unknown> };
 type GlobalConfig = { resource_agent?: { model?: string }; logRetentionDays?: number; channelBindings?: Array<{ id: string; channelId: string; accountId: string; target: string; projectName?: string; targetAgentId?: string; enabled: boolean }> };
@@ -354,6 +355,14 @@ export function App() {
     const unsubscribe = window.oatDesktop.onObservabilityEvent(({ projectName: eventProject, event }) => {
       if (!active || eventProject !== project.name || !event || typeof event !== 'object') return;
       const next = event as ObservabilityEvent;
+      if (next.type === 'observability.gap') {
+        void requestProject<Task[]>(project.name, '/tasks').then((tasks) => {
+          if (!active) return;
+          setProjectTasks(tasks);
+          setAgentTasks(tasks.filter((task) => task.targetAgentId === agent.id && (task.status === 'queued' || task.status === 'running')));
+        }).catch(() => undefined);
+        return;
+      }
       if (next.agentId !== agent.id) return;
       const nextTask = taskFromEvent(next);
       if (nextTask) setProjectTasks((tasks) => [...tasks.filter((task) => task.id !== nextTask.id), nextTask]);
@@ -621,7 +630,7 @@ function AgentRun({ events, task, agentName, operatorFacing }: { events: Observa
   const reversedEvents = [...events].reverse();
   const reply = reversedEvents.find((event) => event.type === 'report_progress' && event.payload?.stage === 'user_response' && typeof event.payload?.message === 'string')
     ?? reversedEvents.find((event) => event.type === 'report_progress' && event.payload?.stage === 'done' && typeof event.payload?.message === 'string');
-  const replyText = typeof reply?.payload?.message === 'string' ? reply.payload.message : stream.markdown;
+  const replyText = resolveTaskReply(task, typeof reply?.payload?.message === 'string' ? reply.payload.message : undefined, stream.markdown);
   // message_update contains token-level text, reasoning and tool-call JSON
   // deltas. Those are merged by streamedRun and must never appear as one row
   // per token in the activity timeline. Only actual tool execution lifecycle

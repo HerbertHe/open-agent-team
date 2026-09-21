@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -51,6 +51,22 @@ test("startup gate, pause, snapshots, and recall keep queue work durable", async
     assert.equal(recalled.status, QueuedTaskStatusEnum.Running);
     assert.equal(prompts.length, 1);
     assert.ok(events.some((event) => event.type === "scheduler.ready"));
+
+    await manager.reportProgress({ agentId: "admin", stage: "user_response", message: "Durable answer" });
+    assert.equal(recalled.finalResponse?.content, "Durable answer");
+    assert.equal(recalled.finalResponse?.state, "complete");
+    manager.handleRuntimeEvent("admin", {
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "Final runtime answer" }] },
+    }, {
+      schemaVersion: 1, kind: "message.completed", taskId: recalled.id, runId: "run-1", turnId: "turn-1", messageId: "message-1", seq: 2,
+    });
+    assert.equal(recalled.finalResponse?.content, "Final runtime answer");
+    assert.equal(recalled.finalResponse?.messageId, "message-1");
+    assert.equal(recalled.finalResponse?.revision, 2);
+    await manager.flushSchedulerState();
+    const persisted = JSON.parse(await readFile(path.join(stateDir, "git-collaboration", "scheduler-state.json"), "utf8")) as { tasks: Array<{ id: string; finalResponse?: { content: string } }> };
+    assert.equal(persisted.tasks.find((task) => task.id === recalled.id)?.finalResponse?.content, "Final runtime answer");
   } finally {
     await rm(stateDir, { recursive: true, force: true });
   }
@@ -227,6 +243,12 @@ test("model execution errors fail only the current task and keep the Agent sched
     manager.startScheduling();
 
     manager.handleRuntimeEvent("admin", {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Partial answer before failure" },
+    }, {
+      schemaVersion: 1, kind: "content.delta", taskId: failed.id, runId: "run-failed", turnId: "turn-failed", messageId: "message-failed", blockIndex: 0, seq: 1,
+    });
+    manager.handleRuntimeEvent("admin", {
       type: "agent_end",
       willRetry: false,
       messages: [{ role: "assistant", stopReason: "error", errorMessage: "402: Insufficient Balance" }],
@@ -235,6 +257,8 @@ test("model execution errors fail only the current task and keep the Agent sched
 
     assert.equal(failed.status, QueuedTaskStatusEnum.Failed);
     assert.equal(failed.error, "402: Insufficient Balance");
+    assert.equal(failed.finalResponse?.content, "Partial answer before failure");
+    assert.equal(failed.finalResponse?.state, "partial");
     assert.equal((manager as unknown as { promptActiveAgents: Set<string> }).promptActiveAgents.has("admin"), true, "the next task owns the prompt lock");
     assert.equal((manager as unknown as { crashedAgents: Set<string> }).crashedAgents.has("admin"), false);
     assert.equal(next.status, QueuedTaskStatusEnum.Running);
@@ -259,7 +283,7 @@ test("restart preserves durable waiting workflows, review handoffs, and release 
     nextTaskNumber: 4,
     taskIdDate: "20260827",
     tasks: [
-      { id: "root", targetAgentId: "admin", createdBy: "operator", prompt: "Root", status: "waiting", createdAt: now, updatedAt: now },
+      { id: "root", targetAgentId: "admin", createdBy: "operator", prompt: "Root", status: "waiting", createdAt: now, updatedAt: now, lastProgress: { stage: "user_response", message: "Legacy durable answer", at: now } },
       { id: "leader", targetAgentId: "team-lead", createdBy: "admin", parentTaskId: "root", prompt: "Leader", status: "waiting", createdAt: now, updatedAt: now },
       { id: "worker", targetAgentId: "team-worker-0", createdBy: "team-lead", parentTaskId: "leader", prompt: "Worker", status: "review_pending", createdAt: now, updatedAt: now },
       { id: "root-stranded", targetAgentId: "admin", createdBy: "operator", prompt: "Stranded root", status: "waiting", createdAt: now, updatedAt: now },
@@ -283,6 +307,7 @@ test("restart preserves durable waiting workflows, review handoffs, and release 
   try {
     await (manager as unknown as { restoreSchedulerState(): Promise<void> }).restoreSchedulerState();
     assert.equal(manager.getTasks().find((task) => task.id === "root")?.status, QueuedTaskStatusEnum.Waiting);
+    assert.equal(manager.getTasks().find((task) => task.id === "root")?.finalResponse?.content, "Legacy durable answer");
     assert.equal(manager.getTasks().find((task) => task.id === "leader")?.status, QueuedTaskStatusEnum.Waiting);
     assert.equal(manager.getTasks().find((task) => task.id === "worker")?.status, QueuedTaskStatusEnum.ReviewPending);
     assert.equal((manager as unknown as { leaderEventsById: Map<string, { status: string; leaseExpiresAt?: string }> }).leaderEventsById.get("event-1")?.status, "pending");

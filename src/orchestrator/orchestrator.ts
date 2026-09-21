@@ -176,17 +176,18 @@ export class Orchestrator {
 
     const onEvent = ({ agentId, event, role }: { agentId: string; event: { type: string }; role?: AgentRoleEnum }) => {
         const taskId = this.taskManager?.getRunningTaskId(agentId);
+        const stream = runStreamNormalizer.normalize(agentId, role, taskId, event as unknown as Record<string, unknown> & { type: string });
         this.observabilityHub.emit(
           {
             source: "pi",
             type: `pi.${event.type}`,
             agentId,
             role,
-            stream: runStreamNormalizer.normalize(agentId, role, taskId, event as unknown as Record<string, unknown> & { type: string }),
+            stream,
             payload: { piEvent: event as unknown as Record<string, unknown> },
           },
         );
-        this.taskManager?.handleRuntimeEvent(agentId, event);
+        this.taskManager?.handleRuntimeEvent(agentId, event, stream);
       };
     const onError =
       ({ agentId, error }: { agentId: string; error: Error }) => {
@@ -620,7 +621,14 @@ export class Orchestrator {
         if (event.eventId) res.write(`id: ${event.eventId}\n`);
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       };
-      for (const e of hub.snapshotAfter(cursor)) {
+      const replay = hub.replayAfter(cursor);
+      if (replay.cursorExpired) {
+        res.write(`data: ${JSON.stringify({
+          ts: new Date().toISOString(), source: "orchestrator", type: "observability.gap",
+          payload: { requestedCursor: cursor, replayedEvents: replay.events.length },
+        })}\n\n`);
+      }
+      for (const e of replay.events) {
         writeEvent(e);
       }
       const unsub = hub.subscribe((ev) => {

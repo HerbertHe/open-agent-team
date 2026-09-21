@@ -103,9 +103,15 @@ export class ObservabilityHub {
 
   /** Return events after a delivered cursor; an expired cursor falls back to the bounded snapshot. */
   snapshotAfter(eventId?: string): ObservabilityEvent[] {
-    if (!eventId) return this.snapshot();
+    return this.replayAfter(eventId).events;
+  }
+
+  replayAfter(eventId?: string): { events: ObservabilityEvent[]; cursorExpired: boolean } {
+    if (!eventId) return { events: this.snapshot(), cursorExpired: false };
     const index = this.buffer.findIndex((event) => event.eventId === eventId);
-    return index >= 0 ? this.buffer.slice(index + 1) : this.snapshot();
+    return index >= 0
+      ? { events: this.buffer.slice(index + 1), cursorExpired: false }
+      : { events: this.snapshot(), cursorExpired: true };
   }
 
   appendAgentProcessLog(agentId: string, line: string): void {
