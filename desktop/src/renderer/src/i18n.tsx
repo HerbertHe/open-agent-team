@@ -76,6 +76,7 @@ const memoryOpsEn = {
   'memoryOps.collections': 'Collections', 'memoryOps.collectionsHint': 'Per-revision identity and synchronization state. Profile identity fields are immutable.', 'memoryOps.revision': 'Revision', 'memoryOps.state': 'State', 'memoryOps.completeness': 'Complete', 'memoryOps.queue': 'Queue', 'memoryOps.disk': 'Disk', 'memoryOps.actions': 'Actions', 'memoryOps.noCollections': 'No Zvec collection has been built.',
   'memoryOps.pause': 'Pause', 'memoryOps.resume': 'Retry / resume', 'memoryOps.activate': 'Activate', 'memoryOps.rollback': 'Rollback', 'memoryOps.rebuildConfirm': 'Build a new collection using the configured immutable embedding profile?', 'memoryOps.resumeConfirm': 'Retry pending and dead-letter writes? This may call the embedding provider.', 'memoryOps.activateConfirm': 'Validate and activate this collection?', 'memoryOps.rollbackConfirm': 'Roll back to this retained collection after catch-up and validation?', 'memoryOps.pauseConfirm': 'Pause this rebuild?',
   'memoryOps.governance': 'Fact governance', 'memoryOps.governanceHint': 'Candidates and disputed facts require an explicit human decision.', 'memoryOps.noGovernance': 'No candidate or disputed facts need review.', 'memoryOps.confirmFactConfirm': 'Confirm this candidate as the current fact? Conflicting current facts may be superseded.',
+  'memoryOps.markdownView': 'Readable memory', 'memoryOps.markdownViewHint': 'Generated, read-only Markdown projection of the selected Agent’s canonical memory and Scratchpad.', 'memoryOps.exportMarkdown': 'Export Markdown', 'memoryOps.noMarkdownView': 'No Markdown memory view is available.',
   'memoryOps.retrievalTrace': 'Retrieval traces', 'memoryOps.traceHint': 'Backend, latency, selected count and fallback reason; prompts and vectors are not shown.', 'memoryOps.accessAudit': 'Access audit', 'memoryOps.auditHint': 'Recent allowed and denied memory actions with redacted reasons.',
 };
 Object.assign(en, memoryOpsEn); Object.assign(fr, memoryOpsEn); Object.assign(ja, memoryOpsEn);
@@ -87,6 +88,7 @@ Object.assign(zh, {
   'memoryOps.collections': 'Collection 版本', 'memoryOps.collectionsHint': '按版本展示不可变身份与同步状态。已引用的 Profile 不允许原地修改。', 'memoryOps.revision': '版本', 'memoryOps.state': '状态', 'memoryOps.completeness': '完整度', 'memoryOps.queue': '队列', 'memoryOps.disk': '占用', 'memoryOps.actions': '操作', 'memoryOps.noCollections': '尚未构建 Zvec Collection。',
   'memoryOps.pause': '暂停', 'memoryOps.resume': '重试/继续', 'memoryOps.activate': '启用', 'memoryOps.rollback': '回滚', 'memoryOps.rebuildConfirm': '使用当前不可变 Embedding Profile 构建新 Collection？', 'memoryOps.resumeConfirm': '重试待处理和死信任务？这可能调用 Embedding 服务并产生费用。', 'memoryOps.activateConfirm': '验证并启用该 Collection？', 'memoryOps.rollbackConfirm': '追赶并验证后回滚到该保留版本？', 'memoryOps.pauseConfirm': '暂停本次重建？',
   'memoryOps.governance': '事实治理', 'memoryOps.governanceHint': '候选和冲突事实必须由用户明确确认。', 'memoryOps.noGovernance': '当前没有待确认候选或冲突事实。', 'memoryOps.confirmFactConfirm': '将该候选确认为当前事实？冲突的当前事实可能被标记为历史版本。',
+  'memoryOps.markdownView': '可读记忆', 'memoryOps.markdownViewHint': '所选 Agent 权威记忆与 Scratchpad 生成的只读 Markdown 投影。', 'memoryOps.exportMarkdown': '导出 Markdown', 'memoryOps.noMarkdownView': '当前没有可用的 Markdown 记忆视图。',
   'memoryOps.retrievalTrace': '检索轨迹', 'memoryOps.traceHint': '展示后端、耗时、命中数和降级原因，不展示提示词或向量。', 'memoryOps.accessAudit': '访问审计', 'memoryOps.auditHint': '展示近期允许/拒绝的记忆操作及脱敏原因。',
 });
 const knowledgeOpsEn = {
@@ -340,6 +342,9 @@ Object.assign(ja, {
   'hive.state.failed': '要確認',
   'hive.state.offline': 'オフライン',
 });
+Object.assign(en, { 'memoryOps.editConfirm': 'Edit & confirm', 'memoryOps.editCandidatePrompt': 'Edit this candidate before confirming it', 'memoryOps.evidence': 'Evidence and provenance', 'memoryOps.conflicts': 'Conflicts', 'memoryOps.cleanup': 'Run lifecycle cleanup', 'memoryOps.cleanupConfirm': 'Apply the configured memory retention and capacity limits now?', 'memoryOps.cleanupResult': 'Lifecycle cleanup' });
+Object.assign(zh, { 'memoryOps.editConfirm': '编辑后确认', 'memoryOps.editCandidatePrompt': '编辑候选内容并确认', 'memoryOps.evidence': '证据与来源', 'memoryOps.conflicts': '冲突', 'memoryOps.cleanup': '执行生命周期清理', 'memoryOps.cleanupConfirm': '立即按照配置的记忆保留期与容量上限执行清理吗？', 'memoryOps.cleanupResult': '生命周期清理结果' });
+
 const dictionaries: Record<Language, Dictionary> = { 'zh-CN': zh, en, fr, ja };
 
 type Theme = 'system' | 'light' | 'dark';

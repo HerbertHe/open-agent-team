@@ -46,6 +46,8 @@ import {
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { simpleGit } from "simple-git";
+import { buildScratchpadTool } from "../memory/scratchpad-tool";
+import { buildAgentMemoryTools } from "../memory/agent-memory-tools";
 
 function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -308,6 +310,37 @@ export class Orchestrator {
       catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
     });
 
+    this.app.get("/memory/views", async (req, res) => {
+      try {
+        const agentId = typeof req.query.agentId === "string" ? req.query.agentId.trim() : "";
+        if (!agentId) { res.status(400).json({ error: "Agent id is required for the Markdown memory view." }); return; }
+        res.json(await this.memoryService.markdownView(agentId));
+      } catch (error) {
+        res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    this.app.get("/memory/scratchpad", (req, res) => {
+      try {
+        const agentId = typeof req.query.agentId === "string" ? req.query.agentId.trim() : "";
+        if (!agentId) { res.status(400).json({ error: "Agent id is required for the Scratchpad." }); return; }
+        res.json(this.memoryService.listScratchpad(agentId, req.query.includeDone === "true"));
+      } catch (error) {
+        res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    this.app.get("/memory/recent", (req, res) => {
+      try {
+        const agentId = typeof req.query.agentId === "string" ? req.query.agentId.trim() : "";
+        if (!agentId) { res.status(400).json({ error: "Agent id is required for recent memory." }); return; }
+        const hours = typeof req.query.hours === "string" ? Number(req.query.hours) : 24;
+        res.json(this.memoryService.recentMemorySummary(agentId, Number.isFinite(hours) ? hours : 24));
+      } catch (error) {
+        res.status(error instanceof MemoryAccessDeniedError ? 403 : 500).json({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
     this.app.get("/memory/index/estimate", async (_req, res) => {
       try { res.json(await this.memoryService.estimateIndexRebuild()); }
       catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -362,6 +395,11 @@ export class Orchestrator {
       } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
     });
 
+    this.app.post("/memory/lifecycle/cleanup", (_req, res) => {
+      try { res.json(this.memoryService.runLifecycleCleanup()); }
+      catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
     this.app.post("/memory/:id/forget", (req, res) => {
       try {
         const ok = this.memoryService.forget(req.params.id);
@@ -382,6 +420,19 @@ export class Orchestrator {
       try {
         const confirmedBy = typeof req.body?.confirmedBy === "string" && req.body.confirmedBy.trim() ? req.body.confirmedBy.trim() : "user";
         const memory = this.memoryService.confirmCandidate(req.params.id, confirmedBy);
+        if (!memory) { res.status(404).json({ error: "Memory candidate not found" }); return; }
+        res.json(memory);
+      } catch (error) { res.status(error instanceof MemoryAccessDeniedError ? 403 : 400).json({ error: error instanceof Error ? error.message : String(error) }); }
+    });
+
+    this.app.post("/memory/:id/edit-confirm", (req, res) => {
+      try {
+        const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+        const allowedKinds = ["semantic", "episodic", "decision", "preference", "failure-pattern", "procedure"] as const;
+        const kind = allowedKinds.find((value) => value === req.body?.kind);
+        if (!text || !kind) { res.status(400).json({ error: "Edited text and a valid durable memory kind are required." }); return; }
+        const confirmedBy = typeof req.body?.confirmedBy === "string" && req.body.confirmedBy.trim() ? req.body.confirmedBy.trim() : "user";
+        const memory = this.memoryService.editAndConfirmCandidate(req.params.id, text, kind, confirmedBy);
         if (!memory) { res.status(404).json({ error: "Memory candidate not found" }); return; }
         res.json(memory);
       } catch (error) { res.status(error instanceof MemoryAccessDeniedError ? 403 : 400).json({ error: error instanceof Error ? error.message : String(error) }); }
@@ -1413,6 +1464,12 @@ export class Orchestrator {
   /** 构建各角色在 pi 会话中使用的编排工具（通过 defineTool 直接调用 TaskManager）。 */
   private buildOrchestratorTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
     const tm = this.taskManager;
+    const scratchpadTool = this.memoryService.isEnabledFor(spec.id)
+      ? buildScratchpadTool(this.memoryService, spec.id, () => tm.getRunningTaskId(spec.id))
+      : undefined;
+    const agentMemoryTools = this.memoryService.isEnabledFor(spec.id)
+      ? buildAgentMemoryTools(this.memoryService, spec.id, () => tm.getRunningTaskId(spec.id))
+      : [];
 
     const createTaskTool = defineTool({
       name: "create-task", label: "Create Task",
@@ -1579,7 +1636,7 @@ export class Orchestrator {
       },
     });
 
-    const sharedTools = [queryTasksTool, notifyCompleteTool, reportProgressTool, generateChangelogTool];
+    const sharedTools = [queryTasksTool, ...agentMemoryTools, ...(scratchpadTool ? [scratchpadTool] : []), notifyCompleteTool, reportProgressTool, generateChangelogTool];
     if (spec.role === AgentRoleEnum.Admin) {
       return [searchProjectMemoryTool, assignLeaderTaskTool, listReleaseProposalsTool, approveReleaseTool, pushReleaseTool, ...sharedTools];
     }

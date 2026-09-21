@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { createHash, randomUUID } from "node:crypto";
-import type { DreamRun, MemoryAccessAction, MemoryAccessAuditRecord, MemoryAccessDecision, MemoryActor, MemoryCandidateMatch, MemoryGovernanceResult, MemoryKind, MemoryLevel, MemoryOverview, MemoryRecord, MemorySource } from "./types";
+import type { DreamRun, MemoryAccessAction, MemoryAccessAuditRecord, MemoryAccessDecision, MemoryActor, MemoryCandidateMatch, MemoryDailyEvent, MemoryGovernanceResult, MemoryKind, MemoryLevel, MemoryLifecycleCleanupResult, MemoryOverview, MemoryRecord, MemorySource, ScratchpadItem } from "./types";
 import type { GovernedMemoryCandidate, MemoryEventSourceType, MemoryExtractionEvent } from "./memory-extractor";
 import { DefaultMemoryPolicy, type MemoryPolicy } from "./memory-policy";
 import type { SemanticDocument } from "../semantic/types";
@@ -261,6 +261,19 @@ export interface MemoryRepository {
   enforceL1Retention(ttlHours: number, maxItems: number): void;
   capture(input: CapturedMemoryEvent, l1MaxItems: number): void;
   list(options?: MemoryListOptions): MemoryRecord[];
+  listOwnerAgentIds(): string[];
+  listDailyEventDates(agentId: string, limit?: number): string[];
+  listDailyEvents(agentId: string, date: string, limit?: number): MemoryDailyEvent[];
+  listRecentDailyEvents(agentId: string, since: string, limit?: number): MemoryDailyEvent[];
+  searchDailyEvents(agentId: string, query: string, limit?: number): MemoryDailyEvent[];
+  appendDailyNote(input: { id: string; agentId: string; role: string; text: string; sourceTaskId?: string; createdAt: string }): MemoryDailyEvent;
+  appendMemoryProposalEvent(input: { id: string; agentId: string; role: string; kind: MemoryKind; text: string; sourceTaskId?: string; teamId?: string; trustLevel: number; createdAt: string }): void;
+  listScratchpad(agentId: string, includeDone?: boolean, limit?: number): ScratchpadItem[];
+  addScratchpad(input: { id: string; agentId: string; text: string; sourceTaskId?: string; createdAt: string }): ScratchpadItem;
+  updateScratchpad(agentId: string, id: string, status: "open" | "done", updatedAt: string): ScratchpadItem | undefined;
+  removeScratchpad(agentId: string, id: string): boolean;
+  clearCompletedScratchpad(agentId: string): number;
+  cleanupLifecycle(input: { now: string; dailyRetentionDays: number; dailyMaxItemsPerAgent: number; completedScratchpadRetentionDays: number; candidateRetentionDays: number; candidateMaxItemsPerAgent: number }): MemoryLifecycleCleanupResult;
   listAuthorized(input: AuthorizedMemoryInput, options?: MemoryListOptions): MemoryRecord[];
   recordInjection(agentId: string, query: string, memoryIds: string[], createdAt: string): void;
   forget(id: string, updatedAt: string): boolean;
@@ -279,6 +292,7 @@ export interface MemoryRepository {
   listGovernanceMemories(limit: number, version: string, agentId?: string): MemoryRecord[];
   governCandidate(input: { candidateId: string; matches: MemoryCandidateMatch[]; version: string; now: string; autoActivateMinEvidence: number; autoPromoteMinEvidence: number; semanticIdentity?: string; semanticError?: string }): MemoryGovernanceResult | undefined;
   confirmCandidate(id: string, confirmedBy: string, confirmedAt: string): MemoryRecord | undefined;
+  editCandidate(id: string, input: { text: string; kind: Exclude<MemoryKind, "working">; updatedAt: string }): MemoryRecord | undefined;
   overview(enabled: boolean, agentId?: string): Omit<MemoryOverview, "retrieval">;
   registerIndexTarget(target: MemoryIndexRegistryRecord): void;
   listIndexTargets(): MemoryIndexRegistryRecord[];
@@ -971,6 +985,25 @@ export class SqliteMemoryRepository implements MemoryRepository {
       this.db.pragma("user_version = 9");
     });
     migrateV9.immediate();
+    const migrateV10 = this.db.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS agent_scratchpad_items (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          owner_agent_id TEXT NOT NULL,
+          text TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','done')),
+          source_task_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_scratchpad_owner_status
+          ON agent_scratchpad_items(project_id, owner_agent_id, status, updated_at DESC);
+      `);
+      this.db.pragma("user_version = 10");
+    });
+    migrateV10.immediate();
     this.db.prepare("UPDATE dream_runs SET status='failed', completed_at=?, error=COALESCE(error, 'Interrupted by process restart') WHERE status='running'")
       .run(new Date().toISOString());
   }
@@ -1176,6 +1209,172 @@ export class SqliteMemoryRepository implements MemoryRepository {
     params.push(Math.min(500, Math.max(1, options.limit ?? 100)));
     return (this.db.prepare(`SELECT * FROM memory_items WHERE ${clauses.join(" AND ")} ORDER BY level DESC, salience DESC, updated_at DESC LIMIT ?`).all(...params) as MemoryRow[])
       .map((row) => this.rowToMemory(row));
+  }
+
+  listOwnerAgentIds(): string[] {
+    return (this.db.prepare(`SELECT owner FROM (
+      SELECT agent_id AS owner FROM memory_items WHERE project_id=?
+      UNION SELECT owner_agent_id AS owner FROM memory_events WHERE project_id=?
+      UNION SELECT owner_agent_id AS owner FROM agent_scratchpad_items WHERE project_id=?
+    ) WHERE owner<>'' ORDER BY owner`).all(this.projectId, this.projectId, this.projectId) as Array<{ owner: string }>)
+      .map(({ owner }) => owner);
+  }
+
+  listDailyEvents(agentId: string, date: string, limit = 500): MemoryDailyEvent[] {
+    return (this.db.prepare(`SELECT id, owner_agent_id, task_id, event_type, content, created_at FROM memory_events
+      WHERE project_id=? AND owner_agent_id=? AND event_type IN ('task.completed','task.failed','agent.daily_note') AND substr(created_at, 1, 10)=?
+      ORDER BY created_at DESC, id DESC LIMIT ?`).all(this.projectId, agentId, date, Math.min(1_000, Math.max(1, Math.floor(limit)))) as Array<{
+        id: string; owner_agent_id: string; task_id: string | null; event_type: MemoryDailyEvent["eventType"]; content: string; created_at: string;
+      }>).map((row) => ({
+        id: row.id,
+        ownerAgentId: row.owner_agent_id,
+        taskId: row.task_id ?? undefined,
+        eventType: row.event_type,
+        content: row.content,
+        createdAt: row.created_at,
+      })).reverse();
+  }
+
+  listDailyEventDates(agentId: string, limit = 90): string[] {
+    return (this.db.prepare(`SELECT substr(created_at, 1, 10) AS date FROM memory_events
+      WHERE project_id=? AND owner_agent_id=? AND event_type IN ('task.completed','task.failed','agent.daily_note')
+      GROUP BY substr(created_at, 1, 10) ORDER BY date DESC LIMIT ?`)
+      .all(this.projectId, agentId, Math.min(365, Math.max(1, Math.floor(limit)))) as Array<{ date: string }>)
+      .map(({ date }) => date);
+  }
+
+  listRecentDailyEvents(agentId: string, since: string, limit = 50): MemoryDailyEvent[] {
+    return (this.db.prepare(`SELECT id, owner_agent_id, task_id, event_type, content, created_at FROM memory_events
+      WHERE project_id=? AND owner_agent_id=? AND event_type IN ('task.completed','task.failed','agent.daily_note') AND created_at>=?
+      ORDER BY created_at DESC, id DESC LIMIT ?`).all(
+        this.projectId, agentId, since, Math.min(200, Math.max(1, Math.floor(limit))),
+      ) as Array<{
+        id: string; owner_agent_id: string; task_id: string | null; event_type: MemoryDailyEvent["eventType"]; content: string; created_at: string;
+      }>).map((row) => ({
+        id: row.id, ownerAgentId: row.owner_agent_id, taskId: row.task_id ?? undefined,
+        eventType: row.event_type, content: row.content, createdAt: row.created_at,
+      }));
+  }
+
+  searchDailyEvents(agentId: string, query: string, limit = 100): MemoryDailyEvent[] {
+    const terms = [...new Set(normalize(query).split(" ").filter((term) => term.length > 1))].slice(0, 8);
+    if (!terms.length) return [];
+    const matches = terms.map(() => "instr(lower(content), ?) > 0").join(" OR ");
+    return (this.db.prepare(`SELECT id, owner_agent_id, task_id, event_type, content, created_at FROM memory_events
+      WHERE project_id=? AND owner_agent_id=? AND event_type IN ('task.completed','task.failed','agent.daily_note')
+        AND (${matches}) ORDER BY created_at DESC, id DESC LIMIT ?`).all(
+          this.projectId, agentId, ...terms, Math.min(500, Math.max(1, Math.floor(limit))),
+        ) as Array<{
+          id: string; owner_agent_id: string; task_id: string | null; event_type: MemoryDailyEvent["eventType"]; content: string; created_at: string;
+        }>).map((row) => ({
+          id: row.id, ownerAgentId: row.owner_agent_id, taskId: row.task_id ?? undefined,
+          eventType: row.event_type, content: row.content, createdAt: row.created_at,
+        }));
+  }
+
+  appendDailyNote(input: { id: string; agentId: string; role: string; text: string; sourceTaskId?: string; createdAt: string }): MemoryDailyEvent {
+    this.db.prepare(`INSERT INTO memory_events
+      (id, project_id, owner_agent_id, source_agent_id, role, event_type, task_id, kind, content, metadata_json, created_at, consolidated)
+      VALUES (?, ?, ?, ?, ?, 'agent.daily_note', ?, 'episodic', ?, ?, ?, 1)`)
+      .run(input.id, this.projectId, input.agentId, input.agentId, input.role, input.sourceTaskId ?? null,
+        input.text, safeJson({ sourceType: "internal", explicit: true }), input.createdAt);
+    return {
+      id: input.id, ownerAgentId: input.agentId, taskId: input.sourceTaskId,
+      eventType: "agent.daily_note", content: input.text, createdAt: input.createdAt,
+    };
+  }
+
+  appendMemoryProposalEvent(input: { id: string; agentId: string; role: string; kind: MemoryKind; text: string; sourceTaskId?: string; teamId?: string; trustLevel: number; createdAt: string }): void {
+    this.db.prepare(`INSERT INTO memory_events
+      (id, project_id, owner_agent_id, source_agent_id, role, event_type, task_id, kind, content, metadata_json, created_at, consolidated)
+      VALUES (?, ?, ?, ?, ?, 'agent.memory_proposed', ?, ?, ?, ?, ?, 0)`)
+      .run(input.id, this.projectId, input.agentId, input.agentId, input.role, input.sourceTaskId ?? null, input.kind, input.text,
+        safeJson({ sourceType: "internal", explicit: true, trustLevel: input.trustLevel, teamId: input.teamId }), input.createdAt);
+  }
+
+  listScratchpad(agentId: string, includeDone = false, limit = 100): ScratchpadItem[] {
+    const rows = this.db.prepare(`SELECT * FROM agent_scratchpad_items WHERE project_id=? AND owner_agent_id=?
+      ${includeDone ? "" : "AND status='open'"}
+      ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, updated_at DESC, id LIMIT ?`)
+      .all(this.projectId, agentId, Math.min(500, Math.max(1, Math.floor(limit)))) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id), projectId: String(row.project_id), ownerAgentId: String(row.owner_agent_id),
+      text: String(row.text), status: row.status as ScratchpadItem["status"],
+      sourceTaskId: row.source_task_id ? String(row.source_task_id) : undefined,
+      createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+      completedAt: row.completed_at ? String(row.completed_at) : undefined,
+    }));
+  }
+
+  addScratchpad(input: { id: string; agentId: string; text: string; sourceTaskId?: string; createdAt: string }): ScratchpadItem {
+    this.db.prepare(`INSERT INTO agent_scratchpad_items
+      (id, project_id, owner_agent_id, text, status, source_task_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`)
+      .run(input.id, this.projectId, input.agentId, input.text, input.sourceTaskId ?? null, input.createdAt, input.createdAt);
+    return this.listScratchpad(input.agentId, true, 500).find(({ id }) => id === input.id)!;
+  }
+
+  updateScratchpad(agentId: string, id: string, status: "open" | "done", updatedAt: string): ScratchpadItem | undefined {
+    const changes = this.db.prepare(`UPDATE agent_scratchpad_items SET status=?, updated_at=?, completed_at=?
+      WHERE id=? AND project_id=? AND owner_agent_id=?`)
+      .run(status, updatedAt, status === "done" ? updatedAt : null, id, this.projectId, agentId).changes;
+    return changes ? this.listScratchpad(agentId, true, 500).find((item) => item.id === id) : undefined;
+  }
+
+  removeScratchpad(agentId: string, id: string): boolean {
+    return this.db.prepare("DELETE FROM agent_scratchpad_items WHERE id=? AND project_id=? AND owner_agent_id=?")
+      .run(id, this.projectId, agentId).changes > 0;
+  }
+
+  clearCompletedScratchpad(agentId: string): number {
+    return this.db.prepare("DELETE FROM agent_scratchpad_items WHERE project_id=? AND owner_agent_id=? AND status='done'")
+      .run(this.projectId, agentId).changes;
+  }
+
+  cleanupLifecycle(input: { now: string; dailyRetentionDays: number; dailyMaxItemsPerAgent: number; completedScratchpadRetentionDays: number; candidateRetentionDays: number; candidateMaxItemsPerAgent: number }): MemoryLifecycleCleanupResult {
+    return this.db.transaction(() => {
+      const referencedEvents = new Set<string>();
+      const sourceRows = this.db.prepare("SELECT source_event_ids FROM memory_items WHERE project_id=? AND status IN ('candidate','active','disputed')")
+        .all(this.projectId) as Array<{ source_event_ids: string }>;
+      for (const row of sourceRows) for (const id of parseJsonArray(row.source_event_ids)) referencedEvents.add(id);
+      const dailyCutoff = new Date(Date.parse(input.now) - input.dailyRetentionDays * 86_400_000).toISOString();
+      const dailyRows = this.db.prepare(`SELECT id, owner_agent_id, created_at FROM memory_events
+        WHERE project_id=? AND consolidated=1 AND event_type IN ('task.completed','task.failed','agent.daily_note') ORDER BY owner_agent_id, created_at DESC, id DESC`)
+        .all(this.projectId) as Array<{ id: string; owner_agent_id: string; created_at: string }>;
+      const retainedByOwner = new Map<string, number>();
+      const removableDailyIds: string[] = [];
+      for (const row of dailyRows) {
+        const rank = (retainedByOwner.get(row.owner_agent_id) ?? 0) + 1;
+        retainedByOwner.set(row.owner_agent_id, rank);
+        if ((row.created_at < dailyCutoff || rank > input.dailyMaxItemsPerAgent) && !referencedEvents.has(row.id)) removableDailyIds.push(row.id);
+      }
+      const deleteEvent = this.db.prepare("DELETE FROM memory_events WHERE id=? AND project_id=?");
+      for (const id of removableDailyIds) deleteEvent.run(id, this.projectId);
+
+      const scratchpadCutoff = new Date(Date.parse(input.now) - input.completedScratchpadRetentionDays * 86_400_000).toISOString();
+      const removedCompletedScratchpadItems = this.db.prepare(`DELETE FROM agent_scratchpad_items
+        WHERE project_id=? AND status='done' AND COALESCE(completed_at, updated_at)<?`).run(this.projectId, scratchpadCutoff).changes;
+
+      const candidateCutoff = new Date(Date.parse(input.now) - input.candidateRetentionDays * 86_400_000).toISOString();
+      const candidates = this.db.prepare(`SELECT id, agent_id, created_at FROM memory_items
+        WHERE project_id=? AND level='L2' AND status='candidate' ORDER BY agent_id, created_at DESC, id DESC`)
+        .all(this.projectId) as Array<{ id: string; agent_id: string; created_at: string }>;
+      const candidateRank = new Map<string, number>();
+      const expiredCandidateIds: string[] = [];
+      for (const row of candidates) {
+        const rank = (candidateRank.get(row.agent_id) ?? 0) + 1;
+        candidateRank.set(row.agent_id, rank);
+        if (row.created_at < candidateCutoff || rank > input.candidateMaxItemsPerAgent) expiredCandidateIds.push(row.id);
+      }
+      const expire = this.db.prepare("UPDATE memory_items SET status='forgotten', governance_version='lifecycle-v1', updated_at=? WHERE id=? AND project_id=? AND status='candidate'");
+      const rejectMatches = this.db.prepare("UPDATE memory_candidate_matches SET status='rejected' WHERE candidate_memory_id=? AND status='suggested'");
+      let expiredCandidates = 0;
+      for (const id of expiredCandidateIds) {
+        expiredCandidates += expire.run(input.now, id, this.projectId).changes;
+        rejectMatches.run(id);
+      }
+      return { ranAt: input.now, removedDailyEvents: removableDailyIds.length, removedCompletedScratchpadItems, expiredCandidates };
+    })();
   }
 
   listAuthorized(input: AuthorizedMemoryInput, options: MemoryListOptions = {}): MemoryRecord[] {
@@ -1644,6 +1843,23 @@ export class SqliteMemoryRepository implements MemoryRepository {
       const active = this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(candidate.id) as MemoryRow;
       this.enqueueIndex(active, "upsert");
       return this.rowToMemory(active);
+    })();
+  }
+
+  editCandidate(id: string, input: { text: string; kind: Exclude<MemoryKind, "working">; updatedAt: string }): MemoryRecord | undefined {
+    return this.db.transaction(() => {
+      const candidate = this.db.prepare("SELECT * FROM memory_items WHERE id=? AND project_id=? AND level='L2' AND status IN ('candidate','disputed')")
+        .get(id, this.projectId) as MemoryRow | undefined;
+      if (!candidate) return undefined;
+      const subject = `explicit:${input.kind}:${createHash("sha256").update(normalize(input.text)).digest("hex").slice(0, 20)}`;
+      const fingerprint = createHash("sha256").update(`${candidate.agent_id}\0L2\0${subject}\0${normalize(input.text)}\0${candidate.id}`).digest("hex");
+      this.db.prepare(`UPDATE memory_items SET kind=?, content=?, summary=?, subject=?, predicate='explicit-memory', object_json=?,
+        fingerprint=?, confidence=.7, salience=.7, governance_version=NULL, content_hash='', updated_at=? WHERE id=?`)
+        .run(input.kind, input.text, input.text.slice(0, 500), subject, safeJson(input.text), fingerprint, input.updatedAt, id);
+      this.db.prepare("DELETE FROM memory_candidate_matches WHERE candidate_memory_id=?").run(id);
+      const updated = this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(id) as MemoryRow;
+      this.refreshHash(updated);
+      return this.rowToMemory(this.db.prepare("SELECT * FROM memory_items WHERE id=?").get(id) as MemoryRow);
     })();
   }
 

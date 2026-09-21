@@ -97,6 +97,13 @@ export const TeamFileSchema = z.object({
       maxPromptItems: z.number().int().min(1).max(20).default(5),
       minEvidence: z.number().int().min(2).max(20).default(2),
     }).default({ maxPromptItems: 5, minEvidence: 2 }),
+    lifecycle: z.object({
+      dailyRetentionDays: z.number().int().min(7).max(3650).default(90),
+      dailyMaxItemsPerAgent: z.number().int().min(100).max(100_000).default(5_000),
+      completedScratchpadRetentionDays: z.number().int().min(1).max(3650).default(30),
+      candidateRetentionDays: z.number().int().min(7).max(3650).default(90),
+      candidateMaxItemsPerAgent: z.number().int().min(20).max(10_000).default(500),
+    }).strict().default({ dailyRetentionDays: 90, dailyMaxItemsPerAgent: 5_000, completedScratchpadRetentionDays: 30, candidateRetentionDays: 90, candidateMaxItemsPerAgent: 500 }),
     dream: z.object({
       enabled: z.boolean().default(true),
       idleAfterSeconds: z.number().int().min(30).max(86400).default(300),

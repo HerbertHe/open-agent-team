@@ -66,6 +66,7 @@ test("M14 config enables owner-private memory for every Agent and file-backed kn
   try {
     const config = await loadConfig(file);
     assert.deepEqual(config.memory.roles, ["admin", "leader", "worker"]);
+    assert.deepEqual(config.memory.lifecycle, { dailyRetentionDays: 90, dailyMaxItemsPerAgent: 5_000, completedScratchpadRetentionDays: 30, candidateRetentionDays: 90, candidateMaxItemsPerAgent: 500 });
     assert.deepEqual(config.knowledge.roots, { project: "knowledge/project", teams: "knowledge/teams", uploads: "knowledge/uploads" });
     assert.equal(config.knowledge.ingestion.chunkTokens, 1_000);
     assert.equal(config.knowledge.ingestion.chunkOverlapTokens, 120);

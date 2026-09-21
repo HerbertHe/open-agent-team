@@ -1,6 +1,6 @@
 # Owner-private Agent memory and shared file knowledge
 
-> Status: implemented through SQLite schema v9 and the fourth knowledge-operations batch on 2026-09-16.
+> Status: implemented through SQLite schema v10, including owner-private Scratchpads, governed Agent read/search/write tools, bounded recent activity, and read-only Markdown projections, on 2026-09-21.
 
 Admin, Leader, and Worker each own an isolated three-tier memory. Worker events remain owned by the Worker; they are not assigned to the Leader. Runtime Agents can retrieve only their own memory. The trusted local user can inspect and govern records by owner.
 
@@ -22,6 +22,14 @@ There is no central Dream Agent. Task completion and idle scheduling start an ow
 
 Before a managed prompt, memory and shared knowledge are retrieved in parallel. Both are marked as fallible reference data, never as operator instructions.
 
+Each internal Agent also has an owner-private persistent Scratchpad managed through the `oat-scratchpad` tool. Up to 12 open reminders are injected before historical memory as fallible working notes. Scratchpad entries do not participate in L2/L3 governance or shared knowledge.
+
+The second batch adds `oat-memory-read`, `oat-memory-search`, and `oat-memory-write`. Reads and searches are fixed to the calling Agent's private scope. Daily writes are append-only working history; long-term writes create candidates and cannot bypass confirmation, conflict checks, or promotion. At most eight task outcomes or daily notes from the last 48 hours are injected in a clearly delimited, non-instructional recent-activity block.
+
+The third batch applies one `memory.retrieval.maxPromptTokens` budget across Scratchpad, recent activity, and L1/L2/L3; lower-priority items are removed before unresolved reminders, failures, and stable L3. Lifecycle cleanup runs at startup and after owner maintenance, removes only unreferenced expired/over-capacity daily events, prunes old completed Scratchpad items, and expires stale candidates. Desktop exposes provenance, conflicts, rejection, and edit-before-confirm review.
+
+OAT deterministically projects canonical SQLite state into per-Agent `MEMORY.md`, `SCRATCHPAD.md`, `RECENT.md`, `daily/YYYY-MM-DD.md`, and `notes/*.md` files under `<state_dir>/memory/views/`. These are read-only views rather than sources of truth. Desktop can inspect and explicitly export them; edits never write back to canonical memory.
+
 SQLite remains authoritative. Memory and knowledge share the Embedding Profile, collection revision, Semantic Outbox, retry/dead-letter behavior, rebuild/activation/rollback lifecycle, and Zvec batch optimization. Zvec candidate filters are followed by canonical SQLite authorization hydration. Lexical retrieval remains available when no active collection exists.
 
 Knowledge retrieval combines lexical, Dense, and FTS routes with reciprocal-rank fusion. Structured knowledge references are persisted with the task and rendered separately in Desktop.
@@ -34,6 +42,10 @@ Memory:
 - `GET /memory?agentId=&level=&status=&limit=`
 - `POST /memory/maintenance` with `{ "agentId": "..." }`
 - `POST /memory/:id/confirm`, `/promote`, or `/forget`
+- `GET /memory/views?agentId=...` and `GET /memory/scratchpad?agentId=...`
+- `GET /memory/recent?agentId=...&hours=24`
+- `POST /memory/lifecycle/cleanup`
+- `POST /memory/:id/edit-confirm`
 - the index lifecycle endpoints under `/memory/index/*`
 
 Knowledge:

@@ -143,6 +143,13 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
       maxPromptItems: withInheritance.memory?.l3?.maxPromptItems ?? 5,
       minEvidence: withInheritance.memory?.l3?.minEvidence ?? 2,
     },
+    lifecycle: {
+      dailyRetentionDays: withInheritance.memory?.lifecycle?.dailyRetentionDays ?? 90,
+      dailyMaxItemsPerAgent: withInheritance.memory?.lifecycle?.dailyMaxItemsPerAgent ?? 5_000,
+      completedScratchpadRetentionDays: withInheritance.memory?.lifecycle?.completedScratchpadRetentionDays ?? 30,
+      candidateRetentionDays: withInheritance.memory?.lifecycle?.candidateRetentionDays ?? 90,
+      candidateMaxItemsPerAgent: withInheritance.memory?.lifecycle?.candidateMaxItemsPerAgent ?? 500,
+    },
     dream: {
       enabled: withInheritance.memory?.dream?.enabled ?? true,
       idleAfterSeconds: withInheritance.memory?.dream?.idleAfterSeconds ?? 300,

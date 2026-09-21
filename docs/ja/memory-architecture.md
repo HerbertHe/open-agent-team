@@ -1,10 +1,14 @@
 # Agent 所有者ごとのプライベートメモリ
 
-> 状態：SQLite Schema v9 として実装済みです。
+> 状態：owner-private Scratchpad、統治付き read/search/write ツール、直近アクティビティ、読み取り専用 Markdown 投影を含む SQLite Schema v10 として実装済みです（2026-09-21）。
 
 Admin、Leader、Worker は、それぞれタスクをまたぐ独立したプライベートメモリを持ちます。Worker のイベントは Worker 自身に帰属し、Leader へ移し替えません。取得された内容は誤りうる過去の参考情報であり、現在の指示を上書きしません。
 
 正本は WAL モードの `better-sqlite3` に保存され、既定の場所は `<state_dir>/memory/memory.db` です。L1 は最近の活動、L2 は統治済みの事実やエピソード、L3 は安定したプライベート知識を保持します。プロンプトへ注入できるのは active 項目だけです。検索は lexical が既定で、Project ごとの設定とグローバル許可がある場合のみ Zvec を有効化でき、失敗時は lexical へフォールバックします。
+
+`oat-memory-read`、`oat-memory-search`、`oat-memory-write` は呼び出した Agent 自身の範囲だけを扱います。daily 書き込みは追記専用で、長期書き込みは必ず candidate となり、確認・競合検査・昇格を迂回できません。直近 48 時間の履歴は件数を制限して参考情報として注入されます。
+
+第3段階では、すべての注入を単一の Token 予算で裁定し、参照中の証拠を保護するライフサイクル清理と、Desktop での証拠・競合表示、拒否、編集後確認を追加します。
 
 中央の Dream Agent は存在しません。タスク完了時またはアイドル時に、各 Agent が自分のイベントだけを対象とする所有者メンテナンスを個別に実行します。実行履歴は `maintenance_runs` に保存され、`agent.memory_maintenance.*` として配信されます。旧 `dream_runs` は移行履歴と互換性テストのためだけに残ります。
 

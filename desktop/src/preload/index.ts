@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('oatDesktop', {
   listProviderModels: (input: { baseUrl: string; apiKey?: string }) => ipcRenderer.invoke('providers:list-models', input),
   requestOrchestrator: (input: { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }) => ipcRenderer.invoke('orchestrator:request', input),
   uploadKnowledge: (input: { projectName: string; teamId?: string }) => ipcRenderer.invoke('knowledge:upload', input),
+  exportMemoryMarkdown: (input: { projectName: string; agentId: string }) => ipcRenderer.invoke('memory:export-markdown', input),
   requestControlPlane: (input: { path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }) => ipcRenderer.invoke('control-plane:request', input),
   subscribeObservability: (projectName: string) => ipcRenderer.invoke('observability:subscribe', projectName),
   unsubscribeObservability: () => ipcRenderer.invoke('observability:unsubscribe'),

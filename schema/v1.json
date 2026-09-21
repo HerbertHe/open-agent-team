@@ -160,6 +160,18 @@
             "minEvidence": { "type": "integer", "minimum": 2, "maximum": 20, "default": 2 }
           }
         },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Owner-private memory retention and capacity limits. Cleanup preserves events still referenced by active, disputed, or candidate memories.",
+          "properties": {
+            "dailyRetentionDays": { "type": "integer", "minimum": 7, "maximum": 3650, "default": 90 },
+            "dailyMaxItemsPerAgent": { "type": "integer", "minimum": 100, "maximum": 100000, "default": 5000 },
+            "completedScratchpadRetentionDays": { "type": "integer", "minimum": 1, "maximum": 3650, "default": 30 },
+            "candidateRetentionDays": { "type": "integer", "minimum": 7, "maximum": 3650, "default": 90 },
+            "candidateMaxItemsPerAgent": { "type": "integer", "minimum": 20, "maximum": 10000, "default": 500 }
+          }
+        },
         "dream": {
           "type": "object",
           "additionalProperties": false,

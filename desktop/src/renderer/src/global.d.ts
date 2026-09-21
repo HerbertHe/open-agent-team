@@ -25,6 +25,7 @@ interface Window {
     listProviderModels(input: { baseUrl: string; apiKey?: string }): Promise<string[]>;
     requestOrchestrator(input: { projectName: string; path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;
     uploadKnowledge(input: { projectName: string; teamId?: string }): Promise<{ uploaded: unknown[] }>;
+    exportMemoryMarkdown(input: { projectName: string; agentId: string }): Promise<{ exported: boolean; count: number; directory?: string }>;
     requestControlPlane(input: { path: string; init?: { method?: string; headers?: Record<string, string>; body?: string } }): Promise<unknown>;
     subscribeObservability(projectName: string): Promise<void>;
     unsubscribeObservability(): Promise<void>;

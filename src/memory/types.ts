@@ -8,6 +8,72 @@ export type MemoryGovernanceAction = "retained" | "merged" | "activated" | "disp
 export type MemoryActorRole = "user" | "system" | "resource_manager" | "admin" | "leader" | "worker";
 export type MemoryActorEmployment = "internal" | "external";
 
+export type ScratchpadStatus = "open" | "done";
+
+export interface ScratchpadItem {
+  id: string;
+  projectId: string;
+  ownerAgentId: string;
+  text: string;
+  status: ScratchpadStatus;
+  sourceTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface MemoryDailyEvent {
+  id: string;
+  ownerAgentId: string;
+  taskId?: string;
+  eventType: "task.completed" | "task.failed" | "agent.daily_note";
+  content: string;
+  createdAt: string;
+}
+
+export type AgentMemorySource = "long_term" | "daily" | "scratchpad";
+
+export interface AgentMemorySearchResult {
+  source: AgentMemorySource;
+  id: string;
+  text: string;
+  createdAt: string;
+  score: number;
+  level?: MemoryLevel;
+  kind?: MemoryKind;
+  status?: MemoryStatus | ScratchpadStatus;
+  taskId?: string;
+}
+
+export interface AgentRecentMemorySummary {
+  agentId: string;
+  since: string;
+  generatedAt: string;
+  completedTasks: number;
+  failedTasks: number;
+  dailyNotes: number;
+  events: MemoryDailyEvent[];
+}
+
+export interface MemoryLifecycleCleanupResult {
+  ranAt: string;
+  removedDailyEvents: number;
+  removedCompletedScratchpadItems: number;
+  expiredCandidates: number;
+}
+
+export interface MemoryMarkdownFile {
+  path: string;
+  content: string;
+}
+
+export interface MemoryMarkdownView {
+  projectId: string;
+  agentId: string;
+  generatedAt: string;
+  files: MemoryMarkdownFile[];
+}
+
 /**
  * Server-resolved principal used by every memory read and canonical mutation.
  * `projectIds` is an explicit grant list, not a caller-controlled global flag.

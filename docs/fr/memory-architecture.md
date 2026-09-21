@@ -1,10 +1,14 @@
 # Mémoire privée des Agents et maintenance par propriétaire
 
-> État : implémenté, schéma SQLite v9.
+> État : implémenté, schéma SQLite v10 avec Scratchpad privé, outils read/search/write gouvernés, activité récente bornée et projection Markdown en lecture seule (2026-09-21).
 
 Admin, Leader et Worker disposent chacun d'une mémoire privée isolée entre les tâches. Les événements d'un Worker lui appartiennent et ne sont plus transférés au Leader. Le contexte récupéré reste une indication historique faillible et ne remplace jamais les instructions courantes.
 
-Le stockage de référence utilise `better-sqlite3` en mode WAL dans `<state_dir>/memory/memory.db`. L1 conserve l'activité récente, L2 les faits et épisodes gouvernés, et L3 les connaissances privées stables. Seuls les éléments actifs peuvent être injectés. La recherche lexicale reste le mode par défaut ; Zvec peut être activé par Project avec un repli lexical et une autorisation globale explicite.
+Le stockage de référence utilise `better-sqlite3` en mode WAL dans `<state_dir>/memory/memory.db`. Chaque Agent dispose également d'un Scratchpad privé et d'une projection Markdown en lecture seule sous `<state_dir>/memory/views/` ; ces fichiers ne remplacent jamais la base canonique. L1 conserve l'activité récente, L2 les faits et épisodes gouvernés, et L3 les connaissances privées stables. Seuls les éléments actifs peuvent être injectés. La recherche lexicale reste le mode par défaut ; Zvec peut être activé par Project avec un repli lexical et une autorisation globale explicite.
+
+`oat-memory-read`, `oat-memory-search` et `oat-memory-write` restent limités au propriétaire appelant. Les écritures daily sont uniquement ajoutées à l'historique ; les écritures long terme créent toujours un candidat et ne contournent jamais la confirmation, la détection de conflit ou la promotion. L'activité des dernières 48 heures est injectée avec une limite stricte comme contexte historique faillible.
+
+La troisième étape applique un budget Token unique à toutes les injections, ajoute un nettoyage de cycle de vie qui préserve les preuves encore référencées, et complète la revue Desktop avec provenance, conflits, rejet et modification avant confirmation.
 
 Il n'existe pas d'Agent de rêve central. À la fin d'une tâche ou pendant une période d'inactivité, chaque Agent exécute séparément une maintenance limitée à ses propres événements. Les exécutions sont enregistrées dans `maintenance_runs` et diffusées via `agent.memory_maintenance.*`. L'ancien chemin `dream_runs` n'est conservé que pour la migration et les tests de compatibilité.
 

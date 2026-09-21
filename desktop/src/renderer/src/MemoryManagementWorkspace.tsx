@@ -4,6 +4,8 @@ import IconRefresh from '~icons/lucide/refresh-cw';
 import IconDatabase from '~icons/lucide/database';
 import IconShieldCheck from '~icons/lucide/shield-check';
 import IconTriangleAlert from '~icons/lucide/triangle-alert';
+import IconFileText from '~icons/lucide/file-text';
+import IconDownload from '~icons/lucide/download';
 import { useI18n } from './i18n';
 
 type IndexValidation = { expectedCount: number; indexedCount: number; missingIds: string[]; mismatchedIds: string[]; staleIds: string[]; pendingOutbox: number; processingOutbox: number; deadLetters: number; errors: string[] };
@@ -14,7 +16,7 @@ type CollectionStatus = {
   validation: IndexValidation;
 };
 type OperationJob = { id: string; operation: string; collectionRevision: string; status: string; startedAt: string; completedAt?: string; error?: string; result?: { status?: string } };
-type MemoryItem = { id: string; level: string; kind: string; summary: string; status: string; agentId: string; teamId?: string; confidence: number; trustLevel?: number; updatedAt: string; contradictionIds?: string[] };
+type MemoryItem = { id: string; level: string; kind: string; content: string; summary: string; status: string; agentId: string; teamId?: string; confidence: number; trustLevel?: number; updatedAt: string; contradictionIds?: string[]; sourceEventIds?: string[]; sources?: Array<{ eventId: string; agentId?: string; role: string; eventType: string; createdAt: string }> };
 type MemorySnapshot = {
   generatedAt: string; projectId: string; enabled: boolean; health: string; warnings: Array<{ code: string; message: string }>;
   configured: { backend: string; embeddingProfile?: string; embeddingState: string; embeddingReason?: string; embeddingRevision?: string; dimensions?: number; collectionRevision?: string };
@@ -27,6 +29,7 @@ type MemorySnapshot = {
   accessAudits: Array<{ id: string; action: string; decision: string; actorId: string; actorRole: string; requestedProjectId: string; reason: string; createdAt: string }>;
 };
 type ProfileImpact = { profile: string; globalDefault: boolean; projects: Array<{ projectName: string; displayName?: string; source: string; backend: string; alive: boolean }> };
+type MarkdownView = { projectId: string; agentId: string; generatedAt: string; files: Array<{ path: string; content: string }> };
 
 const requestProject = <T,>(projectName: string, path: string, init?: { method?: string; body?: unknown }) => window.oatDesktop.requestOrchestrator({
   projectName, path,
@@ -44,10 +47,18 @@ export function MemoryManagementWorkspace({ project, projects }: { project?: Pro
   const [candidates, setCandidates] = useState<MemoryItem[]>([]);
   const [disputed, setDisputed] = useState<MemoryItem[]>([]);
   const [impact, setImpact] = useState<ProfileImpact>();
+  const [viewAgent, setViewAgent] = useState(project?.agents[0]?.id ?? '');
+  const [markdownView, setMarkdownView] = useState<MarkdownView>();
+  const [viewFile, setViewFile] = useState('MEMORY.md');
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
+  const [lifecycleResult, setLifecycleResult] = useState<string>();
 
   useEffect(() => { if (project?.name && projects.some((item) => item.name === project.name)) setSelected(project.name); }, [project?.name, projects]);
+  useEffect(() => {
+    const agents = activeProject?.agents ?? [];
+    if (!agents.some(({ id }) => id === viewAgent)) setViewAgent(agents[0]?.id ?? '');
+  }, [activeProject?.agents, viewAgent]);
   const load = useCallback(async () => {
     if (!activeProject?.alive) { setSnapshot(undefined); setCandidates([]); setDisputed([]); setImpact(undefined); return; }
     try {
@@ -68,6 +79,15 @@ export function MemoryManagementWorkspace({ project, projects }: { project?: Pro
     const timer = window.setInterval(() => void load(), snapshot?.operation?.status === 'running' ? 2_000 : 8_000);
     return () => window.clearInterval(timer);
   }, [activeProject?.alive, load, snapshot?.operation?.status]);
+  const loadMarkdownView = useCallback(async () => {
+    if (!activeProject?.alive || !viewAgent) { setMarkdownView(undefined); return; }
+    try {
+      const next = await requestProject<MarkdownView>(activeProject.name, `/memory/views?agentId=${encodeURIComponent(viewAgent)}`);
+      setMarkdownView(next);
+      setViewFile((current) => next.files.some(({ path }) => path === current) ? current : next.files[0]?.path ?? 'MEMORY.md');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }, [activeProject?.alive, activeProject?.name, viewAgent]);
+  useEffect(() => { void loadMarkdownView(); }, [loadMarkdownView]);
 
   const operate = async (operation: 'rebuild' | 'pause' | 'resume' | 'activate' | 'rollback', revision?: string) => {
     if (!activeProject?.alive || busy) return;
@@ -84,11 +104,33 @@ export function MemoryManagementWorkspace({ project, projects }: { project?: Pro
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(undefined); }
   };
-  const govern = async (item: MemoryItem, action: 'confirm' | 'forget') => {
+  const govern = async (item: MemoryItem, action: 'confirm' | 'forget' | 'edit-confirm') => {
     if (!activeProject?.alive || busy) return;
-    if (!window.confirm(t(action === 'confirm' ? 'memoryOps.confirmFactConfirm' : 'memory.forgetConfirm'))) return;
+    let body: unknown = action === 'confirm' ? { confirmedBy: 'desktop-user' } : {};
+    if (action === 'edit-confirm') {
+      const text = window.prompt(t('memoryOps.editCandidatePrompt'), item.summary);
+      if (!text?.trim()) return;
+      body = { text: text.trim(), kind: item.kind, confirmedBy: 'desktop-user' };
+    } else if (!window.confirm(t(action === 'confirm' ? 'memoryOps.confirmFactConfirm' : 'memory.forgetConfirm'))) return;
     setBusy(`${action}:${item.id}`);
-    try { await requestProject(activeProject.name, `/memory/${encodeURIComponent(item.id)}/${action}`, { method: 'POST', body: action === 'confirm' ? { confirmedBy: 'desktop-user' } : {} }); await load(); }
+    try { await requestProject(activeProject.name, `/memory/${encodeURIComponent(item.id)}/${action}`, { method: 'POST', body }); await load(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(undefined); }
+  };
+  const cleanupLifecycle = async () => {
+    if (!activeProject?.alive || busy || !window.confirm(t('memoryOps.cleanupConfirm'))) return;
+    setBusy('lifecycle-cleanup'); setLifecycleResult(undefined);
+    try {
+      const result = await requestProject<{ removedDailyEvents: number; removedCompletedScratchpadItems: number; expiredCandidates: number }>(activeProject.name, '/memory/lifecycle/cleanup', { method: 'POST', body: {} });
+      setLifecycleResult(`${result.removedDailyEvents} daily · ${result.removedCompletedScratchpadItems} scratchpad · ${result.expiredCandidates} candidates`);
+      await load(); await loadMarkdownView();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(undefined); }
+  };
+  const exportMarkdown = async () => {
+    if (!activeProject || !viewAgent || busy) return;
+    setBusy('export-markdown'); setError(undefined);
+    try { await window.oatDesktop.exportMemoryMarkdown({ projectName: activeProject.name, agentId: viewAgent }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(undefined); }
   };
@@ -119,7 +161,8 @@ export function MemoryManagementWorkspace({ project, projects }: { project?: Pro
         {snapshot.operation && <p className={`memory-ops-job is-${snapshot.operation.status}`}><strong>{snapshot.operation.operation}</strong> · {snapshot.operation.collectionRevision} · {snapshot.operation.status}{snapshot.operation.error ? ` · ${snapshot.operation.error}` : ''}</p>}
       </article>
       <article className="memory-ops-card"><div className="memory-ops-card-heading"><div><h2>{t('memoryOps.collections')}</h2><p>{t('memoryOps.collectionsHint')}</p></div><IconDatabase /></div>{snapshot.collections.length ? <div className="memory-ops-table"><div className="memory-ops-row labels"><span>{t('memoryOps.revision')}</span><span>{t('memoryOps.state')}</span><span>{t('memoryOps.completeness')}</span><span>{t('memoryOps.queue')}</span><span>{t('memoryOps.disk')}</span><span>{t('memoryOps.actions')}</span></div>{snapshot.collections.map((collection) => { const action = collectionAction(collection); return <div className="memory-ops-row" key={collection.collectionRevision}><span><strong>{collection.collectionRevision}</strong><small>{collection.embeddingProfile ?? '—'} · {collection.dimensions ?? '—'}d · {collection.index ?? '—'}</small></span><span><b className={`state-${collection.state}`}>{collection.migration?.status ?? collection.state}</b><small>{collection.migration?.pauseReason || collection.migration?.error || time(collection.createdAt)}</small></span><span><strong>{Math.round(collection.completeness * 100)}%</strong><small>{collection.validation.indexedCount}/{collection.validation.expectedCount}</small></span><span><strong>{collection.validation.pendingOutbox + collection.validation.processingOutbox}</strong><small>{collection.validation.deadLetters} dead</small></span><span>{bytes(collection.diskBytes)}</span><span>{action ? <button disabled={Boolean(busy)} className={action === 'rollback' ? 'danger' : ''} onClick={() => void operate(action, collection.collectionRevision)}>{t(`memoryOps.${action}`)}</button> : '—'}</span></div>; })}</div> : <p className="memory-ops-none">{t('memoryOps.noCollections')}</p>}</article>
-      <article className="memory-ops-card"><div className="memory-ops-card-heading"><div><h2>{t('memoryOps.governance')}</h2><p>{t('memoryOps.governanceHint')}</p></div><IconShieldCheck /></div>{governed.length ? <div className="memory-ops-governance">{governed.map((item) => <div key={item.id}><span><b>{item.status}</b>{item.level} · {item.kind} · {item.agentId}</span><strong>{item.summary}</strong><small>{t('memory.confidence')} {Math.round(item.confidence * 100)}% · {time(item.updatedAt)}</small><footer><button disabled={Boolean(busy)} onClick={() => void govern(item, 'confirm')}>{t('memory.confirm')}</button><button className="danger" disabled={Boolean(busy)} onClick={() => void govern(item, 'forget')}>{t('memory.forget')}</button></footer></div>)}</div> : <p className="memory-ops-none">{t('memoryOps.noGovernance')}</p>}</article>
+      <article className="memory-ops-card"><div className="memory-ops-card-heading"><div><h2>{t('memoryOps.governance')}</h2><p>{t('memoryOps.governanceHint')}</p></div><div><button disabled={Boolean(busy)} onClick={() => void cleanupLifecycle()}>{t('memoryOps.cleanup')}</button><IconShieldCheck /></div></div>{lifecycleResult && <p className="memory-ops-impact">{t('memoryOps.cleanupResult')}: {lifecycleResult}</p>}{governed.length ? <div className="memory-ops-governance">{governed.map((item) => <div key={item.id}><span><b>{item.status}</b>{item.level} · {item.kind} · {item.agentId}</span><strong>{item.summary}</strong><small>{t('memory.confidence')} {Math.round(item.confidence * 100)}% · {time(item.updatedAt)}</small><details><summary>{t('memoryOps.evidence')}</summary><p>{item.content}</p>{item.sources?.map((source) => <small key={source.eventId}>{source.eventType} · {source.role} · {source.agentId ?? '—'} · {time(source.createdAt)}</small>)}{item.contradictionIds?.length ? <small>{t('memoryOps.conflicts')}: {item.contradictionIds.join(', ')}</small> : null}</details><footer><button disabled={Boolean(busy)} onClick={() => void govern(item, 'confirm')}>{t('memory.confirm')}</button><button disabled={Boolean(busy)} onClick={() => void govern(item, 'edit-confirm')}>{t('memoryOps.editConfirm')}</button><button className="danger" disabled={Boolean(busy)} onClick={() => void govern(item, 'forget')}>{t('memory.forget')}</button></footer></div>)}</div> : <p className="memory-ops-none">{t('memoryOps.noGovernance')}</p>}</article>
+      <article className="memory-ops-card memory-markdown-view"><div className="memory-ops-card-heading"><div><h2><IconFileText />{t('memoryOps.markdownView')}</h2><p>{t('memoryOps.markdownViewHint')}</p></div><div className="memory-markdown-actions"><select value={viewAgent} onChange={(event) => setViewAgent(event.target.value)}>{activeProject.agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.label || agent.id} · {agent.role}</option>)}</select><button disabled={!viewAgent || Boolean(busy)} onClick={() => void exportMarkdown()}><IconDownload />{t('memoryOps.exportMarkdown')}</button></div></div>{markdownView?.files.length ? <><nav className="memory-markdown-files">{markdownView.files.map((file) => <button className={file.path === viewFile ? 'active' : ''} key={file.path} onClick={() => setViewFile(file.path)}>{file.path}</button>)}</nav><pre>{markdownView.files.find(({ path }) => path === viewFile)?.content ?? ''}</pre></> : <p className="memory-ops-none">{t('memoryOps.noMarkdownView')}</p>}</article>
       <div className="memory-ops-two"><article className="memory-ops-card"><h2>{t('memoryOps.retrievalTrace')}</h2><p>{t('memoryOps.traceHint')}</p><div className="memory-ops-feed">{snapshot.retrievalRuns.slice(0, 12).map((run) => <div key={run.id}><span>{run.backend} · {run.agentId}</span><strong>{run.selectedIds.length} selected · {run.latencyMs.toFixed(1)} ms</strong><small className={run.fallbackReason ? 'is-danger' : ''}>{run.fallbackReason || time(run.createdAt)}</small></div>)}</div></article><article className="memory-ops-card"><h2>{t('memoryOps.accessAudit')}</h2><p>{t('memoryOps.auditHint')}</p><div className="memory-ops-feed">{snapshot.accessAudits.slice(0, 12).map((audit) => <div key={audit.id}><span>{audit.action} · {audit.actorRole}</span><strong className={audit.decision === 'denied' ? 'is-danger' : ''}>{audit.decision} · {audit.actorId}</strong><small>{audit.reason} · {time(audit.createdAt)}</small></div>)}</div></article></div>
     </>}
   </section>;

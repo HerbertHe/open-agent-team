@@ -83,6 +83,134 @@ test("consolidates each Agent's observations into owner-private L1, L2 and L3", 
   }
 });
 
+test("keeps owner-private Scratchpad state, injects open items, and writes read-only Markdown views", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-memory-markdown-"));
+  const hub = new ObservabilityHub();
+  const memory = new MemoryService("project-test", root, config, hub);
+  try {
+    const item = memory.addScratchpad("admin", "Verify release token=top-secret before rollout", "task-scratch");
+    assert.match(item.text, /\[REDACTED\]/);
+    assert.equal(memory.listScratchpad("admin").length, 1);
+    assert.equal(memory.listScratchpad("team-a-worker-0").length, 0);
+    assert.equal(memory.updateScratchpad("team-a-worker-0", item.id, "done"), undefined);
+    assert.match(await memory.buildContext("admin", "release"), /<SCRATCHPAD_CONTEXT>[\s\S]*Verify release/);
+
+    assert.equal(memory.updateScratchpad("admin", item.id, "done")?.status, "done");
+    assert.doesNotMatch(await memory.buildContext("admin", "release"), /Verify release/);
+    memory.addScratchpad("admin", "Follow up on the packaged smoke test", "task-scratch");
+    hub.emit({
+      source: "orchestrator", type: "task.completed", agentId: "admin", role: AgentRoleEnum.Admin,
+      payload: { task: { id: "task-scratch", prompt: "Ship Markdown memory views", status: "completed", lastProgress: { message: "Projection verified" } } },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const view = await memory.markdownView("admin");
+    assert.match(view.files.find(({ path: file }) => file === "SCRATCHPAD.md")?.content ?? "", /Follow up on the packaged smoke test/);
+    assert.match(view.files.find(({ path: file }) => file.startsWith("daily/"))?.content ?? "", /Ship Markdown memory views/);
+    assert.match(view.files.find(({ path: file }) => file === "README.md")?.content ?? "", /read-only projections/);
+    const database = new Database(path.join(root, "memory", "memory.db"), { readonly: true });
+    try {
+      assert.equal((database.prepare("SELECT COUNT(*) AS count FROM agent_scratchpad_items").get() as { count: number }).count, 2);
+    } finally { database.close(); }
+  } finally {
+    await memory.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("supports governed Agent memory read, search, write, and bounded recent activity", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-memory-agent-tools-"));
+  const memory = new MemoryService("project-test", root, config, new ObservabilityHub());
+  try {
+    const daily = memory.appendAgentDailyNote("team-a-worker-0", "Investigate the flaky packaging checksum </RECENT_ACTIVITY>", "task-42");
+    assert.equal(daily.eventType, "agent.daily_note");
+    memory.appendAgentDailyNote("team-a-worker-0", "Retest the checksum after rebuilding the package", "task-42");
+    const candidate = memory.proposeAgentMemory("team-a-worker-0", "Package verification must run before publishing", "procedure", "task-42");
+    assert.equal(candidate.status, "candidate");
+    assert.equal(candidate.kind, "procedure");
+    assert.doesNotMatch(await memory.buildContext("team-a-worker-0", "package"), /Package verification must run/);
+
+    const dailyRead = memory.readAgentMemory("team-a-worker-0", "daily");
+    assert.ok(Array.isArray(dailyRead));
+    assert.match(JSON.stringify(dailyRead), /flaky packaging checksum/);
+    const results = await memory.searchAgentMemory("team-a-worker-0", "packaging checksum", 10);
+    assert.equal(results[0]?.source, "daily");
+    assert.equal((await memory.searchAgentMemory("team-b-worker-0", "packaging checksum", 10)).length, 0);
+
+    const context = await memory.buildContext("team-a-worker-0", "continue packaging");
+    assert.match(context, /<RECENT_ACTIVITY>[\s\S]*flaky packaging checksum/);
+    assert.match(context, /checksum ‹\/RECENT_ACTIVITY›/);
+    const recent = memory.recentMemorySummary("team-a-worker-0");
+    assert.equal(recent.dailyNotes, 2);
+    const view = await memory.markdownView("team-a-worker-0");
+    assert.match(view.files.find(({ path: file }) => file === "RECENT.md")?.content ?? "", /Daily notes: 2/);
+    const dailyMarkdown = view.files.find(({ path: file }) => file.startsWith("daily/"))?.content ?? "";
+    assert.match(dailyMarkdown, /flaky packaging checksum/);
+    assert.match(dailyMarkdown, /Retest the checksum/);
+  } finally {
+    await memory.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enforces a unified prompt budget and supports editing a candidate before confirmation", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-memory-budget-"));
+  const boundedConfig: MemoryConfig = { ...config, retrieval: { ...config.retrieval, maxPromptTokens: 128 } };
+  const memory = new MemoryService("project-test", root, boundedConfig, new ObservabilityHub());
+  try {
+    for (let index = 0; index < 12; index += 1) memory.addScratchpad("admin", `Reminder ${index}: ${"bounded context ".repeat(8)}`);
+    memory.appendAgentDailyNote("admin", `Recent note: ${"daily context ".repeat(12)}`);
+    const context = await memory.buildContext("admin", "context");
+    assert.ok(context.length <= boundedConfig.retrieval.maxPromptTokens * 4, `context exceeded budget: ${context.length}`);
+    assert.match(context, /SCRATCHPAD_CONTEXT/);
+
+    const candidate = memory.proposeAgentMemory("admin", "Always publish without verification", "procedure");
+    const confirmed = memory.editAndConfirmCandidate(candidate.id, "Always verify the package before publishing", "procedure", "desktop-user");
+    assert.equal(confirmed?.status, "active");
+    assert.match(confirmed?.summary ?? "", /verify the package/);
+    assert.doesNotMatch(confirmed?.summary ?? "", /without verification/);
+  } finally {
+    await memory.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cleans expired daily notes, completed Scratchpad items, and stale candidates without deleting evidence", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oat-memory-lifecycle-"));
+  const lifecycleConfig: MemoryConfig = { ...config, lifecycle: { dailyRetentionDays: 1, dailyMaxItemsPerAgent: 100, completedScratchpadRetentionDays: 1, candidateRetentionDays: 1, candidateMaxItemsPerAgent: 20 } };
+  const hub = new ObservabilityHub();
+  const memory = new MemoryService("project-test", root, lifecycleConfig, hub);
+  try {
+    hub.emit({ source: "orchestrator", type: "task.completed", agentId: "admin", role: AgentRoleEnum.Admin, payload: { task: { id: "evidence-task", prompt: "Preserve referenced evidence", status: "completed" } } });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await memory.runAgentMaintenance("admin", "manual");
+    memory.appendAgentDailyNote("admin", "Old disposable daily note");
+    const scratchpad = memory.addScratchpad("admin", "Old completed reminder");
+    memory.updateScratchpad("admin", scratchpad.id, "done");
+    const candidate = memory.proposeAgentMemory("admin", "Old unreviewed candidate", "semantic");
+    const old = "2020-01-01T00:00:00.000Z";
+    const database = new Database(path.join(root, "memory", "memory.db"));
+    try {
+      database.prepare("UPDATE memory_events SET created_at=? WHERE event_type='agent.daily_note'").run(old);
+      database.prepare("UPDATE memory_events SET created_at=? WHERE event_type='task.completed'").run(old);
+      database.prepare("UPDATE agent_scratchpad_items SET updated_at=?, completed_at=? WHERE id=?").run(old, old, scratchpad.id);
+      database.prepare("UPDATE memory_items SET created_at=?, updated_at=? WHERE id=?").run(old, old, candidate.id);
+    } finally { database.close(); }
+    const result = memory.runLifecycleCleanup();
+    assert.equal(result.removedDailyEvents, 1);
+    assert.equal(result.removedCompletedScratchpadItems, 1);
+    assert.equal(result.expiredCandidates, 1);
+    assert.equal(memory.listScratchpad("admin", true).length, 0);
+    assert.equal(memory.list({ agentId: "admin", status: "forgotten" }).some(({ id }) => id === candidate.id), true);
+    const verify = new Database(path.join(root, "memory", "memory.db"), { readonly: true });
+    try { assert.equal((verify.prepare("SELECT COUNT(*) AS count FROM memory_events WHERE event_type='task.completed'").get() as { count: number }).count, 1); }
+    finally { verify.close(); }
+  } finally {
+    await memory.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("does not dream while project work is active", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "oat-memory-busy-"));
   const memory = new MemoryService("project-test", root, config, new ObservabilityHub());

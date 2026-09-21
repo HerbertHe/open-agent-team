@@ -1,6 +1,6 @@
 # Agent 私有三级记忆与所有者维护
 
-> 状态：已实现，SQLite Schema v9、Agent owner-scoped maintenance 与文件共享知识更新于 2026-09-16。本文描述当前代码行为，而不是未来提案。
+> 状态：已实现，SQLite Schema v10、Agent owner-scoped maintenance、Scratchpad、只读 Markdown 投影与文件共享知识更新于 2026-09-21。本文描述当前代码行为，而不是未来提案。
 
 ## 目标与边界
 
@@ -82,6 +82,24 @@ L1 current working memory: ...
 
 每次注入会将查询和使用的记忆 ID 写入 `memory_injections`，便于后续审计。不会用记忆替换或改写用户的当前任务。
 
+每个内部 Agent 还拥有独立的持久化 Scratchpad。`oat-scratchpad` 工具支持 `add`、`list`、`done`、`reopen`、`remove` 和 `clear_done`；Agent 只能操作自己的条目。最多 12 条未完成条目在历史记忆之前以 `<SCRATCHPAD_CONTEXT>` 注入，并明确标注为可能出错的临时工作提示，而不是新的操作指令。Scratchpad 不参与 L2/L3 事实治理，也不会进入共享知识。
+
+第二批增加三个 owner-scoped 主动记忆工具：`oat-memory-read` 可读取 active 长期记忆、daily、Scratchpad 或最近 24 小时摘要；`oat-memory-search` 合并现有长期检索与 daily/Scratchpad 关键词结果；`oat-memory-write` 可追加 daily 工作记录，或提交长期记忆候选。长期写入始终进入 `candidate`，不会绕过冲突检查、确认和提升流程，也不会在确认前进入自动 Prompt。
+
+最近 48 小时内最多 8 条任务结果或 daily 记录会以 `<RECENT_ACTIVITY>` 受限注入。它们与 Scratchpad 和历史记忆一样被明确标注为可能出错的历史数据，不会替换当前任务。daily 是 append-only 工作记录，不参与自动 L2/L3 沉淀；需要长期保留的内容必须单独提交为候选。
+
+第三批将 Scratchpad、近期活动和 L1/L2/L3 纳入 `memory.retrieval.maxPromptTokens` 同一个总预算。裁剪从低优先级的 L1、普通近期记录开始，优先保留未完成 Scratchpad、失败记录和稳定 L3；注入审计记录估算 Token 与最终 ID，避免各分区分别限额后总量失控。
+
+生命周期清理在启动和所有者维护结束时运行，也可从 Desktop 或 API 手动触发。它清理超过保留期或容量上限且未被有效记忆引用的 daily 事件、过期的已完成 Scratchpad，并将长期未审核或超量的 candidate 标记为 `forgotten`。仍被 active、disputed 或 candidate 记忆引用的来源事件不会删除。
+
+Desktop 候选审核展示原始内容、来源事件和冲突 ID，支持确认、拒绝以及编辑后确认。编辑后的内容重新计算事实身份和内容哈希，再由显式用户确认转为 active；Agent 自身仍不能直接跳过候选治理。
+
+## 只读 Markdown 投影
+
+OAT 为每个 Agent 在 `<state_dir>/memory/views/` 下维护独立的可读视图：`MEMORY.md`、`SCRATCHPAD.md`、`RECENT.md`、`daily/YYYY-MM-DD.md` 以及按类型划分的 `notes/*.md`。其中稳定 L3、active L2、candidate/disputed、Scratchpad、daily 记录和完成/失败任务摘要均从 SQLite 确定性生成，文件使用原子替换且权限收紧为仅当前用户可读写。
+
+这些文件不是事实源，手工编辑不会反向修改记忆。Desktop「记忆管理」可以按 Agent 查看投影，并通过显式目录选择导出一份 Markdown 快照。任务运行时仍使用经过权限过滤和预算控制的 SQLite/Zvec 检索结果，不会把 Markdown 全文重新注入 Prompt。
+
 ## 配置
 
 `team.json` 示例：
@@ -121,6 +139,13 @@ L1 current working memory: ...
       "pollSeconds": 30,
       "maxEventsPerRun": 250,
       "cancelOnNewTask": true
+    },
+    "lifecycle": {
+      "dailyRetentionDays": 90,
+      "dailyMaxItemsPerAgent": 5000,
+      "completedScratchpadRetentionDays": 30,
+      "candidateRetentionDays": 90,
+      "candidateMaxItemsPerAgent": 500
     }
   }
 }
@@ -145,6 +170,11 @@ L1 current working memory: ...
 | `POST` | `/memory/federated-search` | 资源主管携带启动期 capability 对当前在线 Project 做只读搜索 |
 | `GET` | `/memory/access-audits` | 查询脱敏的访问与修改审计，供 M14 管理页使用 |
 | `GET` | `/memory/operations` | 获取索引、Profile、磁盘、队列、迁移、检索与访问审计的脱敏运维快照 |
+| `GET` | `/memory/views?agentId=` | 刷新并读取指定 Agent 的只读 Markdown 投影 |
+| `GET` | `/memory/scratchpad?agentId=&includeDone=` | 以本地可信用户身份读取指定 Agent 的 Scratchpad |
+| `GET` | `/memory/recent?agentId=&hours=` | 读取指定 Agent 的有界近期任务与 daily 摘要 |
+| `POST` | `/memory/lifecycle/cleanup` | 立即执行配置的保留期与容量策略 |
+| `POST` | `/memory/:id/edit-confirm` | 本地可信用户编辑候选内容后显式确认 |
 | `GET` | `/memory/index/estimate` | 获取当前目标 collection 的保守重建成本与磁盘估算 |
 | `POST` | `/memory/index/rebuild` | 确认后在后台创建并追平 sibling collection |
 | `POST` | `/memory/index/:revision/:operation` | 暂停、继续、激活或回滚指定 collection revision |
@@ -190,8 +220,9 @@ active collection 激活后，启用 Zvec 且配置了全局 Embedding 引用的
 - `memory_candidate_matches`：保存 exact/semantic/conflict 匹配及建议/接受状态；
 - `memory_governance_runs`：保存每次候选治理动作、canonical ID、独立证据数、语义模型 identity 和脱敏错误。
 - `memory_access_audit`：保存 M13 的 Actor、动作、允许/拒绝、目标 Project、记忆 ID 和脱敏原因；不保存向量、API key 或完整提示。
+- `agent_scratchpad_items`：保存 owner-private 临时工作条目、状态、来源任务和完成时间；不进入 Semantic/Zvec 索引。
 
-SQLite 使用 `PRAGMA user_version=9`。v8 增加文件知识、统一 `semantic_documents`、Semantic Outbox、逐 Agent 维护记录和旧 Worker 记忆归属隔离/检疫；v9 增加每条语义文档在各 collection revision 上的独立 membership。迁移在事务中增量执行，不删除权威记忆数据。candidate 保持 `index_state=not_applicable`，只有治理后的 active L2/L3 才会产生 membership 和 Outbox 任务。
+SQLite 使用 `PRAGMA user_version=10`。v8 增加文件知识、统一 `semantic_documents`、Semantic Outbox、逐 Agent 维护记录和旧 Worker 记忆归属隔离/检疫；v9 增加每条语义文档在各 collection revision 上的独立 membership；v10 增加 owner-private Scratchpad。迁移在事务中增量执行，不删除权威记忆数据。candidate 和 Scratchpad 均不参与向量索引，只有治理后的 active L2/L3 才会产生 membership 和 Outbox 任务。
 
 ## M13 访问控制
 

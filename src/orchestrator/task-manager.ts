@@ -54,6 +54,8 @@ import type { ObservabilityHub } from "./observability-hub";
 import type { MemoryService } from "../memory/memory-service";
 import type { KnowledgeService } from "../knowledge/knowledge-service";
 import { GitCollaborationStore } from "./git-collaboration-store";
+import { buildScratchpadTool } from "../memory/scratchpad-tool";
+import { buildAgentMemoryTools } from "../memory/agent-memory-tools";
 
 type SchedulerSnapshot = {
   version: 1;
@@ -1811,6 +1813,12 @@ export class TaskManager {
   /** 构建 worker 专用编排工具（仅包含 worker 需要的工具子集）。 */
   private buildWorkerTools(spec: AgentInstanceSpec): ReturnType<typeof defineTool>[] {
     const tm = this;
+    const scratchpadTool = this.memoryService?.isEnabledFor(spec.id)
+      ? buildScratchpadTool(this.memoryService, spec.id, () => this.getRunningTaskId(spec.id))
+      : undefined;
+    const agentMemoryTools = this.memoryService?.isEnabledFor(spec.id)
+      ? buildAgentMemoryTools(this.memoryService, spec.id, () => this.getRunningTaskId(spec.id))
+      : [];
 
     const createTaskTool = defineTool({
       name: "create-task", label: "Create Task", description: "Queue a task and check active conflicts before creation.",
@@ -1903,7 +1911,7 @@ export class TaskManager {
     // Workers implement and self-test exactly one owned queue item. Queue
     // mutation and completion tools would let them alter another Agent's
     // workflow or bypass the persisted review handoff.
-    return [queryTasksTool, submitReviewTool, reportProgressTool, generateChangelogTool];
+    return [queryTasksTool, ...agentMemoryTools, ...(scratchpadTool ? [scratchpadTool] : []), submitReviewTool, reportProgressTool, generateChangelogTool];
   }
 
   /**

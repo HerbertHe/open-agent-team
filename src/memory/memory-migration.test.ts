@@ -12,7 +12,7 @@ const V2_COLUMNS = [
   "supersedes_id", "contradiction_ids", "content_hash", "extraction_model", "extraction_version", "index_state",
 ];
 
-const V9_TABLES = ["memory_index_outbox", "memory_retrieval_runs", "memory_feedback", "memory_relations", "memory_index_memberships", "memory_index_registry", "memory_index_migrations", "memory_extraction_runs", "memory_candidate_matches", "memory_governance_runs", "memory_access_audit", "knowledge_collections", "knowledge_sources", "knowledge_chunks", "semantic_documents", "semantic_index_outbox", "semantic_index_memberships", "maintenance_runs", "memory_ownership_quarantine"];
+const V10_TABLES = ["memory_index_outbox", "memory_retrieval_runs", "memory_feedback", "memory_relations", "memory_index_memberships", "memory_index_registry", "memory_index_migrations", "memory_extraction_runs", "memory_candidate_matches", "memory_governance_runs", "memory_access_audit", "knowledge_collections", "knowledge_sources", "knowledge_chunks", "semantic_documents", "semantic_index_outbox", "semantic_index_memberships", "maintenance_runs", "memory_ownership_quarantine", "agent_scratchpad_items"];
 
 function legacySchema(db: Database.Database): void {
   db.exec(`
@@ -61,7 +61,7 @@ function databasePath(root: string): string {
   return value;
 }
 
-test("creates schema v9 on an empty database", () => {
+test("creates schema v10 on an empty database", () => {
   const root = mkdtempSync(path.join(tmpdir(), "oat-memory-v2-empty-"));
   const file = databasePath(root);
   const repository = new SqliteMemoryRepository("empty-project", file);
@@ -69,9 +69,9 @@ test("creates schema v9 on an empty database", () => {
   try {
     const db = new Database(file, { readonly: true });
     try {
-      assert.equal(db.pragma("user_version", { simple: true }), 9);
+      assert.equal(db.pragma("user_version", { simple: true }), 10);
       const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
-      for (const table of V9_TABLES) assert.ok(tables.has(table), `missing ${table}`);
+      for (const table of V10_TABLES) assert.ok(tables.has(table), `missing ${table}`);
       const eventColumns = new Set((db.prepare("PRAGMA table_info(memory_events)").all() as Array<{ name: string }>).map((row) => row.name));
       assert.ok(eventColumns.has("extraction_attempts"));
       assert.ok(eventColumns.has("extraction_error"));
@@ -98,7 +98,7 @@ test("M06-A migrates legacy rows and creates concrete idempotent backfill member
     new SqliteMemoryRepository("legacy-project", file).close();
     const db = new Database(file, { readonly: true });
     try {
-      assert.equal(db.pragma("user_version", { simple: true }), 9);
+      assert.equal(db.pragma("user_version", { simple: true }), 10);
       assert.equal((db.prepare("SELECT COUNT(*) AS count FROM memory_items").get() as { count: number }).count, 4);
       const columns = new Set((db.prepare("PRAGMA table_info(memory_items)").all() as Array<{ name: string }>).map((row) => row.name));
       for (const column of V2_COLUMNS) assert.ok(columns.has(column), `missing ${column}`);
@@ -139,7 +139,7 @@ test("M06-A resumes a partially applied migration without dropping data or retai
     new SqliteMemoryRepository("legacy-project", file).close();
     const db = new Database(file, { readonly: true });
     try {
-      assert.equal(db.pragma("user_version", { simple: true }), 9);
+      assert.equal(db.pragma("user_version", { simple: true }), 10);
       assert.equal((db.prepare("SELECT COUNT(*) AS count FROM memory_items").get() as { count: number }).count, 4);
       const columns = new Set((db.prepare("PRAGMA table_info(memory_items)").all() as Array<{ name: string }>).map((row) => row.name));
       for (const column of V2_COLUMNS) assert.ok(columns.has(column), `missing ${column}`);

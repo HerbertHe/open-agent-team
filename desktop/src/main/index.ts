@@ -1648,6 +1648,39 @@ async function selectAndUploadKnowledge(projectName: string, teamId?: string): P
   return { uploaded };
 }
 
+async function exportMemoryMarkdown(projectName: string, agentId: string): Promise<{ exported: boolean; count: number; directory?: string }> {
+  if (!projectName.trim() || !/^[\p{L}\p{N}_.-]{1,128}$/u.test(agentId)) throw new Error('A valid Project and Agent are required for memory export.');
+  const selection = await dialog.showOpenDialog({ title: 'Export Agent memory as Markdown', properties: ['openDirectory', 'createDirectory'] });
+  if (selection.canceled || !selection.filePaths[0]) return { exported: false, count: 0 };
+  const view = await requestOrchestrator({ projectName, path: `/memory/views?agentId=${encodeURIComponent(agentId)}` }) as {
+    files?: Array<{ path?: unknown; content?: unknown }>;
+  };
+  if (!Array.isArray(view.files)) throw new Error('The memory service returned an invalid Markdown view.');
+  const safeAgent = agentId.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'agent';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const target = join(selection.filePaths[0], `oat-memory-${safeAgent}-${stamp}`);
+  const temporaryTarget = `${target}.tmp-${process.pid}`;
+  await fs.mkdir(temporaryTarget, { recursive: false, mode: 0o700 });
+  try {
+    let count = 0;
+    for (const file of view.files) {
+      if (typeof file.path !== 'string' || typeof file.content !== 'string' || !/^(?:README|MEMORY|SCRATCHPAD|RECENT)\.md$|^(?:notes|daily)\/[a-zA-Z0-9._-]+\.md$/.test(file.path)) {
+        throw new Error('The memory service returned an unsafe Markdown export path.');
+      }
+      const destination = resolve(temporaryTarget, ...file.path.split('/'));
+      if (relative(temporaryTarget, destination).startsWith('..')) throw new Error('The memory export path escaped its destination.');
+      await fs.mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+      await fs.writeFile(destination, file.content, { encoding: 'utf8', mode: 0o600 });
+      count += 1;
+    }
+    await fs.rename(temporaryTarget, target);
+    return { exported: true, count, directory: target };
+  } catch (error) {
+    await fs.rm(temporaryTarget, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function requestAtPort(port: number, input: Pick<OrchestratorRequest, 'path' | 'init'>, memoryFederationToken?: string): Promise<unknown> {
   const method = input.init?.method?.toUpperCase() ?? 'GET';
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Unsupported Orchestrator request method.');
@@ -1998,6 +2031,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('knowledge:upload', (event, input: { projectName?: unknown; teamId?: unknown }) => {
     requireTrustedRenderer(event);
     return selectAndUploadKnowledge(String(input?.projectName ?? ''), typeof input?.teamId === 'string' && input.teamId.trim() ? input.teamId.trim() : undefined);
+  });
+  ipcMain.handle('memory:export-markdown', (event, input: { projectName?: unknown; agentId?: unknown }) => {
+    requireTrustedRenderer(event);
+    return exportMemoryMarkdown(String(input?.projectName ?? ''), String(input?.agentId ?? ''));
   });
   ipcMain.handle('control-plane:request', (event, input: Omit<OrchestratorRequest, 'projectName'>) => { requireTrustedRenderer(event); return requestControlPlane(input); });
   ipcMain.handle('observability:subscribe', (event, projectName: string) => { requireTrustedRenderer(event); return subscribeObservability(event, projectName); });

@@ -67,6 +67,13 @@ export interface MemoryConfig {
     maxPromptItems: number;
     minEvidence: number;
   };
+  lifecycle?: {
+    dailyRetentionDays: number;
+    dailyMaxItemsPerAgent: number;
+    completedScratchpadRetentionDays: number;
+    candidateRetentionDays: number;
+    candidateMaxItemsPerAgent: number;
+  };
   dream: {
     enabled: boolean;
     idleAfterSeconds: number;
@@ -130,7 +137,7 @@ export interface TeamFileConfig {
   /** 全局模型供应商接入配置（推荐入口） */
   providers?: TeamFileProvidersConfig;
   /** Admin/Leader persistent memory and idle consolidation. */
-  memory?: Omit<Partial<MemoryConfig>, "embeddingRef" | "retrieval" | "zvec" | "extraction"> & {
+  memory?: Omit<Partial<MemoryConfig>, "embeddingRef" | "retrieval" | "zvec" | "extraction" | "lifecycle"> & {
     embeddingRef?: string | null;
     retrieval?: Partial<Omit<MemoryConfig["retrieval"], "productionEnabled">>;
     zvec?: Partial<MemoryConfig["zvec"]>;
@@ -138,6 +145,7 @@ export interface TeamFileConfig {
     l1?: Partial<MemoryConfig["l1"]>;
     l2?: Partial<MemoryConfig["l2"]>;
     l3?: Partial<MemoryConfig["l3"]>;
+    lifecycle?: Partial<NonNullable<MemoryConfig["lifecycle"]>>;
     dream?: Partial<MemoryConfig["dream"]>;
   };
   /** Shared knowledge roots; indexing uses memory.embeddingRef/retrieval/zvec. */
