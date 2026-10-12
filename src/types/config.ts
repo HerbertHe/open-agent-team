@@ -14,6 +14,14 @@ export interface ProviderConfig {
 /** providers 配置：key 为服务商名称，value 为该服务商的接入配置。 */
 export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 
+/** Experimental budget-constrained long-horizon execution configuration. */
+export interface BudgetExecutionConfig {
+  /** Master feature flag. It is deliberately false unless explicitly enabled. */
+  enabled: boolean;
+  /** Shadow observes only; soft advises; hard may enforce after capability gates pass. */
+  mode: "shadow" | "soft" | "hard";
+}
+
 export interface MemoryConfig {
   enabled: boolean;
   roles: Array<"admin" | "leader" | "worker">;
@@ -136,6 +144,8 @@ export interface TeamFileConfig {
   model?: string;
   /** 全局模型供应商接入配置（推荐入口） */
   providers?: TeamFileProvidersConfig;
+  /** Experimental long-horizon execution. Omission means disabled shadow mode. */
+  budgetExecution?: Partial<BudgetExecutionConfig>;
   /** Admin/Leader persistent memory and idle consolidation. */
   memory?: Omit<Partial<MemoryConfig>, "embeddingRef" | "retrieval" | "zvec" | "extraction" | "lifecycle"> & {
     embeddingRef?: string | null;
@@ -209,8 +219,9 @@ export interface TeamFileConfig {
 /**
  * loader 解析后的最终配置（所有必要字段已补齐）。
  */
-export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace"> {
+export interface ResolvedConfig extends Omit<TeamFileConfig, "runtime" | "workspace" | "budgetExecution"> {
   providers: TeamFileProvidersConfig;
+  budgetExecution: BudgetExecutionConfig;
   memory: MemoryConfig;
   knowledge: KnowledgeConfig;
   runtime: {

@@ -344,6 +344,10 @@ Object.assign(ja, {
 });
 Object.assign(en, { 'memoryOps.editConfirm': 'Edit & confirm', 'memoryOps.editCandidatePrompt': 'Edit this candidate before confirming it', 'memoryOps.evidence': 'Evidence and provenance', 'memoryOps.conflicts': 'Conflicts', 'memoryOps.cleanup': 'Run lifecycle cleanup', 'memoryOps.cleanupConfirm': 'Apply the configured memory retention and capacity limits now?', 'memoryOps.cleanupResult': 'Lifecycle cleanup' });
 Object.assign(zh, { 'memoryOps.editConfirm': '编辑后确认', 'memoryOps.editCandidatePrompt': '编辑候选内容并确认', 'memoryOps.evidence': '证据与来源', 'memoryOps.conflicts': '冲突', 'memoryOps.cleanup': '执行生命周期清理', 'memoryOps.cleanupConfirm': '立即按照配置的记忆保留期与容量上限执行清理吗？', 'memoryOps.cleanupResult': '生命周期清理结果' });
+Object.assign(en, { 'workspace.programs': 'Budget programs', experimental: 'Experimental' });
+Object.assign(zh, { 'workspace.programs': '预算长程任务', experimental: '实验性' });
+Object.assign(fr, { 'workspace.programs': 'Programmes budgétés', experimental: 'Expérimental' });
+Object.assign(ja, { 'workspace.programs': '予算付き長期タスク', experimental: '実験的' });
 
 const dictionaries: Record<Language, Dictionary> = { 'zh-CN': zh, en, fr, ja };
 

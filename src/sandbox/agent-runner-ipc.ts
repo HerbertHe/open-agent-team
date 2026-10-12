@@ -8,6 +8,9 @@
  */
 
 /** 工具的可序列化元数据（不含 execute 函数）。 */
+import type { ExecutionRuntimeContext } from "../program/execution-runtime-context";
+import type { ContinuationState } from "../program/checkpoint-store";
+
 export type SerializableToolDef = {
   name: string;
   label: string;
@@ -39,9 +42,12 @@ export type MainToChild =
       };
       agentDir: string;
       systemPrompt?: string;
+      executionContext?: ExecutionRuntimeContext;
       toolDefs: SerializableToolDef[];
     }
-  | { type: "prompt"; text: string }
+  | { type: "prompt"; text: string; executionContext?: ExecutionRuntimeContext }
+  | { type: "checkpoint_request"; requestId: string; attemptId: string; deadlineAt: string }
+  | { type: "abort_attempt"; requestId: string; attemptId: string; reason: string }
   | { type: "stop" }
   | {
       type: "tool_result";
@@ -61,6 +67,7 @@ export type ChildToMain =
       event: Record<string, unknown>;
       /** AgentRoleEnum 字符串，与主进程对齐。 */
       role?: string;
+      executionContext?: ExecutionRuntimeContext;
     }
   | {
       type: "tool_call";
@@ -70,5 +77,8 @@ export type ChildToMain =
       /** pi-coding-agent 内部的 toolCallId，原样透传给 execute 函数。 */
       toolCallId: string;
       params: unknown;
+      executionContext?: ExecutionRuntimeContext;
     }
+  | { type: "checkpoint_result"; requestId: string; attemptId: string; acknowledged: boolean; state?: ContinuationState; error?: string }
+  | { type: "abort_result"; requestId: string; attemptId: string; acknowledged: boolean; providerRequests: string[]; toolCalls: string[]; error?: string }
   | { type: "agent_error"; error: string };

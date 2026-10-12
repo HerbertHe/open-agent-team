@@ -31,7 +31,18 @@ import { UsageTracker } from "./usage-tracker";
 import { MemoryService } from "../memory/memory-service";
 import { KnowledgeService } from "../knowledge/knowledge-service";
 import { resolveMemoryExtractor } from "../memory/memory-extractor";
-import { parseGlobalModelCatalog } from "../models/global-models";
+import { loadGlobalModelCatalog, parseGlobalModelCatalog } from "../models/global-models";
+import { openExecutionDatabase, type ExecutionDatabase } from "../program/execution-database";
+import { migrateExecutionDatabase } from "../program/execution-migrations";
+import { ProgramService, registerExperimentalProgramRoutes } from "../program/program-service";
+import { ProgramControlService, registerExperimentalProgramControlRoutes } from "../program/program-control-service";
+import { SuspensionSnapshotStore } from "../program/suspension-snapshot-store";
+import { ResumeService, registerExperimentalResumeRoute } from "../program/resume-service";
+import { ProgramReadModel, registerExperimentalProgramReadRoutes } from "../program/program-read-model";
+import { assertConfiguredReleaseMode } from "../program/release-mode-enforcer";
+import { evaluateBudgetExecutionPreflight } from "../budget/hard-mode-preflight";
+import { createConservativeProviderBudgetCapabilityProfile } from "../budget/provider-budget-capability";
+import type { ExecutionRuntimeContext } from "../program/execution-runtime-context";
 import type { MemoryLevel, MemoryStatus } from "../memory/types";
 import { MemoryAccessDeniedError, projectAgentActor, projectResourceManagerActor } from "../memory/memory-policy";
 import { logger } from "../utils/logger";
@@ -48,6 +59,8 @@ import { Type } from "typebox";
 import { simpleGit } from "simple-git";
 import { buildScratchpadTool } from "../memory/scratchpad-tool";
 import { buildAgentMemoryTools } from "../memory/agent-memory-tools";
+import { RuntimeExecutionGuard } from "../program/runtime-execution-guard";
+import { ProgramExecutionCoordinator, registerExperimentalProgramExecutionRoutes } from "../program/program-execution-coordinator";
 
 function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -122,6 +135,10 @@ export class Orchestrator {
   private readonly goal: string;
   private readonly memoryFederationToken = randomUUID();
   private logCleanupTimer?: NodeJS.Timeout;
+  private programExecutionTimer?: NodeJS.Timeout;
+  private executionDatabase?: ExecutionDatabase;
+  private programControlService?: ProgramControlService;
+  private programResumeService?: ResumeService;
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -174,7 +191,9 @@ export class Orchestrator {
     this.usageTracker.attach(this.observabilityHub);
     const runStreamNormalizer = new RunStreamNormalizer();
 
-    const onEvent = ({ agentId, event, role }: { agentId: string; event: { type: string }; role?: AgentRoleEnum }) => {
+    const onEvent = ({ agentId, event, role, executionContext }: {
+      agentId: string; event: { type: string }; role?: AgentRoleEnum; executionContext?: ExecutionRuntimeContext;
+    }) => {
         const taskId = this.taskManager?.getRunningTaskId(agentId);
         const stream = runStreamNormalizer.normalize(agentId, role, taskId, event as unknown as Record<string, unknown> & { type: string });
         this.observabilityHub.emit(
@@ -184,7 +203,7 @@ export class Orchestrator {
             agentId,
             role,
             stream,
-            payload: { piEvent: event as unknown as Record<string, unknown> },
+            payload: { piEvent: event as unknown as Record<string, unknown>, executionContext },
           },
         );
         this.taskManager?.handleRuntimeEvent(agentId, event, stream);
@@ -457,7 +476,10 @@ export class Orchestrator {
     this.app.post("/tasks", async (req, res) => {
       // The operator-facing endpoint must persist an explicit creator. Do not
       // trust a caller-supplied value: this route represents an operator task.
-      try { res.status(201).json(await this.taskManager.createTask({ ...req.body, createdBy: "operator" })); }
+      try {
+        const { executionContext: _ignored, ...body } = req.body as Record<string, unknown>;
+        res.status(201).json(await this.taskManager.createTask({ ...body, createdBy: "operator" } as Parameters<TaskManager["createTask"]>[0]));
+      }
       catch (e: any) { res.status(400).json({ error: String(e?.message ?? e) }); }
     });
     this.app.patch("/tasks/:id", async (req, res) => {
@@ -1504,6 +1526,22 @@ export class Orchestrator {
       execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(tm.getTasks(params.agentId)) }], details: {} }),
     });
 
+    const programInterruptTool = this.programControlService ? defineTool({
+      name: "oat-program-interrupt", label: "Interrupt Budget Program",
+      description: "Admin-only experimental control action. Pause and snapshot, immediately interrupt, or cancel and close out a budget Program. Uses the same control service as the UI button.",
+      parameters: Type.Object({ programId: Type.String(), controlRequestId: Type.String(),
+        mode: Type.Union([Type.Literal("graceful"), Type.Literal("immediate"), Type.Literal("cancel_closeout")]),
+        reason: Type.String(), expectedRevision: Type.Number(),
+      }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(await this.programControlService!.interrupt(params.programId, { ...params, requestedAt: new Date().toISOString() })) }], details: {} }),
+    }) : undefined;
+    const programResumeRequestTool = this.programResumeService ? defineTool({
+      name: "oat-program-resume-request", label: "Prepare Budget Program Resume",
+      description: "Admin-only experimental action. Produce a resume dry-run report; it never resumes without explicit user confirmation through the control API.",
+      parameters: Type.Object({ programId: Type.String(), snapshotId: Type.String(), currentGitSha: Type.Optional(Type.String()), pricingChanged: Type.Optional(Type.Boolean()), providerChanged: Type.Optional(Type.Boolean()), permissionsChanged: Type.Optional(Type.Boolean()) }),
+      execute: async (_id, params) => ({ content: [{ type: "text" as const, text: JSON.stringify(this.programResumeService!.dryRun(params)) }], details: {} }),
+    }) : undefined;
+
     const searchProjectMemoryTool = defineTool({
       name: "search-project-memory",
       label: "Search Project Memory",
@@ -1646,7 +1684,8 @@ export class Orchestrator {
 
     const sharedTools = [queryTasksTool, ...agentMemoryTools, ...(scratchpadTool ? [scratchpadTool] : []), notifyCompleteTool, reportProgressTool, generateChangelogTool];
     if (spec.role === AgentRoleEnum.Admin) {
-      return [searchProjectMemoryTool, assignLeaderTaskTool, listReleaseProposalsTool, approveReleaseTool, pushReleaseTool, ...sharedTools];
+      return [searchProjectMemoryTool, assignLeaderTaskTool, listReleaseProposalsTool, approveReleaseTool, pushReleaseTool,
+        ...(programInterruptTool ? [programInterruptTool] : []), ...(programResumeRequestTool ? [programResumeRequestTool] : []), ...sharedTools];
     }
     if (spec.role === AgentRoleEnum.Leader) {
       return [dispatchWorkerTasksTool, listReviewRequestsTool, reviewWorkerBranchTool,
@@ -1735,6 +1774,71 @@ export class Orchestrator {
     this.registerShutdownHandlers(() => httpServer);
 
     await fs.mkdir(this.stateDir, { recursive: true });
+    if (this.config.budgetExecution.enabled) {
+      const executionDatabase = openExecutionDatabase(this.stateDir);
+      try {
+        migrateExecutionDatabase(executionDatabase);
+        const runtimeExecutionGuard = new RuntimeExecutionGuard(executionDatabase);
+        this.runtimeProvider.setExecutionAuthorizer((input) => runtimeExecutionGuard.assertAllowed(input));
+        const providerProfiles = Object.fromEntries(Object.entries(this.config.providers).map(([providerId, provider]) => [
+          providerId, createConservativeProviderBudgetCapabilityProfile(providerId, provider),
+        ]));
+        assertConfiguredReleaseMode({
+          mode: this.config.budgetExecution.mode,
+          handle: executionDatabase,
+          preflight: evaluateBudgetExecutionPreflight({
+            config: this.config.budgetExecution,
+            selectedProviderIds: Object.keys(this.config.providers),
+            providerProfiles,
+          }),
+        });
+        const programService = new ProgramService(executionDatabase, true, await loadGlobalModelCatalog());
+        registerExperimentalProgramRoutes(this.app, programService, true);
+        registerExperimentalProgramReadRoutes(this.app, new ProgramReadModel(executionDatabase), true);
+        const activeTaskStatuses = new Set([QueuedTaskStatusEnum.Queued, QueuedTaskStatusEnum.Running, QueuedTaskStatusEnum.Waiting, QueuedTaskStatusEnum.ReviewPending]);
+        const resolveAvailableAgent = (workPackage: import("../program/program-types").WorkPackage): string | undefined => {
+          const teamNames = workPackage.targetTeam ? [workPackage.targetTeam] : this.config.teams.map((team) => team.name);
+          const candidates = workPackage.targetAgentRole === "admin"
+            ? ["admin"]
+            : workPackage.targetAgentRole === "leader"
+              ? teamNames.map((teamName) => `${teamName}-lead`)
+              : teamNames.flatMap((teamName) => {
+                const team = this.config.teams.find((candidate) => candidate.name === teamName);
+                return Array.from({ length: team?.worker.total ?? 0 }, (_, index) => `${teamName}-worker-${index}`);
+              });
+          return candidates
+            .filter((agentId) => { try { this.taskManager.getAgent(agentId); return true; } catch { return false; } })
+            .filter((agentId) => !this.taskManager.getTasks(agentId).some((task) => activeTaskStatuses.has(task.status)))
+            .sort((left, right) => this.taskManager.getTasks(left).length - this.taskManager.getTasks(right).length || left.localeCompare(right))[0];
+        };
+        const executionCoordinator = new ProgramExecutionCoordinator(executionDatabase, {
+          createTask: (body) => this.taskManager.createTask(body),
+          getTask: (id) => this.taskManager.getTasks().find((task) => task.id === id),
+          findTaskByConflictKey: (conflictKey) => this.taskManager.getTasks().find((task) => task.conflictKey === conflictKey),
+          resolveAgent: resolveAvailableAgent,
+        }, Math.max(1, this.config.teams.reduce((count, team) => count + team.worker.total, 0)));
+        registerExperimentalProgramExecutionRoutes(this.app, executionCoordinator, true);
+        this.programExecutionTimer = setInterval(() => {
+          const programIds = executionDatabase.connection.prepare("SELECT id FROM programs WHERE status IN ('admitted','running','waiting') ORDER BY updated_at").pluck().all() as string[];
+          for (const programId of programIds) void executionCoordinator.tick(programId).catch((error) => {
+            if (!String(error).includes("already being scheduled")) logger.warn("Experimental program execution tick failed", { programId, error: error instanceof Error ? error.message : String(error) });
+          });
+        }, 10_000);
+        this.programExecutionTimer.unref();
+        const snapshotStore = new SuspensionSnapshotStore(executionDatabase, this.stateDir);
+        const controlService = new ProgramControlService(executionDatabase, this.runtimeProvider, snapshotStore, true);
+        registerExperimentalProgramControlRoutes(this.app, controlService, true);
+        const resumeService = new ResumeService(executionDatabase, snapshotStore, this.runtimeProvider);
+        resumeService.recoverInterrupted(new Date().toISOString());
+        registerExperimentalResumeRoute(this.app, resumeService, true);
+        this.programControlService = controlService;
+        this.programResumeService = resumeService;
+        this.executionDatabase = executionDatabase;
+      } catch (error) {
+        executionDatabase.close();
+        throw error;
+      }
+    }
     await fs.writeFile(
       this.stateFile,
       JSON.stringify(
@@ -2068,9 +2172,11 @@ export class Orchestrator {
           });
         }
         if (this.logCleanupTimer) clearInterval(this.logCleanupTimer);
+        if (this.programExecutionTimer) clearInterval(this.programExecutionTimer);
         await this.knowledgeService.stop();
         await this.memoryService.stop();
         await this.taskManager.flushSchedulerState();
+        this.executionDatabase?.close();
         const server = getHttpServer();
         if (server) {
           server.close(() => process.exit(0));

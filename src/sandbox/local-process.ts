@@ -9,11 +9,12 @@
  */
 
 import { fork, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentInstanceSpec, AgentRoleEnum } from "../types";
-import type { RuntimeHandle, RuntimeProvider } from "./interface";
+import type { RuntimeExecutionAuthorizer, RuntimeHandle, RuntimeProvider } from "./interface";
 import { defineTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type {
@@ -22,6 +23,7 @@ import type {
   SerializableToolDef,
   ToolResultPayload,
 } from "./agent-runner-ipc";
+import { roundTripExecutionRuntimeContext, type ExecutionRuntimeContext } from "../program/execution-runtime-context";
 
 // ─── 公共类型（与外部调用者兼容）──────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ export type AgentEventLine = {
   agentId: string;
   event: AgentSessionEvent;
   role?: AgentRoleEnum;
+  executionContext?: ExecutionRuntimeContext;
 };
 
 export type AgentErrorInfo = {
@@ -43,6 +46,7 @@ export type AgentErrorInfo = {
 type ToolExecuteFn = (
   toolCallId: string,
   params: unknown,
+  executionContext?: ExecutionRuntimeContext,
 ) => Promise<ToolResultPayload>;
 
 /** 对 defineTool 返回值的最小结构期望（用于提取元数据和 execute 函数）。 */
@@ -51,12 +55,13 @@ type ToolLike = {
   label: string;
   description: string;
   parameters: unknown;
-  execute: (toolCallId: string, params: unknown) => Promise<ToolResultPayload>;
+  execute: (toolCallId: string, params: unknown, executionContext?: ExecutionRuntimeContext) => Promise<ToolResultPayload>;
 };
 
-type StartOptions = {
+export type StartOptions = {
   systemPrompt?: string;
   customTools?: ReturnType<typeof defineTool>[];
+  executionContext?: ExecutionRuntimeContext;
 };
 
 type ChildEntry = {
@@ -112,7 +117,9 @@ function extractToolExecute(tool: ReturnType<typeof defineTool>): [string, ToolE
  */
 export class PiSessionProvider implements RuntimeProvider {
   private readonly entries = new Map<string, ChildEntry>();
+  private readonly knownSessions = new Map<string, { spec: AgentInstanceSpec; startOptions: StartOptions }>();
   private readonly agentDir: string;
+  private executionAuthorizer?: RuntimeExecutionAuthorizer;
 
   constructor(
     agentDir?: string,
@@ -121,6 +128,8 @@ export class PiSessionProvider implements RuntimeProvider {
   ) {
     this.agentDir = agentDir ?? getAgentDir();
   }
+
+  setExecutionAuthorizer(authorizer?: RuntimeExecutionAuthorizer): void { this.executionAuthorizer = authorizer; }
 
   /**
    * 启动 Agent 子进程。执行顺序：
@@ -190,6 +199,7 @@ export class PiSessionProvider implements RuntimeProvider {
       },
       agentDir: this.agentDir,
       systemPrompt: options?.systemPrompt,
+      executionContext: options?.executionContext ? roundTripExecutionRuntimeContext(options.executionContext) : undefined,
       toolDefs,
     } as MainToChild);
 
@@ -204,6 +214,7 @@ export class PiSessionProvider implements RuntimeProvider {
 
     // 步骤 5：ready 后绑定持久事件处理器
     this.bindChildEvents(spec.id, child, spec);
+    this.knownSessions.set(spec.id, { spec, startOptions: options ?? {} });
 
     return { agentId: spec.id };
   }
@@ -277,6 +288,7 @@ export class PiSessionProvider implements RuntimeProvider {
           agentId,
           event: msg.event as unknown as AgentSessionEvent,
           role: spec.role,
+          executionContext: msg.executionContext,
         });
         return;
       }
@@ -295,7 +307,9 @@ export class PiSessionProvider implements RuntimeProvider {
         }
         // 在主进程执行工具（拥有完整的 TaskManager 上下文）
         // 注意：工具执行期间子进程可能崩溃，需用 try-catch 防止 child.send() 抛出导致 unhandledRejection
-        execute(msg.toolCallId, msg.params)
+        Promise.resolve()
+          .then(() => msg.executionContext ? this.executionAuthorizer?.({ phase: "tool", agentId, context: msg.executionContext, toolName: msg.toolName }) : undefined)
+          .then(() => execute(msg.toolCallId, msg.params, msg.executionContext))
           .then((result) => {
             try {
               child.send({ type: "tool_result", callId: msg.callId, result } as MainToChild);
@@ -396,16 +410,17 @@ export class PiSessionProvider implements RuntimeProvider {
    * 向指定 Agent 发送 prompt（非阻塞 IPC 消息，立即返回）。
    * 子进程通过 session.prompt() 异步执行；Agent 完成后调用 notify-complete 工具回报。
    */
-  async sendPrompt(agentId: string, text: string): Promise<void> {
+  async sendPrompt(agentId: string, text: string, executionContext?: ExecutionRuntimeContext): Promise<void> {
     const entry = this.entries.get(agentId);
     if (!entry) {
       throw new Error(`PiSessionProvider: no process found for agentId=${agentId}`);
     }
+    if (executionContext) await this.executionAuthorizer?.({ phase: "prompt", agentId, context: executionContext });
     // 子进程退出后，父进程的 exit 事件（macrotask）可能还未触发 entries.delete，
     // 此时 child.send() 会同步抛出 "write after end"（IPC channel 已关闭）。
     // 用 try-catch 将其转换为可预期的 Error，让调用方统一处理。
     try {
-      entry.child.send({ type: "prompt", text } as MainToChild);
+      entry.child.send({ type: "prompt", text, ...(executionContext ? { executionContext: roundTripExecutionRuntimeContext(executionContext) } : {}) } as MainToChild);
     } catch (err) {
       throw new Error(
         `PiSessionProvider: failed to send prompt to agentId=${agentId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -413,16 +428,62 @@ export class PiSessionProvider implements RuntimeProvider {
     }
   }
 
+  async requestCheckpoint(agentId: string, attemptId: string, deadlineAt: string): Promise<{ acknowledged: boolean; state?: import("../program/checkpoint-store").ContinuationState }> {
+    const entry = this.entries.get(agentId); if (!entry) throw new Error(`No active session for ${agentId}`);
+    const requestId = `checkpoint:${randomUUID()}`;
+    return new Promise((resolve, reject) => {
+      const timeoutMs = Math.max(1, Math.min(30_000, Date.parse(deadlineAt) - Date.now()));
+      const cleanup = () => { clearTimeout(timer); entry.child.off("message", onMessage); entry.child.off("exit", onExit); };
+      const onMessage = (raw: unknown) => {
+        const msg = raw as ChildToMain;
+        if (msg.type !== "checkpoint_result" || msg.requestId !== requestId) return;
+        cleanup();
+        if (msg.error) reject(new Error(msg.error)); else resolve({ acknowledged: msg.acknowledged, ...(msg.state ? { state: msg.state } : {}) });
+      };
+      const onExit = () => { cleanup(); reject(new Error(`Agent ${agentId} exited before checkpoint acknowledgement`)); };
+      const timer = setTimeout(() => { cleanup(); reject(new Error(`Checkpoint acknowledgement timed out for ${agentId}`)); }, timeoutMs);
+      entry.child.on("message", onMessage); entry.child.once("exit", onExit);
+      try { entry.child.send({ type: "checkpoint_request", requestId, attemptId, deadlineAt } as MainToChild); }
+      catch (error) { cleanup(); reject(error); }
+    });
+  }
+
+  async abortAttempt(agentId: string, attemptId: string, reason: string): Promise<{ acknowledged: boolean; providerRequests: string[]; toolCalls: string[] }> {
+    const entry = this.entries.get(agentId); if (!entry) return { acknowledged: false, providerRequests: [], toolCalls: [] };
+    const requestId = `abort:${randomUUID()}`;
+    return new Promise((resolve) => {
+      const cleanup = () => { clearTimeout(timer); entry.child.off("message", onMessage); entry.child.off("exit", onExit); };
+      const onMessage = (raw: unknown) => {
+        const msg = raw as ChildToMain;
+        if (msg.type !== "abort_result" || msg.requestId !== requestId) return;
+        cleanup(); resolve({ acknowledged: msg.acknowledged, providerRequests: msg.providerRequests, toolCalls: msg.toolCalls });
+      };
+      const onExit = () => { cleanup(); resolve({ acknowledged: false, providerRequests: [], toolCalls: [] }); };
+      const timer = setTimeout(() => { cleanup(); resolve({ acknowledged: false, providerRequests: [], toolCalls: [] }); }, 5_000);
+      entry.child.on("message", onMessage); entry.child.once("exit", onExit);
+      try { entry.child.send({ type: "abort_attempt", requestId, attemptId, reason } as MainToChild); }
+      catch { cleanup(); resolve({ acknowledged: false, providerRequests: [], toolCalls: [] }); }
+    });
+  }
+
+  async terminateSession(agentId: string, _reason: string): Promise<void> { await this.stop(agentId); }
+
   /**
    * 重置 Agent 会话：停止旧子进程并以相同配置重新 fork（清空对话历史）。
    * 用于 Worker 在重新派发任务前进行上下文隔离。
    */
-  async resetSession(agentId: string): Promise<void> {
+  async resetSession(agentId: string, executionContext?: ExecutionRuntimeContext): Promise<void> {
     const entry = this.entries.get(agentId);
-    if (!entry) return;
-    const { spec, startOptions } = entry;
-    await this.stop(agentId);
-    await this.start(spec, startOptions);
+    const known = entry ? { spec: entry.spec, startOptions: entry.startOptions } : this.knownSessions.get(agentId);
+    if (!known) throw new Error(`No known session for ${agentId}`);
+    const startOptions = { ...known.startOptions, ...(executionContext ? { executionContext } : {}) };
+    if (entry) await this.stop(agentId);
+    await this.start(known.spec, startOptions);
+  }
+
+  describeSession(agentId: string): { agentId: string; workspacePath: string } | undefined {
+    const spec = this.entries.get(agentId)?.spec ?? this.knownSessions.get(agentId)?.spec;
+    return spec ? { agentId, workspacePath: spec.workspacePath } : undefined;
   }
 
   /** Restart an existing logical Agent in a new task worktree/branch. */

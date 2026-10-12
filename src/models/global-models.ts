@@ -38,9 +38,22 @@ const ProviderSchema = z.object({
   api_key: z.string().optional(),
 }).passthrough();
 
+export const GlobalModelPriceSchema = z.object({
+  providerId: z.string().trim().min(1),
+  modelId: z.string().trim().min(1),
+  inputMicrosPerMillionTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  outputMicrosPerMillionTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  cacheReadMicrosPerMillionTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+  cacheWriteMicrosPerMillionTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+  fixedRequestMicros: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+}).strict();
+export type GlobalModelPrice = z.infer<typeof GlobalModelPriceSchema>;
+
 const GlobalModelCatalogBaseSchema = z.object({
   providers: z.record(z.string(), ProviderSchema).default({}),
   models: z.record(z.string(), z.string()).default({}),
+  pricingRevision: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/).default("unversioned"),
+  pricing: z.record(z.string(), GlobalModelPriceSchema).default({}),
   embeddingProfiles: z.record(z.string(), EmbeddingProfileSchema).default({}),
 });
 

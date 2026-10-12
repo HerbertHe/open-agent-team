@@ -34,13 +34,15 @@ import readline from "node:readline";
 import path from "node:path";
 import { ProviderCompatibleTypeEnum } from "../types";
 import { normalizeDeepSeekReplaySignatures, type DeepSeekReplayApi } from "./deepseek-compat";
+import { ExecutionRuntimeContextSchema, type ExecutionRuntimeContext } from "../program/execution-runtime-context";
 
 // ─── 状态 ───────────────────────────────────────────────────────────────────
 
-let agentSession: { prompt: (t: string) => Promise<void>; dispose: () => void } | null = null;
+let agentSession: { prompt: (t: string) => Promise<void>; dispose: () => void; abort?: () => Promise<void>; state: { messages: unknown[] } } | null = null;
 let stopping = false;
 /** 防止父进程重复发送 "start" 导致 session 被覆盖或并发初始化 */
 let startReceived = false;
+let executionContext: ExecutionRuntimeContext | undefined;
 
 /**
  * Prompt 串行队列：确保同一时刻只有一个 session.prompt() 在执行。
@@ -60,8 +62,11 @@ const pendingToolResults = new Map<
 // ─── IPC 辅助 ───────────────────────────────────────────────────────────────
 
 function send(msg: ChildToMain): void {
-  if (process.send) process.send(msg);
-  else process.stdout.write(`${JSON.stringify(msg)}\n`);
+  const contextualized = executionContext && (msg.type === "agent_event" || msg.type === "tool_call")
+    ? { ...msg, executionContext }
+    : msg;
+  if (process.send) process.send(contextualized);
+  else process.stdout.write(`${JSON.stringify(contextualized)}\n`);
 }
 
 function handleToolResult(callId: string, result?: ToolResultPayload, error?: string): void {
@@ -320,12 +325,14 @@ function handleMessage(rawMsg: unknown): void {
   if (msg.type === "start") {
     if (startReceived) return; // 防止重复初始化
     startReceived = true;
+    executionContext = msg.executionContext ? ExecutionRuntimeContextSchema.parse(msg.executionContext) : undefined;
     void handleStart(msg);
     return;
   }
 
   if (msg.type === "prompt") {
     if (agentSession && !stopping) {
+      executionContext = msg.executionContext ? ExecutionRuntimeContextSchema.parse(msg.executionContext) : undefined;
       const text = msg.text;
       // 将当前 prompt 追加到串行队列末尾，避免并发调用 session.prompt()
       promptQueue = promptQueue.then(() => {
@@ -348,6 +355,39 @@ function handleMessage(rawMsg: unknown): void {
 
   if (msg.type === "stop") {
     stopRunner();
+    return;
+  }
+
+  if (msg.type === "checkpoint_request") {
+    const messages = agentSession?.state.messages ?? [];
+    const state = {
+      objective: `Continue attempt ${msg.attemptId} from its authoritative Work Package definition`,
+      completedSteps: [],
+      nextSteps: ["Reload the Work Package definition and inspect the preserved workspace before continuing"],
+      facts: {
+        capturedAt: new Date().toISOString(),
+        sessionMessageCount: String(messages.length),
+        pendingToolCallCount: String(pendingToolResults.size),
+      },
+      artifactRefs: [],
+    };
+    send({ type: "checkpoint_result", requestId: msg.requestId, attemptId: msg.attemptId, acknowledged: Boolean(agentSession), state });
+    return;
+  }
+
+  if (msg.type === "abort_attempt") {
+    void (async () => {
+      try {
+        if (!agentSession?.abort) throw new Error("Agent session does not expose abort");
+        await agentSession.abort();
+        const toolCalls = [...pendingToolResults.keys()];
+        for (const [callId, pending] of pendingToolResults) pending.reject(new Error(`Attempt aborted (${msg.reason}); callId=${callId}`));
+        pendingToolResults.clear();
+        send({ type: "abort_result", requestId: msg.requestId, attemptId: msg.attemptId, acknowledged: true, providerRequests: [], toolCalls });
+      } catch (error) {
+        send({ type: "abort_result", requestId: msg.requestId, attemptId: msg.attemptId, acknowledged: false, providerRequests: [], toolCalls: [...pendingToolResults.keys()], error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
     return;
   }
 

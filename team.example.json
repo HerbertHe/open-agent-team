@@ -11,6 +11,10 @@
       "api_key": "sk-xxx"
     }
   },
+  "budgetExecution": {
+    "enabled": false,
+    "mode": "shadow"
+  },
   "memory": {
     "enabled": true,
     "roles": ["admin", "leader", "worker"],

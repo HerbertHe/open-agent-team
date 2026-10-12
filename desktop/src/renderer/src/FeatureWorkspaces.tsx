@@ -35,7 +35,7 @@ import {
 import { createOperationsFeature, type OperationsFeature } from './operations';
 
 type FeatureKind = 'usage' | 'achievements' | 'plugins' | 'channels';
-type ManagementKind = 'config' | 'resources' | 'settings';
+type ManagementKind = 'config' | 'resources' | 'settings' | 'programs';
 
 function errorText(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason); }
 function toInit(init?: RequestInit): { method?: string; headers?: Record<string, string>; body?: string } | undefined {

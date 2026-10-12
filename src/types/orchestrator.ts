@@ -47,6 +47,7 @@ export interface QueuedTask {
   parentTaskId?: string;
   prompt: string;
   conflictKey?: string;
+  executionContext?: import("../program/execution-runtime-context").ExecutionRuntimeContext;
   status: QueuedTaskStatus;
   createdAt: string;
   updatedAt: string;
@@ -218,6 +219,7 @@ export interface ToolCreateTaskBody {
   parentTaskId?: string;
   prompt: string;
   conflictKey?: string;
+  executionContext?: import("../program/execution-runtime-context").ExecutionRuntimeContext;
 }
 
 export interface ToolUpdateTaskBody {

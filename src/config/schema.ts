@@ -47,6 +47,10 @@ export const TeamFileSchema = z.object({
       }),
     )
     .optional(),
+  budgetExecution: z.object({
+    enabled: z.boolean().default(false),
+    mode: z.enum(["shadow", "soft", "hard"]).default("shadow"),
+  }).strict().default({ enabled: false, mode: "shadow" }),
   memory: z.object({
     enabled: z.boolean().default(true),
     roles: z.array(z.enum(["admin", "leader", "worker"])).default(["admin", "leader", "worker"]),

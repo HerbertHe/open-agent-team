@@ -57,6 +57,7 @@ import type { KnowledgeService } from "../knowledge/knowledge-service";
 import { GitCollaborationStore } from "./git-collaboration-store";
 import { buildScratchpadTool } from "../memory/scratchpad-tool";
 import { buildAgentMemoryTools } from "../memory/agent-memory-tools";
+import { ExecutionRuntimeContextSchema } from "../program/execution-runtime-context";
 
 type SchedulerSnapshot = {
   version: 1;
@@ -96,6 +97,14 @@ function runtimeErrorMessage(value: unknown): string {
   return "Agent runtime execution failed";
 }
 
+export interface BudgetProgramTaskProjection {
+  workPackageId: string;
+  programId: string;
+  title: string;
+  status: string;
+  updatedAt: string;
+}
+
 export class TaskManager {
   private readonly agents = new Map<string, AgentRuntimeState>();
   private readonly teamByLeaderId = new Map<string, TeamConfig>();
@@ -113,6 +122,8 @@ export class TaskManager {
   >();
   /** 每个 Agent 独立 FIFO 队列；当前运行项也保留在 taskById 中。 */
   private readonly taskById = new Map<string, QueuedTask>();
+  /** Budgeted long-horizon Programs are UI-only projections and never enter runtime queues. */
+  private readonly budgetProgramTaskProjections = new Map<string, BudgetProgramTaskProjection>();
   private readonly taskQueueByAgent = new Map<string, string[]>();
   private readonly runningTaskByAgent = new Map<string, string>();
   /** Most recently completed workflow, used only to make a retried completion idempotent. */
@@ -154,6 +165,15 @@ export class TaskManager {
 
   getObservabilityHub(): ObservabilityHub {
     return this.observabilityHub;
+  }
+
+  applyBudgetProgramTaskProjection(projection: BudgetProgramTaskProjection): void {
+    this.budgetProgramTaskProjections.set(projection.workPackageId, structuredClone(projection));
+  }
+
+  getBudgetProgramTaskProjections(): BudgetProgramTaskProjection[] {
+    return Array.from(this.budgetProgramTaskProjections.values(), (item) => structuredClone(item))
+      .sort((left, right) => left.workPackageId.localeCompare(right.workPackageId));
   }
 
   getAllAgents(): AgentRuntimeState[] {
@@ -349,6 +369,7 @@ export class TaskManager {
           typeof raw.createdBy !== "string" || typeof raw.prompt !== "string" ||
           typeof raw.status !== "string" || !TASK_STATUSES.has(raw.status) ||
           typeof raw.createdAt !== "string" || typeof raw.updatedAt !== "string" || tasks.has(raw.id)) return false;
+      if (raw.executionContext !== undefined && !ExecutionRuntimeContextSchema.safeParse(raw.executionContext).success) return false;
       tasks.set(raw.id, raw as unknown as QueuedTask);
     }
     const queuedRefs = new Set<string>();
@@ -716,6 +737,7 @@ export class TaskManager {
       parentTaskId: body.parentTaskId,
       prompt,
       conflictKey,
+      executionContext: body.executionContext ? ExecutionRuntimeContextSchema.parse(body.executionContext) : undefined,
       status: QueuedTaskStatusEnum.Queued,
       createdAt: now,
       updatedAt: now,
@@ -796,7 +818,8 @@ export class TaskManager {
       }
       if (persistReferences) await this.persistSchedulerState();
       const context = [memory, knowledge?.context].filter(Boolean).join("\n\n");
-      await this.runtimeProvider.sendPrompt(agentId, context ? `${context}\n\n${prompt}` : prompt);
+      const taskId = this.currentWorkflowTaskId(agentId);
+      await this.runtimeProvider.sendPrompt(agentId, context ? `${context}\n\n${prompt}` : prompt, taskId ? this.taskById.get(taskId)?.executionContext : undefined);
       // IPC delivery is not prompt completion. Keep the Agent occupied until
       // the runtime emits agent_end (or the crash path clears the slot).
     } catch (error) {
@@ -833,6 +856,7 @@ export class TaskManager {
   async pauseTask(id: string): Promise<QueuedTask> {
     const task = this.taskById.get(id);
     if (!task) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if (task.executionContext) throw new Error("Program-managed tasks must be paused through Program Control");
     if (task.status !== QueuedTaskStatusEnum.Queued) {
       throw new Error(`Task ${id} cannot be paused while it is ${task.status}. Wait for the current Agent turn to reach a checkpoint.`);
     }
@@ -849,6 +873,7 @@ export class TaskManager {
   async resumeTask(id: string): Promise<QueuedTask> {
     const task = this.taskById.get(id);
     if (!task) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if (task.executionContext) throw new Error("Program-managed tasks must be resumed through Program Control");
     if (task.status !== QueuedTaskStatusEnum.Paused) throw new Error(`Only paused tasks can be resumed: ${id}`);
     task.status = QueuedTaskStatusEnum.Queued;
     task.pausedAt = undefined;
@@ -867,6 +892,7 @@ export class TaskManager {
   async recallTask(id: string): Promise<QueuedTask> {
     const source = this.taskById.get(id);
     if (!source) throw new Error(t("scheduler_task_not_found", { taskId: id }));
+    if (source.executionContext) throw new Error("Program-managed tasks cannot be recalled outside Program Control");
     if ([QueuedTaskStatusEnum.Queued, QueuedTaskStatusEnum.Running, QueuedTaskStatusEnum.Waiting, QueuedTaskStatusEnum.ReviewPending].includes(source.status)) {
       throw new Error(`Active task ${id} cannot be recalled.`);
     }
@@ -1018,7 +1044,7 @@ export class TaskManager {
       await this.prepareWorkerWorkspace(agent, task);
       await this.persistSchedulerState();
       this.emitTaskEvent("task.started", task);
-      await this.sendManagedPrompt(agentId, this.buildWorkerDispatchPrompt(agentId, task.prompt));
+      await this.sendManagedPrompt(agentId, this.buildWorkerDispatchPrompt(agentId, task.prompt, Boolean(task.executionContext)));
     } else if (agent.spec.role === AgentRoleEnum.Leader) {
       await this.prepareLeaderWorkspace(agent, task);
       this.leaderTaskAssignedAt.set(agentId, Date.now());
@@ -2118,8 +2144,18 @@ export class TaskManager {
     logger.info(t("worker_registered"), { workerId });
   }
 
-  private buildWorkerDispatchPrompt(workerId: string, taskPrompt: string): string {
+  private buildWorkerDispatchPrompt(workerId: string, taskPrompt: string, programManaged = false): string {
     const todayPath = todayRecordsSubPath();
+    if (programManaged) return [
+      taskPrompt,
+      ``,
+      `Rules (MUST follow):`,
+      `- This is an experimental Program-managed standalone Work Package. Implement it, run the relevant tests, inspect results, and fix failures before completion.`,
+      `- Append the work and test evidence to the END of CHANGELOG.md; place intermediate records under \`${todayPath}/\`.`,
+      `- Report progress with report-progress at start, after tests, and before completion.`,
+      `- Do not create an unbudgeted retry or delegate the work. When the package is ready for deterministic verification, call notify-complete exactly once with agentRole="worker".`,
+      `- notify-complete only hands the package to Verifying; it does not declare the Program complete or bypass acceptance criteria.`,
+    ].join("\n");
     return [
       taskPrompt,
       ``,
@@ -2547,6 +2583,13 @@ export class TaskManager {
     });
 
     if (agentRole === AgentRoleEnum.Worker) {
+      const runningTaskId = this.runningTaskByAgent.get(agentId);
+      const runningTask = runningTaskId ? this.taskById.get(runningTaskId) : undefined;
+      if (runningTask?.executionContext) {
+        this.workerBusy.delete(agentId);
+        await this.completeRunningTask(agentId);
+        return { ok: true, taskId: runningTask.id, programManaged: true, nextState: "verifying" };
+      }
       throw new Error(t("scheduler_worker_must_submit_review"));
       /* legacy completion path retained below for source history.
       // 幂等保护：Worker 已成功完成（时间戳已写入）时直接返回，

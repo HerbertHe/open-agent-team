@@ -23,6 +23,11 @@ export interface UsageRecord {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cost: number;
+  /** Optional calibration dimensions; legacy records project to "unknown". */
+  taskClass?: string;
+  toolProfile?: string;
+  durationMs?: number;
+  succeeded?: boolean;
 }
 
 export interface AggregatedStats {

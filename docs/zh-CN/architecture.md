@@ -1,6 +1,9 @@
 # Agent 团队架构（Orchestrator + pi-coding-agent）
 
 > **协作流程已更新。** 本文中任何描述“Worker 调用 `notify-complete` 后自动合并”或“Leader 自动合并主分支”的段落均为历史实现说明，不再适用。当前正式流程以 [Git 协作与交付流程](./git-collaboration.md) 为准：Worker `submit-review` → Leader review/integration → Admin `approve-release` → MergeController 串行更新 `main/master`。运行工件统一存于 `runtime.persistence.state_dir/git-collaboration/`，不写入 Git worktree。
+>
+> 预算约束、数天至数月排期、持久化唤醒、预算账本和动态范围降级的目标设计见[预算约束长程任务执行架构](./budgeted-long-horizon-execution-architecture.md)。
+> 对应的依赖顺序、PR 粒度和验收标准见[预算约束长程任务：可执行任务拆分](./budgeted-long-horizon-execution-task-breakdown.md)。
 
 ## 当前 Git 协作架构
 

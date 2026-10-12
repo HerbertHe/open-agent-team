@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { AgentRoleEnum, QueuedTaskStatusEnum, ReleaseStatusEnum, ReviewStatusEnum } from "../types";
 import { TaskManager } from "./task-manager";
+import { ExecutionRuntimeContextSchema } from "../program/execution-runtime-context";
 
 test("startup gate, pause, snapshots, and recall keep queue work durable", async () => {
   const stateDir = await mkdtemp(path.join(tmpdir(), "oat-task-manager-"));
@@ -104,6 +105,32 @@ test("injects private memory and structured shared-knowledge citations into a ma
     assert.deepEqual(task.knowledgeReferences, [reference]);
     assert.deepEqual(task.memoryReferences, ["[decision] private fact"]);
     assert.ok(events.some(({ type, payload }) => type === "knowledge.context.injected" && Array.isArray(payload?.references)));
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
+test("Program-managed Worker tasks complete into coordinator verification and reject generic lifecycle bypasses", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "oat-program-worker-"));
+  const manager = new TaskManager(
+    {
+      project: { name: "program", project_name: "Program", repo: stateDir, base_branch: "main" },
+      runtime: { persistence: { state_dir: stateDir } }, workspace: { git: {} }, admin: { name: "Admin" }, teams: [],
+    } as never,
+    {} as never, { sendPrompt: async () => undefined } as never, {} as never,
+    "http://127.0.0.1:1", {} as never, { emit: () => undefined } as never,
+  );
+  manager.registerAgent({ spec: { id: "worker-1", role: AgentRoleEnum.Worker, name: "Worker", branch: "work", workspacePath: stateDir, model: "test/model", skills: [] }, sessionId: "worker-1", workers: [] });
+  try {
+    const task = await manager.createTask({
+      targetAgentId: "worker-1", createdBy: "admin", prompt: "bounded work",
+      executionContext: ExecutionRuntimeContextSchema.parse({ programId: "program-1", workPackageId: "work-1", attemptId: "attempt-1", executionEpoch: 0, fencingToken: 1, operationId: "dispatch-1" }),
+    }, { schedule: false });
+    await assert.rejects(() => manager.pauseTask(task.id), /Program Control/);
+    task.status = QueuedTaskStatusEnum.Running;
+    (manager as unknown as { runningTaskByAgent: Map<string, string> }).runningTaskByAgent.set("worker-1", task.id);
+    const result = await manager.notifyComplete({ agentId: "worker-1", agentRole: AgentRoleEnum.Worker });
+    assert.deepEqual(result, { ok: true, taskId: task.id, programManaged: true, nextState: "verifying" });
+    assert.equal(task.status, QueuedTaskStatusEnum.Completed);
+    await assert.rejects(() => manager.recallTask(task.id), /Program Control/);
   } finally { await rm(stateDir, { recursive: true, force: true }); }
 });
 

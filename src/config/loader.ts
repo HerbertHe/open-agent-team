@@ -190,6 +190,10 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
 
   return {
     ...withInheritance,
+    budgetExecution: {
+      enabled: withInheritance.budgetExecution?.enabled ?? false,
+      mode: withInheritance.budgetExecution?.mode ?? "shadow",
+    },
     memory,
     knowledge,
     project: {

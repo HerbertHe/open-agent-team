@@ -61,6 +61,20 @@
         }
       }
     },
+    "budgetExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Experimental budget-constrained long-horizon execution. Disabled by default.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "mode": {
+          "type": "string",
+          "enum": ["shadow", "soft", "hard"],
+          "default": "shadow"
+        }
+      },
+      "default": { "enabled": false, "mode": "shadow" }
+    },
     "memory": {
       "type": "object",
       "additionalProperties": false,
