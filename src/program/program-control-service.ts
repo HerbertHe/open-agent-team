@@ -22,10 +22,12 @@ export interface ProgramControlResult { requestId: string; programId: string; st
 export class ProgramControlService {
   private readonly database: Database.Database; private readonly barrier: ExecutionBarrier; private readonly audit: ExecutionAuditRepository; private readonly checkpoints: CheckpointStore;
   constructor(private readonly handle: ExecutionDatabase, private readonly runtime: InterruptibleRuntimeProvider,
-    private readonly snapshots: SuspensionSnapshotStore, private readonly enabled: boolean) {
+    private readonly snapshots: SuspensionSnapshotStore, private readonly enabled: boolean,
+    private readonly quiesceVerification?: (programId: string) => Promise<void>, private readonly instanceId?: string) {
     this.database = handle.connection; this.barrier = new ExecutionBarrier(handle); this.audit = new ExecutionAuditRepository(handle); this.checkpoints = new CheckpointStore(handle);
   }
-  async interrupt(programIdInput: string, inputRaw: z.input<typeof InterruptProgramRequestSchema>): Promise<ProgramControlResult> {
+  async interrupt(programIdInput: string, inputRaw: z.input<typeof InterruptProgramRequestSchema>, assertCurrent?: () => void): Promise<ProgramControlResult> {
+    assertCurrent?.();
     if (!this.enabled) throw new Error("BUDGET_EXECUTION_DISABLED");
     const programId = ProgramIdSchema.parse(programIdInput); const input = InterruptProgramRequestSchema.parse(inputRaw);
     const existing = this.database.prepare("SELECT program_id, mode, state, result_json FROM program_control_requests WHERE request_id=?").get(input.controlRequestId) as { program_id: string; mode: string; state: string; result_json: string | null } | undefined;
@@ -33,6 +35,7 @@ export class ProgramControlService {
     if (existing?.state === "completed" && existing.result_json) return JSON.parse(existing.result_json) as ProgramControlResult;
     if (existing) throw new Error(`CONTROL_REQUEST_${existing.state.toUpperCase()}`);
     const transition = this.database.transaction(() => {
+      assertCurrent?.();
       const program = this.database.prepare("SELECT revision, execution_epoch, status FROM programs WHERE id=?").get(programId) as { revision: number; execution_epoch: number; status: string } | undefined;
       if (!program) throw new Error(`Program ${programId} not found`); if (program.revision !== input.expectedRevision) throw new Error("REVISION_CONFLICT");
       if (!["running", "waiting", "replanning"].includes(program.status)) throw new Error(`Program cannot be interrupted from ${program.status}`);
@@ -40,6 +43,10 @@ export class ProgramControlService {
         FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id
         LEFT JOIN attempt_leases l ON l.attempt_id=a.id
         WHERE w.program_id=? AND a.status IN ('leased','running','checkpointed','verifying') ORDER BY a.id`).all(programId) as Array<{ attempt_id: string; execution_epoch: number; fencing_token: number; work_package_id: string; agent_id: string | null }>;
+      if (this.instanceId) for (const attempt of attempts) {
+        const owner = this.database.prepare("SELECT owner_id FROM attempt_execution_owners WHERE attempt_id=?").pluck().get(attempt.attempt_id) as string | undefined;
+        if (owner && owner !== this.instanceId) attempt.agent_id = null;
+      }
       const epoch = program.execution_epoch + 1;
       this.database.prepare(`INSERT INTO program_control_requests(request_id, program_id, mode, state, created_at, updated_at)
         VALUES(?, ?, ?, 'requested', ?, ?)`).run(input.controlRequestId, programId, input.mode, input.requestedAt, input.requestedAt);
@@ -51,11 +58,13 @@ export class ProgramControlService {
       return { epoch, attempts };
     }).immediate();
     const nextEpoch = transition.epoch;
-    this.setPhase(input.controlRequestId, programId, "quiescing", "quiescing", input.requestedAt);
+    this.setPhase(input.controlRequestId, programId, "quiescing", "quiescing", input.requestedAt, assertCurrent);
     this.database.prepare("DELETE FROM attempt_leases WHERE attempt_id IN (SELECT id FROM work_package_attempts WHERE work_package_id IN (SELECT id FROM work_packages WHERE program_id=?))").run(programId);
     const checkpointDeadline = new Date(Date.parse(input.requestedAt) + 10_000).toISOString();
     const checkpointIds = new Map<string, string>();
     const uncertainAttempts = new Set<string>();
+    await this.quiesceVerification?.(programId);
+    assertCurrent?.();
     if (input.mode === "graceful") await Promise.all(transition.attempts.map(async (item) => {
       if (!item.agent_id) { uncertainAttempts.add(item.attempt_id); return; }
       try {
@@ -68,14 +77,16 @@ export class ProgramControlService {
       } catch { uncertainAttempts.add(item.attempt_id); }
     }));
     for (const item of transition.attempts) {
+      assertCurrent?.();
       const result = item.agent_id
         ? await this.runtime.abortAttempt(item.agent_id, item.attempt_id, input.reason).catch(() => ({ acknowledged: false, providerRequests: [], toolCalls: [] }))
         : { acknowledged: false, providerRequests: [], toolCalls: [] };
       if (!result.acknowledged) { uncertainAttempts.add(item.attempt_id); if (item.agent_id) await this.runtime.terminateSession(item.agent_id, input.reason).catch(() => undefined); }
+      assertCurrent?.();
       this.database.prepare(`UPDATE work_package_attempts SET status=?, updated_at=? WHERE id=? AND status IN ('leased','running','checkpointed','verifying')`)
         .run(result.acknowledged ? "aborted" : "uncertain", input.requestedAt, item.attempt_id);
     }
-    this.setPhase(input.controlRequestId, programId, "snapshotting", "snapshotting", input.requestedAt);
+    this.setPhase(input.controlRequestId, programId, "snapshotting", "snapshotting", input.requestedAt, assertCurrent);
     try {
       const snapshotId = `snapshot:${createHash("sha256").update(`${programId}:${nextEpoch}`).digest("hex")}`;
       const planId = this.database.prepare("SELECT active_plan_version_id FROM programs WHERE id=?").pluck().get(programId) as string;
@@ -95,28 +106,34 @@ export class ProgramControlService {
         const dirty = await git.status().then((value) => value.files.length > 0).catch(() => true);
         return { agentId, workspacePath: session.workspacePath, ...(headSha ? { headSha } : {}), dirty };
       }));
+      assertCurrent?.();
       const manifest = SuspensionSnapshotManifestSchema.parse({ schemaVersion: 1, id: snapshotId, programId, planVersionId: planId, executionEpoch: nextEpoch,
         reason: input.reason, mode: input.mode, programRevision: revision, budgetStateDigest: createHash("sha256").update(JSON.stringify(budgetRows)).digest("hex"),
         activeReservations: reservations, uncertainOperations: effects, workPackages: workRows.map((row) => { const active = activeByWork.get(row.id); return { id: row.id, stableKey: row.stable_key, status: row.status,
           ...(active ? { attemptId: active.attempt_id, ...(active.agent_id ? { agentId: active.agent_id } : {}), fencingToken: active.fencing_token, ...(checkpointIds.get(active.attempt_id) ? { latestCheckpointId: checkpointIds.get(active.attempt_id) } : {}) } : {}) }; }),
         artifacts: [], workspaceStates: workspaceStates.filter((value): value is NonNullable<typeof value> => Boolean(value)), wakeups, externalReceipts, pendingApprovals: [], resumePreconditions: uncertainAttempts.size || effects.length ? ["reconcile_uncertain_operations"] : [], createdAt: input.requestedAt });
-      this.snapshots.create(manifest);
-      this.setPhase(input.controlRequestId, programId, "reconciling", "reconciling", input.requestedAt);
-      const ledger = BudgetLedger.from(this.handle);
-      const reservationRows = this.database.prepare("SELECT id,revision,state FROM budget_reservations WHERE program_id=? AND state IN ('created','active') ORDER BY CASE state WHEN 'created' THEN 0 ELSE 1 END,id").all(programId) as Array<{ id: string; revision: number; state: "created" | "active" }>;
-      for (const reservation of reservationRows) {
-        try { if (reservation.state === "created") ledger.release(reservation.id, reservation.revision, input.requestedAt); else ledger.markUncertain(reservation.id, reservation.revision, input.requestedAt); }
-        catch { /* reflected by the final unresolved query below */ }
-      }
-      const unresolvedReservations = Number(this.database.prepare("SELECT COUNT(*) FROM budget_reservations WHERE program_id=? AND state IN ('created','active','uncertain')").pluck().get(programId) ?? 0);
-      const state: ProgramControlResult["state"] = input.mode === "cancel_closeout" ? "closing_out" : uncertainAttempts.size || effects.length || unresolvedReservations ? "suspended_uncertain" : "suspended";
-      const result: ProgramControlResult = { requestId: input.controlRequestId, programId, state, snapshotId, executionEpoch: nextEpoch, uncertainAttempts: [...uncertainAttempts] };
-      this.database.transaction(() => {
-        this.database.prepare("UPDATE programs SET status=?, revision=revision+1, updated_at=? WHERE id=?").run(state, input.requestedAt, programId);
-        this.database.prepare("UPDATE program_control_requests SET state='completed', result_json=?, updated_at=? WHERE request_id=?").run(JSON.stringify(result), input.requestedAt, input.controlRequestId);
+      return this.database.transaction(() => {
+        assertCurrent?.();
+        this.snapshots.create(manifest);
+        this.setPhase(input.controlRequestId, programId, "reconciling", "reconciling", input.requestedAt, assertCurrent);
+        const ledger = BudgetLedger.from(this.handle);
+        const reservationRows = this.database.prepare("SELECT id,revision,state FROM budget_reservations WHERE program_id=? AND state IN ('created','active') ORDER BY CASE state WHEN 'created' THEN 0 ELSE 1 END,id").all(programId) as Array<{ id: string; revision: number; state: "created" | "active" }>;
+        for (const reservation of reservationRows) {
+          try { if (reservation.state === "created") ledger.release(reservation.id, reservation.revision, input.requestedAt); else ledger.markUncertain(reservation.id, reservation.revision, input.requestedAt); }
+          catch { /* reflected by the final unresolved query below */ }
+        }
+        const unresolvedReservations = Number(this.database.prepare("SELECT COUNT(*) FROM budget_reservations WHERE program_id=? AND state IN ('created','active','uncertain')").pluck().get(programId) ?? 0);
+        const state: ProgramControlResult["state"] = input.mode === "cancel_closeout" ? "closing_out" : uncertainAttempts.size || effects.length || unresolvedReservations ? "suspended_uncertain" : "suspended";
+        const result: ProgramControlResult = { requestId: input.controlRequestId, programId, state, snapshotId, executionEpoch: nextEpoch, uncertainAttempts: [...uncertainAttempts] };
+        this.database.transaction(() => {
+          assertCurrent?.();
+          this.database.prepare("UPDATE programs SET status=?, revision=revision+1, updated_at=? WHERE id=?").run(state, input.requestedAt, programId);
+          this.database.prepare("UPDATE program_control_requests SET state='completed', result_json=?, updated_at=? WHERE request_id=?").run(JSON.stringify(result), input.requestedAt, input.controlRequestId);
+        }).immediate();
+        return result;
       }).immediate();
-      return result;
     } catch (error) {
+      assertCurrent?.();
       this.database.prepare("UPDATE program_control_requests SET state='failed', result_json=?, updated_at=? WHERE request_id=?")
         .run(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), input.requestedAt, input.controlRequestId);
       throw error;
@@ -126,8 +143,9 @@ export class ProgramControlService {
     return this.database.prepare("SELECT * FROM program_control_requests WHERE program_id=? AND request_id=?")
       .get(ProgramIdSchema.parse(programId), OpaqueIdSchema.parse(requestId));
   }
-  private setPhase(requestId: string, programId: string, requestState: string, programState: string, now: string): void {
+  private setPhase(requestId: string, programId: string, requestState: string, programState: string, now: string, assertCurrent?: () => void): void {
     this.database.transaction(() => {
+      assertCurrent?.();
       this.database.prepare("UPDATE program_control_requests SET state=?, updated_at=? WHERE request_id=?").run(requestState, now, requestId);
       this.database.prepare("UPDATE programs SET status=?, revision=revision+1, updated_at=? WHERE id=?").run(programState, now, programId);
     }).immediate();

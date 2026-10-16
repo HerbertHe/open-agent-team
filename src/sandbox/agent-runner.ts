@@ -32,6 +32,9 @@ import type {
 } from "./agent-runner-ipc";
 import readline from "node:readline";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { installBudgetedStream } from "./budgeted-stream";
+import { installGuardedTools } from "./guarded-tools";
 import { ProviderCompatibleTypeEnum } from "../types";
 import { normalizeDeepSeekReplaySignatures, type DeepSeekReplayApi } from "./deepseek-compat";
 import { ExecutionRuntimeContextSchema, type ExecutionRuntimeContext } from "../program/execution-runtime-context";
@@ -43,6 +46,8 @@ let stopping = false;
 /** 防止父进程重复发送 "start" 导致 session 被覆盖或并发初始化 */
 let startReceived = false;
 let executionContext: ExecutionRuntimeContext | undefined;
+const modelWaiters = new Map<string, { resolve: (value: { mode: "shadow" | "soft" }) => void; reject: (error: Error) => void }>();
+const effectWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
 
 /**
  * Prompt 串行队列：确保同一时刻只有一个 session.prompt() 在执行。
@@ -268,6 +273,18 @@ async function handleStart(msg: Extract<MainToChild, { type: "start" }>): Promis
     });
 
     agentSession = session;
+    installGuardedTools(session.agent, () => executionContext, new Set(toolDefs.map((def) => def.name)), (request) => new Promise<void>((resolve, reject) => {
+      const requestId = `effect:${randomUUID()}`;
+      const timer = setTimeout(() => { effectWaiters.delete(requestId); reject(new Error("Tool effect acknowledgement timed out")); }, 30_000);
+      effectWaiters.set(requestId, { resolve: () => { clearTimeout(timer); resolve(); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+      send({ type: "tool_effect_request", requestId, request });
+    }));
+    installBudgetedStream(session.agent, () => executionContext, (request) => new Promise((resolve, reject) => {
+      const requestId = `meter:${randomUUID()}`;
+      const timer = setTimeout(() => { modelWaiters.delete(requestId); reject(new Error("Model budget acknowledgement timed out")); }, 30_000);
+      modelWaiters.set(requestId, { resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+      send({ type: "model_budget_request", requestId, request });
+    }));
 
     session.subscribe((event: Record<string, unknown>) => {
       // dispose() may emit terminal SDK events while the process is shutting
@@ -309,6 +326,10 @@ function stopRunner(): void {
     pending.reject(new Error(`Agent stopped before tool_result arrived (callId=${callId})`));
   }
   pendingToolResults.clear();
+  for (const waiter of modelWaiters.values()) waiter.reject(new Error("Runner stopped"));
+  modelWaiters.clear();
+  for (const waiter of effectWaiters.values()) waiter.reject(new Error("Runner stopped"));
+  effectWaiters.clear();
   process.exit(0);
 }
 
@@ -321,6 +342,18 @@ process.once("SIGINT", stopRunner);
 
 function handleMessage(rawMsg: unknown): void {
   const msg = rawMsg as MainToChild;
+  if (msg.type === "tool_effect_result") {
+    const waiter = effectWaiters.get(msg.requestId); effectWaiters.delete(msg.requestId);
+    if (msg.error) waiter?.reject(new Error(msg.error)); else waiter?.resolve();
+    return;
+  }
+  if (msg.type === "model_budget_result") {
+    const waiter = modelWaiters.get(msg.requestId);
+    modelWaiters.delete(msg.requestId);
+    if (msg.error || !msg.mode) waiter?.reject(new Error(msg.error ?? "Missing model budget mode"));
+    else waiter?.resolve({ mode: msg.mode });
+    return;
+  }
 
   if (msg.type === "start") {
     if (startReceived) return; // 防止重复初始化
@@ -332,11 +365,12 @@ function handleMessage(rawMsg: unknown): void {
 
   if (msg.type === "prompt") {
     if (agentSession && !stopping) {
-      executionContext = msg.executionContext ? ExecutionRuntimeContextSchema.parse(msg.executionContext) : undefined;
+      const nextContext = msg.executionContext ? ExecutionRuntimeContextSchema.parse(msg.executionContext) : undefined;
       const text = msg.text;
       // 将当前 prompt 追加到串行队列末尾，避免并发调用 session.prompt()
       promptQueue = promptQueue.then(() => {
         if (stopping || !agentSession) return;
+        executionContext = nextContext;
         return agentSession.prompt(text).catch((err: unknown) => {
           const errMsg = err instanceof Error ? err.message : String(err);
           send({

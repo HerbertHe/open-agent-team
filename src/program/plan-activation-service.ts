@@ -65,7 +65,7 @@ export class PlanActivationService {
         const previous = this.plans.get(program.activePlanVersionId);
         if (previous?.status === "active") this.plans.transitionStatus(previous.id, previous.revision, "superseded", previous.activatedAt);
       }
-      this.plans.transitionStatus(plan.id, plan.revision, "active", input.approvedAt);
+      this.plans.transitionStatus(plan.id, plan.revision, "active", input.approvedAt, { scopeTier: input.selectedTier });
       input.faultInjector?.("after_plan");
       const programResult = this.database.prepare(`
         UPDATE programs SET status = ?, active_plan_version_id = ?, revision = revision + 1, updated_at = ?
@@ -76,9 +76,11 @@ export class PlanActivationService {
 
       const selected = packages.filter((item) => RANK[item.scopeTier] <= RANK[input.selectedTier]);
       const selectedIds = new Set(selected.map((item) => item.id));
+      const completedIds = new Set(selected.filter((item) => item.status === "completed").map((item) => item.id));
       const updated: WorkPackage[] = [];
       for (const item of packages) {
-        const nextStatus = !selectedIds.has(item.id) ? "cancelled" : item.dependsOn.length === 0 ? "runnable" : item.status;
+        const nextStatus = ["completed", "cancelled"].includes(item.status) ? item.status : !selectedIds.has(item.id) ? "cancelled"
+          : item.dependsOn.every((id) => completedIds.has(id)) ? "runnable" : item.status;
         const next = nextStatus === item.status ? item : this.work.transitionStatus(item.id, item.revision, nextStatus, input.approvedAt);
         updated.push(next);
       }

@@ -18,16 +18,17 @@ export interface LongHorizonSimulationResult {
   };
   passed: boolean;
   traceDigest: string;
+  integration?: { runnerVersion: 1; measurements: Record<string, number>; faults: string[]; digest: string };
 }
 
 export class VirtualClock {
   private wallMs: number;
   private logicalMs: number;
-  constructor(start: string) { this.wallMs = Date.parse(start); this.logicalMs = this.wallMs; }
+  constructor(start: string) { this.wallMs = Date.parse(start); if (!Number.isFinite(this.wallMs)) throw new RangeError("Invalid virtual clock start"); this.logicalMs = this.wallMs; }
   now(): string { return new Date(this.wallMs).toISOString(); }
   logicalNow(): string { return new Date(this.logicalMs).toISOString(); }
-  advance(ms: number): void { if (ms < 0) throw new RangeError("advance must be non-negative"); this.wallMs += ms; this.logicalMs = Math.max(this.logicalMs, this.wallMs); }
-  rollback(ms: number): void { if (ms < 0) throw new RangeError("rollback must be non-negative"); this.wallMs -= ms; }
+  advance(ms: number): void { if (!Number.isFinite(ms) || ms < 0) throw new RangeError("advance must be non-negative"); this.wallMs += ms; this.logicalMs = Math.max(this.logicalMs, this.wallMs); }
+  rollback(ms: number): void { if (!Number.isFinite(ms) || ms < 0) throw new RangeError("rollback must be non-negative"); this.wallMs -= ms; }
 }
 
 class DeterministicRandom {

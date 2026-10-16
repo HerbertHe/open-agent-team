@@ -50,6 +50,14 @@ export const TeamFileSchema = z.object({
   budgetExecution: z.object({
     enabled: z.boolean().default(false),
     mode: z.enum(["shadow", "soft", "hard"]).default("shadow"),
+    modelRouting: z.object({
+      candidates: z.array(z.object({ modelRef: z.string().trim().min(1).max(512),
+        capabilities: z.array(z.string().trim().min(1).max(128)).max(100),
+        maximumRisk: z.enum(["low", "medium", "high"]), qualityTier: z.number().int().min(0).max(100),
+      }).strict()).min(1).max(100),
+      requiredCapabilities: z.array(z.string().trim().min(1).max(128)).max(100),
+      risk: z.enum(["low", "medium", "high"]),
+    }).strict().optional(),
   }).strict().default({ enabled: false, mode: "shadow" }),
   memory: z.object({
     enabled: z.boolean().default(true),

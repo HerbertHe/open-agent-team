@@ -8,7 +8,7 @@ import {
   WorkspaceProviderTypeEnum,
   WorkerSkillSyncEnum,
 } from "../types";
-import type { ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
+import type { BudgetExecutionConfig, ResolvedConfig, TeamConfig, TeamFileConfig } from "../types";
 import { t } from "../i18n/i18n";
 import { isMemoryRetrievalRolloutEnabled, loadOatConfig } from "../utils/oat-config";
 import { resolveEmbeddingReference } from "../models/global-models";
@@ -193,6 +193,10 @@ export async function loadConfig(configPath: string): Promise<ResolvedConfig> {
     budgetExecution: {
       enabled: withInheritance.budgetExecution?.enabled ?? false,
       mode: withInheritance.budgetExecution?.mode ?? "shadow",
+      ...(withInheritance.budgetExecution?.modelRouting ? { modelRouting: {
+        ...withInheritance.budgetExecution.modelRouting,
+        candidates: withInheritance.budgetExecution.modelRouting.candidates.map((candidate: NonNullable<BudgetExecutionConfig["modelRouting"]>["candidates"][number]) => ({ ...candidate, modelRef: resolveModelAlias(candidate.modelRef) })),
+      } } : {}),
     },
     memory,
     knowledge,

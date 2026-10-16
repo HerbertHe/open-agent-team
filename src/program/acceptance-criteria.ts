@@ -31,6 +31,7 @@ export type CriterionVerifier<T extends AcceptanceCriterion = AcceptanceCriterio
 
 export class AcceptanceValidatorRegistry {
   private readonly entries = new Map<AcceptanceCriterionType, { version: string; verifier: CriterionVerifier }>();
+  versionFor(type: AcceptanceCriterionType): string | undefined { return this.entries.get(type)?.version; }
 
   register(type: AcceptanceCriterionType, version: string, verifier: CriterionVerifier): void {
     if (this.entries.has(type)) throw new Error(`Acceptance validator ${type} is already registered`);

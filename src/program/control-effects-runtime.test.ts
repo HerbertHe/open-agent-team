@@ -117,6 +117,8 @@ test("BLH-037 resume dry-run requires confirmation, resets Session and creates a
   assert.equal(result.executionEpoch, 2); assert.ok(runtime.calls.includes("reset:worker-1")); new ExecutionBarrier(handle).assertAllowed("program-1", 2);
   const resumedAttempt = handle.connection.prepare("SELECT execution_epoch, fencing_token FROM work_package_attempts WHERE id LIKE 'resume:%'").get() as { execution_epoch: number; fencing_token: number };
   assert.equal(resumedAttempt.execution_epoch, 2); assert.ok(resumedAttempt.fencing_token > 1);
+  const wakeup = handle.connection.prepare("SELECT payload_json,wake_at FROM wakeups WHERE program_id='program-1'").get() as { payload_json: string; wake_at: string };
+  assert.equal(JSON.parse(wakeup.payload_json).executionEpoch, 2); assert.equal(wakeup.wake_at, T2);
 }));
 
 test("BLH-050 startup recovery fail-closes interrupted resume", () => withDb("resume-recovery", (handle, root) => {

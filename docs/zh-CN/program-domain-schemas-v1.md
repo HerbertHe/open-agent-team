@@ -1,7 +1,7 @@
 # BLH-007 Program 领域 Schema v1
 
 > 日期：2026-10-10
-> 状态：已实现并验证；Repository 尚未接入这些 Schema。
+> 状态：已实现；Program、PlanVersion 和 WorkPackage Repository 已接入严格 Schema 与状态转换守卫。
 
 ## 已定义对象
 
@@ -52,6 +52,6 @@ InvalidDomainTransitionError
 code = INVALID_DOMAIN_TRANSITION
 ```
 
-## 后续接入
+## Repository 接入
 
-BLH-008 Repository 必须在写入前解析 Schema，并在 CAS 更新状态前调用对应 transition guard。数据库 CHECK/foreign key 与运行时 Schema 是互补约束，不能互相替代。
+BLH-008 的 `execution-repositories.ts` 已在创建、读取和更新 Program、PlanVersion、WorkPackage 时解析对应 Schema，并在 CAS 更新状态前调用对应 transition guard。数据库 CHECK/foreign key 与运行时 Schema 是互补约束，不能互相替代。

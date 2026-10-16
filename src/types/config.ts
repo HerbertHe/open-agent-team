@@ -16,6 +16,11 @@ export type TeamFileProvidersConfig = Record<string, ProviderConfig>;
 
 /** Experimental budget-constrained long-horizon execution configuration. */
 export interface BudgetExecutionConfig {
+  modelRouting?: {
+    candidates: Array<{ modelRef: string; capabilities: string[]; maximumRisk: "low" | "medium" | "high"; qualityTier: number }>;
+    requiredCapabilities: string[];
+    risk: "low" | "medium" | "high";
+  };
   /** Master feature flag. It is deliberately false unless explicitly enabled. */
   enabled: boolean;
   /** Shadow observes only; soft advises; hard may enforce after capability gates pass. */

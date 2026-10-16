@@ -1,6 +1,6 @@
 # BLH-031～040：Checkpoint、中止恢复与外部副作用安全
 
-> 状态：已实现并验证。所有能力仍属于默认关闭的实验功能，统一受 `budgetExecution.enabled=false` 控制。hard 模式仍为 No-Go；本阶段提供安全原语，不代表端到端硬预算保证已经开放。
+> 状态：BLH-031～038 已实现；BLH-039～041 已接入本地/Docker 的 OAT 工具执行入口、SDK 工具钩子和首批状态查询，其他外部服务 Adapter 与发布验证仍待补齐。所有能力仍属于默认关闭的实验功能，统一受 `budgetExecution.enabled=false` 控制。hard 模式仍为 No-Go；本阶段提供安全原语，不代表端到端硬预算保证已经开放。
 
 ## 1. 已实现能力
 
@@ -65,6 +65,8 @@ manifest 只保存恢复所需的受限状态：Program/Plan/epoch/revision、�
 报告包含 digest，用户必须显式确认。恢复先以 CAS 将 Program 放入 `reconciling`、递增 epoch 并保持 barrier；随后 reset/recreate Agent Session。全部 reset 成功后才切为 running 并释放新 epoch 的 barrier。旧 Session、Attempt token 或旧报告都不能恢复执行。
 
 ## 5. Effect Ledger 与 Tool Guard
+
+OAT 自定义 execute 和 SDK 工具钩子已接入统一网关，包括 toolCalls 子预算、稳定 operation key、摘要回执及持续对账；中止和停机先将未决调用归入 uncertain。未知结果不会自动重发，未决副作用会阻止自动完整交付。详情见[工具副作用网关与对账](./tool-effects-runtime.md)。任意 bash 内部操作仍需专用 Adapter 才能提供独立状态查询，不能据此声称所有外部副作用都具备 Hard 保证。
 
 所有受管外部副作用先持久化 `prepared`：
 
@@ -171,6 +173,8 @@ sequenceDiagram
 ```
 
 ## 7. BLH-041～050 运营闭环
+
+有限重规划、配置式模型路由和安全收尾现已接入生产常驻路径，具体次数限制、证据继承与配置方式见[运行时说明](./replanning-routing-closeout-runtime.md)。
 
 - Effect Reconciler 只通过 Provider/工具状态查询把 `uncertain` 归并为 `reconciled`；未知或不可恢复的高影响操作保持 `uncertain`，不会生成重试指令。
 - Budget Health 按所有预算维度中最差覆盖率选择 `explore/balanced/commit/closeout`，输入仅接受 execution 可用额，validation/closeout 等保护分区不能被调度器借用。

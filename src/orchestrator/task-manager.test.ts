@@ -7,6 +7,26 @@ import { AgentRoleEnum, QueuedTaskStatusEnum, ReleaseStatusEnum, ReviewStatusEnu
 import { TaskManager } from "./task-manager";
 import { ExecutionRuntimeContextSchema } from "../program/execution-runtime-context";
 
+test("Program Task IDs are unique across isolated schedulers while ordinary tasks retain their daily sequence", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "program-task-ids-"));
+  const make = (name: string) => {
+    const manager = new TaskManager({ project: { name: "shared", repo: stateDir, base_branch: "main" },
+      runtime: { persistence: { state_dir: path.join(stateDir, name) } }, workspace: { git: {} }, admin: { name: "Admin" }, teams: [] } as never,
+    {} as never, { sendPrompt: async () => undefined } as never, {} as never, "http://127.0.0.1:1", {} as never, { emit: () => undefined } as never);
+    manager.registerAgent({ spec: { id: "admin", role: AgentRoleEnum.Admin, name: "Admin", branch: "main", workspacePath: stateDir, model: "test/model", skills: [] }, sessionId: "admin", workers: [] });
+    return manager;
+  };
+  try {
+    const a = make("a"); const b = make("b");
+    const context = ExecutionRuntimeContextSchema.parse({ programId: "p", workPackageId: "w", attemptId: "a", executionEpoch: 0, fencingToken: 1, operationId: "dispatch" });
+    const [first, second] = await Promise.all([a.createTask({ targetAgentId: "admin", createdBy: "admin", prompt: "one", executionContext: context }, { schedule: false }),
+      b.createTask({ targetAgentId: "admin", createdBy: "admin", prompt: "one", executionContext: context }, { schedule: false })]);
+    assert.notEqual(first.id, second.id); assert.match(first.id, /^task-program-[0-9a-f-]+$/);
+    const ordinary = await a.createTask({ targetAgentId: "admin", createdBy: "operator", prompt: "ordinary" }, { schedule: false });
+    assert.match(ordinary.id, /^task-shared-\d{8}-0000001$/);
+  } finally { await rm(stateDir, { recursive: true, force: true }); }
+});
+
 test("startup gate, pause, snapshots, and recall keep queue work durable", async () => {
   const stateDir = await mkdtemp(path.join(tmpdir(), "oat-task-manager-"));
   const prompts: Array<{ agentId: string; text: string }> = [];

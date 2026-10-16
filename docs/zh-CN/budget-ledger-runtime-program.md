@@ -65,7 +65,7 @@ programId, workPackageId, attemptId,
 executionEpoch, fencingToken, operationId, reservationId?
 ```
 
-Agent event 和 tool call 回传同一上下文，普通 Task 继续省略该字段。Shadow Guard 对 initial、tool continuation、retry、compaction、internal 五类调用执行冻结价格估算、可用余额判断和审计记录。shadow 永不阻断，也不占用真实额度；soft/hard 只有在判断通过后才创建幂等 Reservation。
+Agent event 和 tool call 回传同一上下文，普通 Task 继续省略该字段。生产 runner 已在 SDK 的共享 streamFunction 上安装预算包装，模型续轮、压缩和摘要调用都会再次经过父进程预算入口。每个受管调用生成独立 operation ID；Shadow 记录 would-block，Soft 在任务信封内创建幂等子 Reservation，并在交付模型终态前确认结算。受管 SDK 调用显式关闭底层自动重试，会话重试重新申请预算；这不构成 Provider 权威计费或 Hard 保证。完整协议见[模型调用计量与自动验收运行时](./model-metering-verification-runtime.md)。
 
 当前 hard 路径仍受 BLH-004 的 No-Go Gate 限制：Provider 内部重试和权威请求身份尚未达到 hard 证据等级。本阶段没有绕过或放宽该 Gate。
 
@@ -91,7 +91,7 @@ Program 草案创建在一个事务中写入：
 
 ## 7. 已知边界
 
-- Shadow Guard 已实现确定性组件和 IPC 上下文，但正式 Program 调度要到后续 Scheduler 任务才会调用它。
+- Program Coordinator 已接入生产 TaskManager，负责预算信封预留、Lease/Fencing、上下文绑定和续租；父进程 Prompt/Tool/Model 入口会重新校验执行上下文。SDK 调用级子 Reservation、回报 Usage 结算和未知结果保守对账已接入；Provider 权威账单、请求身份与实际发布环境验证仍待补齐。
 - hard mode 仍然 fail closed，不声称 Provider exactly-once 或权威计费能力。
 - Pricing Snapshot 是估算事实，不替代 Provider 最终账单。
 - 当前账户树创建后不可在线重分配；Budget Amendment/transfer 将由后续任务实现。

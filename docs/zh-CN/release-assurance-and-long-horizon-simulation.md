@@ -6,7 +6,11 @@
 
 `LongHorizonSimulator` 使用 seed 驱动的确定性 PRNG，在单进程数毫秒内模拟至少 90 个虚拟日和多个 Program。场景包含每日唤醒、暂停期间唤醒抑制、进程重启、新 execution epoch、系统时钟回拨、价格变化、审批延迟、Provider 429/5xx/402、重规划和保护收尾预算。该快速模型标记为 `evidenceLevel=synthetic`，只能用于确定性和策略回归，不能授权 Soft/Hard。
 
-仿真以逻辑单调时钟做调度判断，墙钟回拨不会令已发生的事件“回到过去”。结果记录 seed、事件计数、核心不变量和 trace digest；相同 seed 和输入必须产生完全相同的结果。结果持久化到 `simulation_runs`。Soft/Hard Gate 只接受标记为 `integrated`、且真实运行 Execution DB、Ledger、Lease、Effect、Snapshot、Resume 与故障注入路径的结果；合成结果必须 fail closed。
+`IntegratedLongHorizonSimulator` 已新增独立 SQLite 的真实组件仿真，覆盖 Execution DB、Ledger、Lease、Effect、Snapshot、Resume，以及计划审批、Wakeup、自动验收、重规划、收尾、备份恢复和六类故障注入。外部 Provider 与任务派发采用测试替身，重启通过重建服务、关闭重开数据库模拟；不声称真实远端会话已经通过演练。回拨在生产组件路径中验证，逻辑时钟保持单调，持久化幂等与 fencing 防止重复状态推进。
+
+结果记录 seed、输入、实际组件计数、事件、不变量、故障覆盖和规范化语义 trace digest；相同输入必须产生相同结果。报告写入临时 DB 的 `simulation_runs` 后可导出 JSON，临时执行目录随后移除。运行方式与详细边界见[指标告警与集成长周期仿真](./metrics-integrated-simulation-runtime.md)。
+
+Soft/Hard Gate 检查 integrated 报告的版本、完整性 digest、全部故障覆盖、实际计数和不变量；单纯改写 evidenceLevel 不足以授权。digest 只检测损坏，不认证不可信来源，也不能替代线上观察和 Provider 权威能力证据。
 
 必须保持为零的不变量包括：预算超支、重复外部副作用、旧 fencing token 副作用、迟到事件推进状态、快照秘密泄漏、跳过预检恢复，以及重启后不可解释 Program。
 

@@ -28,6 +28,8 @@ export type ToolResultPayload = {
 // ─── 主进程 → 子进程 ────────────────────────────────────────────────────────
 
 export type MainToChild =
+  | { type: "tool_effect_result"; requestId: string; error?: string }
+  | { type: "model_budget_result"; requestId: string; mode?: "shadow" | "soft"; error?: string }
   | {
       type: "start";
       /** AgentInstanceSpec 的可序列化子集。 */
@@ -61,6 +63,8 @@ export type MainToChild =
 // ─── 子进程 → 主进程 ────────────────────────────────────────────────────────
 
 export type ChildToMain =
+  | { type: "tool_effect_request"; requestId: string; request: import("../program/tool-effects-protocol").ToolEffectRequest }
+  | { type: "model_budget_request"; requestId: string; request: import("../budget/model-call-protocol").ModelCallRequest }
   | { type: "ready" }
   | {
       type: "agent_event";

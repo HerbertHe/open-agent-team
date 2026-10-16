@@ -47,3 +47,19 @@ test("BLH-001 loader resolves an omitted budget configuration without enabling s
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("model routing requires explicit capabilities/risk and loader preserves resolved candidate aliases", async () => {
+  const policy = { candidates: [{ modelRef: "default", capabilities: ["code"], maximumRisk: "high", qualityTier: 1 }], requiredCapabilities: ["code"], risk: "medium" };
+  const parsed = TeamFileSchema.parse(minimalTeam({ enabled: true, modelRouting: policy }));
+  assert.deepEqual(parsed.budgetExecution.modelRouting, policy);
+  assert.throws(() => TeamFileSchema.parse(minimalTeam({ modelRouting: { ...policy, candidates: [{ ...policy.candidates[0], qualityTier: -1 }] } })));
+  assert.throws(() => TeamFileSchema.parse(minimalTeam({ modelRouting: { ...policy, risk: undefined } })));
+  const root = mkdtempSync(path.join(tmpdir(), "oat-model-routing-config-"));
+  const file = path.join(root, "team.json");
+  writeFileSync(file, JSON.stringify(minimalTeam({ enabled: true, modelRouting: policy })), "utf8");
+  try {
+    const config = await loadConfig(file);
+    assert.equal(config.budgetExecution.modelRouting?.candidates[0]?.modelRef, "openai/test-model");
+    assert.equal(config.budgetExecution.modelRouting?.risk, "medium");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -1,7 +1,7 @@
 # BLH-005 Execution DB 启动器
 
 > 日期：2026-10-10
-> 状态：已实现并验证；尚未由 Orchestrator 自动打开。
+> 状态：已实现；已接入 Orchestrator 启动与关闭生命周期，仅在 `budgetExecution.enabled=true` 时打开并迁移。
 
 ## 文件位置
 
@@ -11,7 +11,7 @@
 <runtime.persistence.state_dir>/execution/execution.db
 ```
 
-模块导入没有副作用。只有父级实验功能显式启用后，后续 Orchestrator 集成才能调用 `openExecutionDatabase()`；因此默认关闭状态不会创建目录、数据库、定时器或后台 Worker。
+模块导入没有副作用。父级实验功能显式启用后，Orchestrator 调用 `openExecutionDatabase()`、执行版本化迁移并注册实验 Program 服务和调度循环；启动初始化失败时关闭连接并抛出错误，正常停机时关闭连接。默认关闭状态不会创建 Execution DB 目录、数据库或启动 Program 调度循环。
 
 ## 打开策略
 
@@ -48,3 +48,5 @@ PRAGMA quick_check;
 - `close()` 幂等；
 - 损坏数据库和只读存储均 fail closed；
 - 启动写探针不会遗留表。
+
+当前 Schema 为 v7，共享同一 SQLite 的实例使用持久化 owner/fence 协调；停机先排空调度并停止续租，再关闭数据库。详见[跨实例调度协调](./cross-instance-scheduling-runtime.md)。

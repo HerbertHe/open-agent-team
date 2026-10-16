@@ -152,7 +152,7 @@ export class ExecutionOutboxRepository {
     };
   }
 
-  claimNext(input: { workerId: string; now: string; leaseExpiresAt: string }): ClaimedOutboxEvent | undefined {
+  claimNext(input: { workerId: string; now: string; leaseExpiresAt: string; eventType?: string; schedulerOwnerId?: string }): ClaimedOutboxEvent | undefined {
     const workerId = OpaqueIdSchema.parse(input.workerId);
     const now = TimestampSchema.parse(input.now);
     const leaseExpiresAt = TimestampSchema.parse(input.leaseExpiresAt);
@@ -161,11 +161,14 @@ export class ExecutionOutboxRepository {
     return this.database.transaction(() => {
       const candidate = this.database.prepare(`
         SELECT id FROM execution_outbox
-        WHERE (state = 'pending' AND available_at <= ?)
-           OR (state = 'publishing' AND lease_expires_at <= ?)
+        WHERE ((state = 'pending' AND available_at <= ?)
+           OR (state = 'publishing' AND lease_expires_at <= ?))
+          AND (? IS NULL OR event_type = ?)
+          AND (? IS NULL OR NOT EXISTS (SELECT 1 FROM program_scheduler_leases s WHERE s.program_id=execution_outbox.aggregate_id
+            AND s.expires_at>? AND s.owner_id<>?))
         ORDER BY available_at, created_at, id
         LIMIT 1
-      `).get(now, now) as { id: string } | undefined;
+      `).get(now, now, input.eventType ?? null, input.eventType ?? null, input.schedulerOwnerId ?? null, now, input.schedulerOwnerId ?? null) as { id: string } | undefined;
       if (!candidate) return undefined;
       const updated = this.database.prepare(`
         UPDATE execution_outbox
@@ -188,6 +191,15 @@ export class ExecutionOutboxRepository {
       };
       return claimed;
     }).immediate();
+  }
+
+  /** Pause is not a delivery failure and must not exhaust the retry budget. */
+  defer(id: string, workerId: string, availableAt: string): void {
+    const result = this.database.prepare(`UPDATE execution_outbox SET state='pending', available_at=?,
+      attempts=MAX(0,attempts-1), lease_owner=NULL, lease_expires_at=NULL
+      WHERE id=? AND state='publishing' AND lease_owner=?`)
+      .run(TimestampSchema.parse(availableAt), OpaqueIdSchema.parse(id), OpaqueIdSchema.parse(workerId));
+    if (result.changes !== 1) throw new ExecutionOutboxError("OUTBOX_LEASE_CONFLICT", `Worker ${workerId} does not own outbox event ${id}`);
   }
 
   markPublished(id: string, workerId: string, publishedAt: string): void {

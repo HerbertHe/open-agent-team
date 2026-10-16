@@ -51,7 +51,7 @@ export class WakeupService {
         const key = outboxDedupeKey(wakeup.dedupeKey);
         const id = eventId(key);
         insertExecutionOutboxEvent(this.database, { id, dedupeKey: key, aggregateType: "program", aggregateId: wakeup.programId,
-          eventType: "program.wakeup_due", payload: { wakeupId: wakeup.id, ...wakeup.payload }, availableAt: now, createdAt: now });
+          eventType: "program.wakeup_due", payload: { ...wakeup.payload, wakeupId: wakeup.id }, availableAt: now, createdAt: now });
         input.faultInjector?.("after_outbox");
         this.database.prepare(`UPDATE wakeups SET state = 'dispatched', outbox_event_id = ?, dispatched_at = ?, updated_at = ?
           WHERE id = ? AND state = 'pending'`).run(id, now, now, wakeup.id);

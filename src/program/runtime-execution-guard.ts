@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { RuntimeExecutionAuthorization } from "../sandbox/interface";
 import type { ExecutionDatabase } from "./execution-database";
 import { ExecutionBarrier } from "./execution-barrier";
+import { assertAttemptSchedulerOwnership } from "./scheduler-ownership";
 
 export class RuntimeExecutionGuardError extends Error {
   constructor(readonly code: "STALE_EXECUTION" | "INVALID_RESERVATION", message: string) {
@@ -15,7 +16,7 @@ export class RuntimeExecutionGuard {
   private readonly database: Database.Database;
   private readonly barrier: ExecutionBarrier;
 
-  constructor(handle: ExecutionDatabase, private readonly now: () => string = () => new Date().toISOString()) {
+  constructor(handle: ExecutionDatabase, private readonly now: () => string = () => new Date().toISOString(), private readonly instanceId?: string) {
     this.database = handle.connection;
     this.barrier = new ExecutionBarrier(handle);
   }
@@ -37,6 +38,8 @@ export class RuntimeExecutionGuard {
         program_id: string; owner_id: string | null; expires_at: string | null;
       } | undefined;
     const now = this.now();
+    try { assertAttemptSchedulerOwnership(this.database, context.attemptId, context.programId, now, this.instanceId); }
+    catch (error) { throw new RuntimeExecutionGuardError("STALE_EXECUTION", error instanceof Error ? error.message : String(error)); }
     if (!attempt
       || attempt.program_id !== context.programId
       || attempt.work_package_id !== context.workPackageId

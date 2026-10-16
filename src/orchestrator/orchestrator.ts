@@ -1,3 +1,4 @@
+import { ProgramMetrics } from "../program/program-metrics";
 import express from "express";
 import type { Server } from "node:http";
 import net from "node:net";
@@ -33,6 +34,12 @@ import { KnowledgeService } from "../knowledge/knowledge-service";
 import { resolveMemoryExtractor } from "../memory/memory-extractor";
 import { loadGlobalModelCatalog, parseGlobalModelCatalog } from "../models/global-models";
 import { openExecutionDatabase, type ExecutionDatabase } from "../program/execution-database";
+import { ProgramPlanningService, registerExperimentalPlanningRoutes } from "../program/program-planning-service";
+import { ModelCallService } from "../budget/model-call-service";
+import { ProgramVerificationRuntime } from "../program/program-verification-runtime";
+import { createDefaultAcceptanceValidators } from "../program/default-acceptance-validators";
+import { ToolEffectService, registerExperimentalEffectRoutes } from "../program/tool-effect-service";
+import { queryOatEffectState } from "../program/oat-effect-state-query";
 import { migrateExecutionDatabase } from "../program/execution-migrations";
 import { ProgramService, registerExperimentalProgramRoutes } from "../program/program-service";
 import { ProgramControlService, registerExperimentalProgramControlRoutes } from "../program/program-control-service";
@@ -61,6 +68,11 @@ import { buildScratchpadTool } from "../memory/scratchpad-tool";
 import { buildAgentMemoryTools } from "../memory/agent-memory-tools";
 import { RuntimeExecutionGuard } from "../program/runtime-execution-guard";
 import { ProgramExecutionCoordinator, registerExperimentalProgramExecutionRoutes } from "../program/program-execution-coordinator";
+import { ProgramWakeupRuntime } from "../program/program-wakeup-runtime";
+import { ProgramLifecycleRuntime } from "../program/program-lifecycle-runtime";
+import { ProgramCloseoutRuntime } from "../program/program-closeout-runtime";
+import { canonicalModelRef, selectProgramModelAgent } from "../program/program-model-routing";
+import { SchedulerOwnership } from "../program/scheduler-ownership";
 
 function fetchImageHttps(urlStr: string, maxRedirects = 5): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -136,6 +148,11 @@ export class Orchestrator {
   private readonly memoryFederationToken = randomUUID();
   private logCleanupTimer?: NodeJS.Timeout;
   private programExecutionTimer?: NodeJS.Timeout;
+  private programWakeups?: ProgramWakeupRuntime;
+  private programExecutionCoordinator?: ProgramExecutionCoordinator;
+  private readonly executionInstanceId = `instance:${randomUUID()}`;
+  private programVerifier?: ProgramVerificationRuntime;
+  private programToolEffects?: ToolEffectService;
   private executionDatabase?: ExecutionDatabase;
   private programControlService?: ProgramControlService;
   private programResumeService?: ResumeService;
@@ -1778,8 +1795,14 @@ export class Orchestrator {
       const executionDatabase = openExecutionDatabase(this.stateDir);
       try {
         migrateExecutionDatabase(executionDatabase);
-        const runtimeExecutionGuard = new RuntimeExecutionGuard(executionDatabase);
+        const runtimeExecutionGuard = new RuntimeExecutionGuard(executionDatabase, undefined, this.executionInstanceId);
         this.runtimeProvider.setExecutionAuthorizer((input) => runtimeExecutionGuard.assertAllowed(input));
+        const modelCalls = new ModelCallService(executionDatabase, this.config.budgetExecution.mode, () => loadGlobalModelCatalog(), undefined, this.executionInstanceId);
+        this.runtimeProvider.setModelCallHandler((agentId, modelRef, request) => modelCalls.processCall(agentId, modelRef, request));
+        const toolEffects = new ToolEffectService(executionDatabase, this.config.budgetExecution.mode,
+          (effect) => queryOatEffectState(this.taskManager, effect), this.config.project.name, undefined, undefined, this.executionInstanceId);
+        this.runtimeProvider.setToolEffectHandler((agentId, workspacePath, request, virtualWorkspace) => toolEffects.processBuiltin(agentId, workspacePath, request, virtualWorkspace));
+        this.runtimeProvider.setToolExecutor((input) => toolEffects.execute(input));
         const providerProfiles = Object.fromEntries(Object.entries(this.config.providers).map(([providerId, provider]) => [
           providerId, createConservativeProviderBudgetCapabilityProfile(providerId, provider),
         ]));
@@ -1792,11 +1815,17 @@ export class Orchestrator {
             providerProfiles,
           }),
         });
-        const programService = new ProgramService(executionDatabase, true, await loadGlobalModelCatalog());
+        let routingCatalog = await loadGlobalModelCatalog();
+        const programService = new ProgramService(executionDatabase, true, routingCatalog);
         registerExperimentalProgramRoutes(this.app, programService, true);
+        registerExperimentalPlanningRoutes(this.app, new ProgramPlanningService(executionDatabase, true, this.config.project.name), true);
+        registerExperimentalEffectRoutes(this.app, toolEffects, true);
+        this.programToolEffects = toolEffects;
         registerExperimentalProgramReadRoutes(this.app, new ProgramReadModel(executionDatabase), true);
         const activeTaskStatuses = new Set([QueuedTaskStatusEnum.Queued, QueuedTaskStatusEnum.Running, QueuedTaskStatusEnum.Waiting, QueuedTaskStatusEnum.ReviewPending]);
-        const resolveAvailableAgent = (workPackage: import("../program/program-types").WorkPackage): string | undefined => {
+        const resources = new SchedulerOwnership(executionDatabase, this.executionInstanceId);
+        const resolveAvailableAgent = (workPackage: import("../program/program-types").WorkPackage, mode: import("../program/plan-scheduler").BudgetMode = "balanced"): string | undefined => {
+          const projectId = executionDatabase.connection.prepare("SELECT project_id FROM programs WHERE id=?").pluck().get(workPackage.programId) as string;
           const teamNames = workPackage.targetTeam ? [workPackage.targetTeam] : this.config.teams.map((team) => team.name);
           const candidates = workPackage.targetAgentRole === "admin"
             ? ["admin"]
@@ -1806,29 +1835,52 @@ export class Orchestrator {
                 const team = this.config.teams.find((candidate) => candidate.name === teamName);
                 return Array.from({ length: team?.worker.total ?? 0 }, (_, index) => `${teamName}-worker-${index}`);
               });
-          return candidates
+          const available = candidates
             .filter((agentId) => { try { this.taskManager.getAgent(agentId); return true; } catch { return false; } })
             .filter((agentId) => !this.taskManager.getTasks(agentId).some((task) => activeTaskStatuses.has(task.status)))
-            .sort((left, right) => this.taskManager.getTasks(left).length - this.taskManager.getTasks(right).length || left.localeCompare(right))[0];
+            .filter((agentId) => resources.resourceAvailable(projectId, `agent:${agentId}`))
+            .sort((left, right) => this.taskManager.getTasks(left).length - this.taskManager.getTasks(right).length || left.localeCompare(right));
+          return selectProgramModelAgent(executionDatabase, routingCatalog, this.config.budgetExecution.modelRouting, {
+            programId: workPackage.programId, mode,
+            agents: available.map((id) => ({ id, modelRef: this.taskManager.getAgent(id).spec.model })),
+          })?.agentId;
         };
+        const reconcileAttempt = async (attemptId: string) => { await modelCalls.reconcileAttempt(attemptId); await toolEffects.endAttempt(attemptId); };
+        const acceptanceValidators = createDefaultAcceptanceValidators(this.runtimeProvider instanceof DockerSessionProvider
+          ? this.runtimeProvider.verifyCommand.bind(this.runtimeProvider) : undefined);
+        const verificationRuntime = new ProgramVerificationRuntime(executionDatabase,
+          (id) => this.taskManager.getTasks().find((task) => task.id === id),
+          (task) => task.git?.workspacePath ?? this.runtimeProvider.describeSession(task.targetAgentId)?.workspacePath,
+          reconcileAttempt, acceptanceValidators, undefined, { autoCloseout: false });
+        this.programVerifier = verificationRuntime;
+        const snapshotStore = new SuspensionSnapshotStore(executionDatabase, this.stateDir);
+        const quiesceProgram = async (programId: string) => { await verificationRuntime.cancel(programId); await toolEffects.quiesce(programId); };
+        const controlService = new ProgramControlService(executionDatabase, this.runtimeProvider, snapshotStore, true, quiesceProgram, this.executionInstanceId);
+        const closeoutRuntime = new ProgramCloseoutRuntime(executionDatabase, controlService, snapshotStore, quiesceProgram, reconcileAttempt);
+        const lifecycle = new ProgramLifecycleRuntime(executionDatabase, async (programId, now, reason, assertCurrent) => { await closeoutRuntime.close(programId, now, reason, assertCurrent); },
+          { validatorVersion: (type) => acceptanceValidators.versionFor(type) });
         const executionCoordinator = new ProgramExecutionCoordinator(executionDatabase, {
           createTask: (body) => this.taskManager.createTask(body),
           getTask: (id) => this.taskManager.getTasks().find((task) => task.id === id),
-          findTaskByConflictKey: (conflictKey) => this.taskManager.getTasks().find((task) => task.conflictKey === conflictKey),
+          findTaskByConflictKey: (conflictKey, attemptId) => this.taskManager.getTasks().find((task) => task.conflictKey === conflictKey && (!attemptId || task.executionContext?.attemptId === attemptId)),
           resolveAgent: resolveAvailableAgent,
-        }, Math.max(1, this.config.teams.reduce((count, team) => count + team.worker.total, 0)));
+          modelRefForAgent: (id) => canonicalModelRef(this.taskManager.getAgent(id).spec.model),
+        }, Math.max(1, this.config.teams.reduce((count, team) => count + team.worker.total, 0)), {
+          reconcileAttempt,
+          instanceId: this.executionInstanceId, clock: () => new Date().toISOString(),
+          verifyProgram: async (programId, assertCurrent) => { await toolEffects.reconcile(programId); assertCurrent?.(); await verificationRuntime.advance(programId, assertCurrent); },
+          maintainProgram: async (programId, now, assertCurrent) => {
+            await lifecycle.advance(programId, now, assertCurrent);
+            if (this.config.budgetExecution.modelRouting) routingCatalog = await loadGlobalModelCatalog();
+          },
+        });
+        this.programExecutionCoordinator = executionCoordinator;
         registerExperimentalProgramExecutionRoutes(this.app, executionCoordinator, true);
-        this.programExecutionTimer = setInterval(() => {
-          const programIds = executionDatabase.connection.prepare("SELECT id FROM programs WHERE status IN ('admitted','running','waiting') ORDER BY updated_at").pluck().all() as string[];
-          for (const programId of programIds) void executionCoordinator.tick(programId).catch((error) => {
-            if (!String(error).includes("already being scheduled")) logger.warn("Experimental program execution tick failed", { programId, error: error instanceof Error ? error.message : String(error) });
-          });
-        }, 10_000);
-        this.programExecutionTimer.unref();
-        const snapshotStore = new SuspensionSnapshotStore(executionDatabase, this.stateDir);
-        const controlService = new ProgramControlService(executionDatabase, this.runtimeProvider, snapshotStore, true);
+        this.programWakeups = new ProgramWakeupRuntime(executionDatabase,
+          (programId, now) => executionCoordinator.tick(programId, now), undefined, 10_000,
+          (error) => logger.warn("Experimental Program wakeup delivery failed", { error: String(error) }), this.executionInstanceId);
         registerExperimentalProgramControlRoutes(this.app, controlService, true);
-        const resumeService = new ResumeService(executionDatabase, snapshotStore, this.runtimeProvider);
+        const resumeService = new ResumeService(executionDatabase, snapshotStore, this.runtimeProvider, undefined, this.executionInstanceId);
         resumeService.recoverInterrupted(new Date().toISOString());
         registerExperimentalResumeRoute(this.app, resumeService, true);
         this.programControlService = controlService;
@@ -2101,6 +2153,20 @@ export class Orchestrator {
       });
     }
 
+    if (this.programWakeups && this.executionDatabase) {
+      this.programExecutionCoordinator?.start();
+      const poll = () => {
+        this.programResumeService?.recoverInterrupted(new Date().toISOString(), true);
+        try { new ProgramMetrics(this.executionDatabase!).evaluateAll(); }
+        catch { logger.warn("Experimental Program metrics evaluation failed", { reason: "metrics_evaluation_failed" }); }
+        const effectProgramIds = this.executionDatabase!.connection.prepare("SELECT DISTINCT program_id FROM effects WHERE state IN ('dispatched','uncertain')").pluck().all() as string[];
+        for (const programId of effectProgramIds) void this.programToolEffects?.reconcile(programId).catch((error) => logger.warn("Experimental tool effect reconciliation failed", { programId, error: String(error) }));
+        void this.programWakeups!.poll().catch((error) => logger.warn("Experimental Program wakeup poll failed", { error: String(error) }));
+      };
+      this.programExecutionTimer = setInterval(poll, 10_000);
+      this.programExecutionTimer.unref();
+      poll();
+    }
     httpServer = this.app.listen(this.port, "127.0.0.1", () => {
       logger.info(t("orchestrator_listening_on", { port: this.port }));
       this.observabilityHub.emit({
@@ -2164,6 +2230,9 @@ export class Orchestrator {
           logger.warn(t("operation_failed", { operation: "gateway_stop", error: err.message }));
         }
 
+        if (this.programExecutionTimer) clearInterval(this.programExecutionTimer);
+        await this.programWakeups?.stop();
+        await this.programExecutionCoordinator?.stop();
         try {
           await this.runtimeProvider.stopAll();
         } catch (e) {
@@ -2172,7 +2241,8 @@ export class Orchestrator {
           });
         }
         if (this.logCleanupTimer) clearInterval(this.logCleanupTimer);
-        if (this.programExecutionTimer) clearInterval(this.programExecutionTimer);
+        await this.programVerifier?.cancelAll();
+        await this.programToolEffects?.quiesceAll();
         await this.knowledgeService.stop();
         await this.memoryService.stop();
         await this.taskManager.flushSchedulerState();

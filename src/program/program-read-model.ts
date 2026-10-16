@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { ProgramMetrics } from "./program-metrics";
 import type { ExecutionDatabase } from "./execution-database";
 
 export class ProgramReadModel {
@@ -26,7 +27,13 @@ export class ProgramReadModel {
         WHERE w.program_id=? AND a.status='uncertain'`).pluck().get(programId) ?? 0),
     };
     const latestSnapshot = this.handle.connection.prepare("SELECT id,created_at FROM suspension_snapshots WHERE program_id=? ORDER BY created_at DESC LIMIT 1").get(programId);
-    return { program, accounts, packages, dependencies, timeline, uncertainty, latestSnapshot, sourceOfTruth: "execution_database" };
+    const closeout = this.handle.connection.prepare("SELECT report_json FROM program_closeouts WHERE program_id=?").get(programId) as { report_json: string } | undefined;
+    const schedulerOwnership = this.handle.connection.prepare("SELECT owner_id ownerId,fencing_token fencingToken,expires_at expiresAt,tick_id tickId,tick_expires_at tickExpiresAt FROM program_scheduler_leases WHERE program_id=?").get(programId);
+    const resourceClaims = this.handle.connection.prepare(`SELECT c.resource_key resourceKey,c.attempt_id attemptId FROM execution_resource_claims c
+      JOIN work_package_attempts a ON a.id=c.attempt_id JOIN work_packages w ON w.id=a.work_package_id WHERE w.program_id=? ORDER BY c.resource_key`).all(programId);
+    return { program, accounts, packages, dependencies, timeline, uncertainty, latestSnapshot,
+      metrics: new ProgramMetrics(this.handle).snapshot(programId), alerts: new ProgramMetrics(this.handle).listAlerts(programId),
+      ...(closeout ? { closeoutReport: JSON.parse(closeout.report_json) } : {}), schedulerOwnership, resourceClaims, sourceOfTruth: "execution_database" };
   }
 }
 

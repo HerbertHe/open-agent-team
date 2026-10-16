@@ -299,7 +299,7 @@ Desktop 支持**多项目切换**，通过 `~/.oat/projects/` 下的符号链接
 
 为了避免“文档承诺超过实现”，这里列出当前明显的边界：
 
-- `runtime.mode`：当前只实现 `local_process` 运行时
+- `runtime.mode`：已实现 `local_process` 与 `docker`；Docker 由 `DockerSessionProvider` 管理容器 Session。Pi Extensions 的 Docker-only 加载仍为[待实现方案](./pi-extensions-docker-design.md)。
 - `workspace.provider`：当前只实现 `worktree`，其他策略尚未实现
 - `team.worker.total`：worker 池大小（team 启动时按该数量预先创建；leader 完成任务后，对应的 leader + worker session/workspace 会自动清理）
 - `team.worker.skill_sync`：虽然在 schema/loader 中存在默认值，但当前实现暂未按该字段分支；session 隔离通过 `resetSession` 在每次重新派发任务前清空对话历史来保证

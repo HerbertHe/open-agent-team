@@ -1,8 +1,10 @@
 # BLH-021～030：计划、准入、调度与长期运行基础
 
-> 状态：已实现并验证。全部能力仍为实验性，受父开关 `budgetExecution.enabled` 控制，默认 `false`；当前 hard 模式仍为 No-Go。关闭时不得启动这些 worker 或注册写接口，只允许历史只读、对账和安全 closeout。
+> 状态：计划与调度基础组件已实现，BLH-026～030 生产集成仍为 partial。全部能力仍为实验性，受父开关 `budgetExecution.enabled` 控制，默认 `false`；当前 hard 模式仍为 No-Go。关闭时不打开 Execution DB、不启动 Program worker，也不注册实验 Program 路由。
 
 ## 1. 模块边界
+
+`program-planning-service.ts` 已提供计划提交、准入评估、查询和审批激活的业务入口，并在实验父开关开启时接入 Orchestrator。接口、版本约束及冷启动估算边界见 [Program 计划 API](./program-planning-api.md)。
 
 | 任务 | 实现 | 核心保证 |
 | --- | --- | --- |
@@ -14,7 +16,7 @@
 | BLH-026 | `plan-activation-service.ts` | revision CAS 下原子激活 Plan、绑定 Program、开放根任务和追加 Outbox |
 | BLH-027 | `plan-scheduler.ts` | 依赖、Tier、模式、冲突、并发、能力、时间与预算全部通过才可选择；排序确定 |
 | BLH-028 | `lease-service.ts` | 每次重领递增 fencing token；过期 owner 不能续租或提交状态 |
-| BLH-029 | `wakeup-service.ts`、`wakeups` | 唤醒与 Outbox 同事务；重启补发，dedupe key 保证不重复 |
+| BLH-029 | `wakeup-service.ts`、`program-wakeup-runtime.ts`、`wakeups` | 唤醒与 Outbox 同事务；专用消费者接入常驻调度，重启补发、暂停延期及 epoch 隔离 |
 | BLH-030 | `task-board-projection.ts`、`task_board_projections` | Task Board 是单向 UI 投影；失败可重试但不修改事实、不触发执行 |
 
 ## 2. 计划与准入不变量
@@ -49,6 +51,8 @@ Wakeup 是事实记录，不依赖进程内 timer。到期扫描按 `wake_at, pr
 Task Board worker 只消费已经 published 的 Work Package Outbox 事件。投影写入独立 map/table，不写 `taskById`、Agent FIFO 或 Program 事实表；投影适配器失败只记录 failed/attempts/last_error，后续重试。
 
 ## 5. 完整时序图
+
+以下展示组件协议；首批自动验收及持久化 Wakeup 已接入生产 tick，共享 SQLite 的跨实例 owner/fence、资源占用与保守接管已接入。唤醒的至少一次消费、重放和恢复边界见[持久化唤醒运行时](./persistent-wakeup-runtime.md)。
 
 ```mermaid
 sequenceDiagram
@@ -137,4 +141,8 @@ sequenceDiagram
 
 ## 6. 仍未开放的保证
 
-BLH-021～030 只完成计划到长期调度的基础闭环。Checkpoint/Continuation、用户中止与快照恢复、未知副作用对账、closeout、启动恢复、完整 API/UI 及 hard-mode provider/runtime gate 属于 BLH-031 以后任务。因此父开关继续默认关闭，shadow/soft 不得宣传为“硬预算保证”，hard 继续 fail-closed。
+Program Coordinator 已以常驻 10 秒循环连接计划选择、预算预留、Lease/Fencing 和 TaskManager；ReviewPending 继续续租，Task Completed 后进入 `verifying` 并执行文件、命令或 JSON 测试报告验收。证据提交检查 epoch/lease，成功后推进工作包和后续依赖，活动计划完成后触发 Closeout；其他验收 Adapter 仍待接入。Wakeup 已通过专用 Outbox 消费者驱动常驻调度；共享 SQLite 的跨实例调度已集成，远端会话迁移仍待扩展。Checkpoint、中止/恢复 API、启动恢复及 Desktop 控制入口已实现，具体边界见 [Checkpoint、中止恢复与外部副作用安全](./checkpoint-interrupt-effects-runtime.md)。SDK 模型流、OAT/SDK 工具执行入口已接入预算与副作用网关，首批状态查询用于对账且未决操作阻止自动完整交付；Provider 权威计费、其他工具 Adapter、集成长周期仿真及真实发布观察证据仍待补齐。父开关继续默认关闭，shadow/soft 不得宣传为“硬预算保证”，hard 继续 fail closed。
+
+有限重试、完成项证据继承、原子计划切换、配置式模型路由及带恢复点的安全收尾已接入常驻 tick，详见[重规划、规则路由与收尾运行时](./replanning-routing-closeout-runtime.md)。
+
+Schema v7 的 owner/fence、原子派发、项目资源占用和保守故障接管见[跨实例调度协调](./cross-instance-scheduling-runtime.md)。

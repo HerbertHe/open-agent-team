@@ -52,7 +52,9 @@
     "dev:www": "pnpm --filter www run dev",
     "build:www": "pnpm --filter www run build",
     "dev:desktop": "pnpm --filter ./desktop run dev",
-    "build:desktop": "pnpm --filter ./desktop run build"
+    "build:desktop": "pnpm --filter ./desktop run build",
+    "test:program": "node --import tsx --test src/program/*.test.ts src/budget/*.test.ts src/sandbox/*.test.ts src/config/budget-execution-config.test.ts src/orchestrator/task-manager.test.ts",
+    "simulate:program": "node --import tsx scripts/run-program-simulation.ts"
   },
   "license": "MIT",
   "author": {

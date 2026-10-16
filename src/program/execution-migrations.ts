@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { ExecutionDatabase } from "./execution-database";
 
-export const EXECUTION_SCHEMA_VERSION = 6;
+export const EXECUTION_SCHEMA_VERSION = 7;
 
 const SCHEMA_V1_SQL = `
 CREATE TABLE execution_schema_migrations (
@@ -516,6 +516,44 @@ const V5_TABLES = [
   "verification_evidence",
 ].sort();
 const V5_CHECKSUM = createHash("sha256").update(SCHEMA_V5_SQL).digest("hex");
+const SCHEMA_V7_SQL = `
+CREATE TABLE program_scheduler_leases (
+  program_id TEXT PRIMARY KEY REFERENCES programs(id) ON DELETE CASCADE,
+  owner_id TEXT NOT NULL,
+  fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
+  expires_at TEXT NOT NULL,
+  tick_id TEXT,
+  tick_expires_at TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK((tick_id IS NULL) = (tick_expires_at IS NULL))
+);
+CREATE TABLE attempt_execution_owners (
+  attempt_id TEXT PRIMARY KEY REFERENCES work_package_attempts(id) ON DELETE CASCADE,
+  program_id TEXT NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+  owner_id TEXT NOT NULL,
+  scheduler_fencing_token INTEGER NOT NULL CHECK(scheduler_fencing_token > 0)
+);
+CREATE TABLE execution_resource_claims (
+  project_id TEXT NOT NULL,
+  resource_key TEXT NOT NULL,
+  attempt_id TEXT NOT NULL REFERENCES work_package_attempts(id) ON DELETE CASCADE,
+  PRIMARY KEY(project_id, resource_key)
+);
+CREATE INDEX idx_execution_resource_attempt ON execution_resource_claims(attempt_id);
+CREATE TRIGGER attempt_execution_owners_program_insert BEFORE INSERT ON attempt_execution_owners
+WHEN NOT EXISTS (SELECT 1 FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id WHERE a.id=NEW.attempt_id AND w.program_id=NEW.program_id)
+BEGIN SELECT RAISE(ABORT,'attempt scheduler Program mismatch'); END;
+CREATE TRIGGER attempt_execution_owners_program_update BEFORE UPDATE ON attempt_execution_owners
+WHEN NOT EXISTS (SELECT 1 FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id WHERE a.id=NEW.attempt_id AND w.program_id=NEW.program_id)
+BEGIN SELECT RAISE(ABORT,'attempt scheduler Program mismatch'); END;
+CREATE TRIGGER execution_resource_claims_project_insert BEFORE INSERT ON execution_resource_claims
+WHEN NOT EXISTS (SELECT 1 FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id JOIN programs p ON p.id=w.program_id WHERE a.id=NEW.attempt_id AND p.project_id=NEW.project_id)
+BEGIN SELECT RAISE(ABORT,'resource claim project mismatch'); END;
+CREATE TRIGGER execution_resource_claims_project_update BEFORE UPDATE ON execution_resource_claims
+WHEN NOT EXISTS (SELECT 1 FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id JOIN programs p ON p.id=w.program_id WHERE a.id=NEW.attempt_id AND p.project_id=NEW.project_id)
+BEGIN SELECT RAISE(ABORT,'resource claim project mismatch'); END;
+`;
+const V7_CHECKSUM = createHash("sha256").update(SCHEMA_V7_SQL).digest("hex");
 const V6_TABLES = [...V5_TABLES, "release_gate_records", "simulation_runs", "threat_model_reviews"].sort();
 const V6_CHECKSUM = createHash("sha256").update(SCHEMA_V6_SQL).digest("hex");
 const V6_TRIGGERS = [...V1_TRIGGERS,
@@ -523,6 +561,10 @@ const V6_TRIGGERS = [...V1_TRIGGERS,
   "simulation_runs_no_delete", "simulation_runs_no_update",
   "threat_model_reviews_no_delete", "threat_model_reviews_no_update",
 ].sort();
+
+const V7_TABLES = [...V6_TABLES, "program_scheduler_leases", "attempt_execution_owners", "execution_resource_claims"].sort();
+const V7_TRIGGERS = [...V6_TRIGGERS, "attempt_execution_owners_program_insert", "attempt_execution_owners_program_update",
+  "execution_resource_claims_project_insert", "execution_resource_claims_project_update"].sort();
 
 export type ExecutionMigrationErrorCode =
   | "SCHEMA_TOO_NEW"
@@ -539,7 +581,7 @@ export class ExecutionMigrationError extends Error {
 
 export interface ExecutionMigrationOptions {
   appliedAt?: string;
-  faultInjector?: (point: "v1_after_schema" | "v2_after_schema" | "v3_after_schema" | "v4_after_schema" | "v5_after_schema" | "v6_after_schema") => void;
+  faultInjector?: (point: "v1_after_schema" | "v2_after_schema" | "v3_after_schema" | "v4_after_schema" | "v5_after_schema" | "v6_after_schema" | "v7_after_schema") => void;
 }
 
 export interface ExecutionMigrationResult {
@@ -703,7 +745,45 @@ function validateSchemaV6(database: Database.Database): void {
   if ((database.pragma("foreign_key_check") as unknown[]).length) throw new ExecutionMigrationError("SCHEMA_DRIFT", "Execution schema contains foreign key violations");
 }
 
+function validateSchemaV7(database: Database.Database): void {
+  const actualTables = userTables(database);
+  if (actualTables.length !== V7_TABLES.length || actualTables.some((name, index) => name !== V7_TABLES[index])) {
+    throw new ExecutionMigrationError("SCHEMA_DRIFT", `Execution schema tables do not match v7: ${actualTables.join(",")}`);
+  }
+  for (const expected of [
+    { version: 1, name: "initial_program_schema", checksum: V1_CHECKSUM },
+    { version: 2, name: "budget_ledger_schema", checksum: V2_CHECKSUM },
+    { version: 3, name: "planning_runtime_schema", checksum: V3_CHECKSUM },
+    { version: 4, name: "control_effects_schema", checksum: V4_CHECKSUM },
+    { version: 5, name: "operations_closeout_schema", checksum: V5_CHECKSUM },
+    { version: 6, name: "release_assurance_schema", checksum: V6_CHECKSUM },
+    { version: 7, name: "scheduler_ownership_schema", checksum: V7_CHECKSUM },
+  ]) {
+    const migration = database.prepare("SELECT name,checksum FROM execution_schema_migrations WHERE version=?").get(expected.version) as { name: string; checksum: string } | undefined;
+    if (!migration || migration.name !== expected.name || migration.checksum !== expected.checksum) throw new ExecutionMigrationError("SCHEMA_DRIFT", `Execution schema v${expected.version} migration history is invalid`);
+  }
+  const triggers = database.prepare("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name").pluck().all() as string[];
+  if (triggers.length !== V7_TRIGGERS.length || triggers.some((name, index) => name !== V7_TRIGGERS[index])) throw new ExecutionMigrationError("SCHEMA_DRIFT", `Execution schema triggers do not match v7: ${triggers.join(",")}`);
+  if ((database.pragma("foreign_key_check") as unknown[]).length) throw new ExecutionMigrationError("SCHEMA_DRIFT", "Execution schema contains foreign key violations");
+}
+
 export function migrateExecutionDatabase(
+  handle: ExecutionDatabase,
+  options: ExecutionMigrationOptions = {},
+): ExecutionMigrationResult {
+  for (let attempt = 0; ; attempt++) {
+    const before = Number(handle.connection.pragma("user_version", { simple: true }));
+    try { return migrateExecutionDatabaseOnce(handle, options); }
+    catch (error) {
+      const after = Number(handle.connection.pragma("user_version", { simple: true }));
+      // Another process may have committed the same migration between our
+      // version read and DDL. Re-read and validate instead of accepting drift.
+      if (attempt >= EXECUTION_SCHEMA_VERSION || options.faultInjector || after <= before || after > EXECUTION_SCHEMA_VERSION) throw error;
+    }
+  }
+}
+
+function migrateExecutionDatabaseOnce(
   handle: ExecutionDatabase,
   options: ExecutionMigrationOptions = {},
 ): ExecutionMigrationResult {
@@ -719,7 +799,7 @@ export function migrateExecutionDatabase(
     );
   }
   if (fromVersion === EXECUTION_SCHEMA_VERSION) {
-    validateSchemaV6(database);
+    validateSchemaV7(database);
     return { fromVersion, toVersion: fromVersion, appliedVersions: [] };
   }
   if (fromVersion === 0 && userTables(database).length > 0) {
@@ -794,18 +874,28 @@ export function migrateExecutionDatabase(
     } else if (fromVersion === 5) {
       validateSchemaV5(database);
     }
+    if (fromVersion < 6) {
+      database.transaction(() => {
+        database.exec(SCHEMA_V6_SQL);
+        options.faultInjector?.("v6_after_schema");
+        database.prepare("INSERT INTO execution_schema_migrations(version,name,checksum,applied_at) VALUES(6,?,?,?)")
+          .run("release_assurance_schema", V6_CHECKSUM, appliedAt);
+        database.pragma("user_version = 6");
+      }).immediate();
+      appliedVersions.push(6);
+    } else if (fromVersion === 6) validateSchemaV6(database);
     database.transaction(() => {
-      database.exec(SCHEMA_V6_SQL);
-      options.faultInjector?.("v6_after_schema");
-      database.prepare("INSERT INTO execution_schema_migrations(version,name,checksum,applied_at) VALUES(6,?,?,?)")
-        .run("release_assurance_schema", V6_CHECKSUM, appliedAt);
-      database.pragma("user_version = 6");
+      database.exec(SCHEMA_V7_SQL);
+      options.faultInjector?.("v7_after_schema");
+      database.prepare("INSERT INTO execution_schema_migrations(version,name,checksum,applied_at) VALUES(7,?,?,?)")
+        .run("scheduler_ownership_schema", V7_CHECKSUM, appliedAt);
+      database.pragma("user_version = 7");
     }).immediate();
-    appliedVersions.push(6);
-    validateSchemaV6(database);
-    return { fromVersion, toVersion: 6, appliedVersions };
+    appliedVersions.push(7);
+    validateSchemaV7(database);
+    return { fromVersion, toVersion: 7, appliedVersions };
   } catch (error) {
     if (error instanceof ExecutionMigrationError) throw error;
-    throw new ExecutionMigrationError("MIGRATION_FAILED", "Execution schema v1 migration failed", { cause: error });
+    throw new ExecutionMigrationError("MIGRATION_FAILED", "Execution schema migration failed", { cause: error });
   }
 }

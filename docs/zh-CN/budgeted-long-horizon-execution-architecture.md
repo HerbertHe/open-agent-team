@@ -1,8 +1,8 @@
 # 预算约束长程任务执行架构
 
-> 状态：实验性功能设计提案，待实现；默认关闭。
+> 状态：实验性架构方案；计划 API、SDK 调用级预算、首批自动验收、中止恢复、OAT/SDK 工具副作用网关与首批状态查询已接入生产骨架。Provider 权威计费、其他外部工具 Adapter 及长期运行集成仍未完成；默认关闭。任务状态以[实施进度表](./budgeted-long-horizon-execution-task-breakdown.md#0-当前实施状态)为准。
 >
-> 最后更新：2026-09-21。
+> 最后更新：2026-10-16（工具副作用网关与首批状态查询）。
 >
 > 本文是 OAT 在给定资金、Token、工具调用和时间预算下，规划、排期并持续执行数天至数月任务的实验性实现依据。本文描述目标架构、状态机、数据模型、预算算法、故障恢复、接口、可观测性、完整时序和落地顺序；不表示仓库当前已经提供这些能力。功能未显式启用时，不创建相关数据库、定时器、API 或 Agent 工具，也不改变现有 TaskManager、Runtime 和 UsageTracker 行为。
 >
@@ -768,7 +768,7 @@ BLH-008～010 已实现的 revision CAS、Transactional Outbox、投递租约和
 BLH-011～020 已实现的安全整数账本、Reservation/Settlement、Pricing Snapshot、Runtime Context、Shadow Guard、Usage Reconciler、历史基线和 Program 草案边界见 [预算账本、运行时上下文与 Program 草案](./budget-ledger-runtime-program.md)。
 BLH-021～030 已实现的类型化验收、联合准入、Tier 选择、原子激活、确定性调度、Lease/Fencing、持久化 Wakeup 与单向 Task Board 投影见 [计划、准入、调度与长期运行基础](./planning-admission-scheduling-runtime.md)。
 
-专项回归后，实验父开关启用时会启动 `ProgramExecutionCoordinator`：每 10 秒对 `admitted/running/waiting` Program 做一次确定性 tick，将计划选择、非保护预算分区 Reservation、Attempt Lease/Fencing 与现有 TaskManager 队列连接起来；Task Prompt 携带运行时上下文，父进程在发送 Prompt 和执行 Tool 前再次校验 barrier、epoch、租约 owner/expiry、fencing token 和 Reservation。活跃任务会续租，队列失败会补偿释放，租约过期会转为 `uncertain/replanning_required`，Task 完成或进入 Review 时只转 `verifying`，不能绕过验收直接完成。该骨架仍不等价于 Hard 保证：Session 内部模型续轮尚无逐 Provider 调用的精确 Reservation/Settlement Hook，Verifier、Wakeup 与跨实例竞争也尚未完全接入。
+专项回归后，实验父开关启用时会启动 `ProgramExecutionCoordinator`：每 10 秒扫描持久化 Wakeup，经专用 Outbox 消费者对 `admitted/running/waiting` Program 做确定性 tick，将计划选择、非保护预算分区 Reservation、Attempt Lease/Fencing 与现有 TaskManager 队列连接起来；Task Prompt 携带运行时上下文，父进程在发送 Prompt、执行 Tool 和调用模型前再次校验 barrier、epoch、租约 owner/expiry、fencing token 和 Reservation。活跃及 ReviewPending 任务会续租，队列失败会补偿释放，租约过期会转为 `uncertain/replanning_required`。批准定义内的有限重试/重规划、配置式模型路由以及停止/恢复点/对账/报告的收尾流程已接入，详见[运行时说明](./replanning-routing-closeout-runtime.md)。Task Completed 后进入 `verifying`，首批确定性验证器通过后才能完成工作包、推进依赖和触发活动计划 Closeout。SDK 模型续轮已接入独立子 Reservation、Usage 回报结算和未知结果保守对账；Provider 权威计费与身份、其他验收 Adapter 和真实远端恢复演练仍待补齐；共享 SQLite 跨实例调度及竞争回归已接入，见[协调协议](./cross-instance-scheduling-runtime.md)；Wakeup 的重启补发、暂停延期及旧 epoch 隔离已接入，不能据此开放 Hard。详情见[模型调用计量与自动验收运行时](./model-metering-verification-runtime.md)。
 BLH-031～040 已实现的 Checkpoint、Execution Barrier、中止/快照/恢复、迟到事件隔离、Effect Ledger 与 Tool Guard 见 [Checkpoint、中止恢复与外部副作用安全](./checkpoint-interrupt-effects-runtime.md)。
 
 ```text

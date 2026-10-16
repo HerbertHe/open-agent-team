@@ -18,11 +18,28 @@ export class VerificationService {
     workspacePath: string;
     createdAt: string;
     signal?: AbortSignal;
+    assertCurrent?: () => void;
+    gitSha?: string;
   }): Promise<VerificationResult> {
     if (!acceptanceCriteriaAreSufficient(input.criteria)) throw new Error("INSUFFICIENT_ACCEPTANCE_CRITERIA");
     const evidence: VerificationResult["evidence"] = [];
     for (const criterion of input.criteria) {
-      const result = await this.validators.verify(criterion, { workspacePath: input.workspacePath, signal: input.signal });
+      input.assertCurrent?.();
+      const existing = this.handle.connection.prepare("SELECT * FROM verification_evidence WHERE attempt_id=? AND criterion_id=?")
+        .get(input.attemptId, criterion.id) as { criterion_type: string; passed: number; validator_version: string; artifact_digest: string | null;
+          git_sha: string | null; evidence_path: string | null; details_json: string } | undefined;
+      if (existing) {
+        if (existing.criterion_type !== criterion.type || existing.validator_version !== this.validators.versionFor(criterion.type)
+          || (existing.git_sha ?? undefined) !== input.gitSha) throw new Error(`EVIDENCE_CONFLICT:${criterion.id}`);
+        evidence.push({ passed: Boolean(existing.passed), validatorVersion: existing.validator_version,
+          ...(existing.artifact_digest ? { artifactDigest: existing.artifact_digest } : {}), ...(existing.git_sha ? { gitSha: existing.git_sha } : {}),
+          ...(existing.evidence_path ? { evidencePath: existing.evidence_path } : {}), details: JSON.parse(existing.details_json),
+          criterionId: criterion.id, criterionType: criterion.type });
+        continue;
+      }
+      const verified = await this.validators.verify(criterion, { workspacePath: input.workspacePath, signal: input.signal });
+      const result = { ...verified, ...(input.gitSha ? { gitSha: input.gitSha } : {}) };
+      input.assertCurrent?.();
       if (!result.artifactDigest && !result.gitSha && criterion.type !== "human_approval" && criterion.type !== "external_state") {
         throw new Error(`EVIDENCE_NOT_BOUND:${criterion.id}`);
       }

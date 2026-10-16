@@ -53,11 +53,11 @@ blockers[]
 limitations[]
 ```
 
-阻塞原因区分 configuration、runtime 和 provider，并携带稳定 code/subject，供后续 API、Desktop 和审计使用。
+阻塞原因区分 configuration、runtime 和 provider，并携带稳定 code/subject，供调用方和审计使用。
 
 ## 后果
 
 - 可以继续 BLH-005 及 shadow/soft 基础设施工作。
 - 当前版本不能对用户宣称 hard 预算保证。
 - SDK 或 Provider 能力变化必须重新运行 BLH-002/003 测试和本预检。
-- 预检目前是纯函数，尚未注册 API，也不会改变现有 Orchestrator 行为。
+- 预检本身保持纯函数；Orchestrator 已在实验父开关开启时调用它，并通过 `assertConfiguredReleaseMode()` 校验发布 Gate。Soft 启动要求 passed Shadow Gate；Hard 启动同时要求 passed Hard Gate 与实时预检通过。当前真实 Runtime/Provider 证据不足，Hard 仍被拒绝。

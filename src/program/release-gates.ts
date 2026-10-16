@@ -1,3 +1,4 @@
+import { hasIntegratedSimulationEvidence } from "./simulation-evidence";
 import { createHash } from "node:crypto";
 import type { BudgetExecutionPreflightResult } from "../budget/hard-mode-preflight";
 import type { ExecutionDatabase } from "./execution-database";
@@ -28,7 +29,7 @@ export class ReleaseGateEvaluator {
     if (input.minimumCompletionRate <= input.baselineCompletionRate) blockers.push("MINIMUM_COMPLETION_NOT_BETTER_THAN_BASELINE");
     if (input.stopResumeDrills < 1 || input.stopResumeFailures !== 0) blockers.push("STOP_RESUME_DRILL_FAILED");
     if (input.duplicateExternalEffects !== 0) blockers.push("DUPLICATE_EXTERNAL_EFFECT");
-    if (!input.simulation.passed || input.simulation.virtualDays < 90 || input.simulation.evidenceLevel !== "integrated") blockers.push("INTEGRATED_LONG_HORIZON_SIMULATION_REQUIRED");
+    if (!hasIntegratedSimulationEvidence(input.simulation)) blockers.push("INTEGRATED_LONG_HORIZON_SIMULATION_REQUIRED");
     if (!input.threatReview.passedSoft) blockers.push("OPEN_HIGH_SECURITY_FINDING");
     return this.decision("soft", input.id, blockers, input, input.createdAt);
   }
@@ -37,7 +38,7 @@ export class ReleaseGateEvaluator {
     const blockers: string[] = [];
     if (input.softGate.stage !== "soft" || input.softGate.status !== "passed") blockers.push("SOFT_GATE_NOT_PASSED");
     if (input.preflight.status !== "ready" || input.preflight.effectiveMode !== "hard" || !input.preflight.hardGuaranteeActive) blockers.push("HARD_PREFLIGHT_REJECTED");
-    if (!input.simulation.passed || input.simulation.virtualDays < 90 || input.simulation.evidenceLevel !== "integrated") blockers.push("INTEGRATED_LONG_HORIZON_SIMULATION_REQUIRED");
+    if (!hasIntegratedSimulationEvidence(input.simulation)) blockers.push("INTEGRATED_LONG_HORIZON_SIMULATION_REQUIRED");
     if (!input.threatReview.passedHard) blockers.push("THREAT_REVIEW_NOT_CLOSED");
     if (input.invariantViolations !== 0) blockers.push("INVARIANT_VIOLATION");
     if (!input.disasterRecoveryPassed) blockers.push("DISASTER_RECOVERY_FAILED");

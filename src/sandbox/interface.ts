@@ -3,7 +3,7 @@ import type { ExecutionRuntimeContext } from "../program/execution-runtime-conte
 import type { ContinuationState } from "../program/checkpoint-store";
 
 export type RuntimeExecutionAuthorization = {
-  phase: "prompt" | "tool";
+  phase: "prompt" | "tool" | "model";
   agentId: string;
   context: ExecutionRuntimeContext;
   toolName?: string;
@@ -30,6 +30,9 @@ export interface InterruptibleRuntimeProvider {
   resetSession(agentId: string, executionContext?: ExecutionRuntimeContext): Promise<void>;
   describeSession(agentId: string): { agentId: string; workspacePath: string } | undefined;
   setExecutionAuthorizer?(authorizer?: RuntimeExecutionAuthorizer): void;
+  setModelCallHandler?(handler?: import("../budget/model-call-protocol").ModelCallHandler): void;
+  setToolEffectHandler?(handler?: import("../program/tool-effects-protocol").ToolEffectHandler): void;
+  setToolExecutor?(executor?: import("../program/tool-effects-protocol").RuntimeToolExecutor): void;
 }
 
 export interface WorkspaceResult {

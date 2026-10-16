@@ -10,6 +10,7 @@ import { fullyVerifiedProviderEvidence } from "../budget/fixtures/provider-budge
 import { PI_RUNTIME_HOOK_COVERAGE } from "../sandbox/runtime-hook-capability";
 import { openExecutionDatabase } from "./execution-database";
 import { migrateExecutionDatabase } from "./execution-migrations";
+import { IntegratedLongHorizonSimulator } from "./integrated-long-horizon-simulator";
 import { LongHorizonSimulator, VirtualClock } from "./long-horizon-simulator";
 import { HardModeCircuitBreaker, ReleaseGateEvaluator } from "./release-gates";
 import { assertConfiguredReleaseMode, ReleaseModeBlockedError } from "./release-mode-enforcer";
@@ -46,10 +47,10 @@ test("BLH-052 open high-risk findings block soft and hard", () => {
   assert.throws(() => reviewThreatModel({ id: "missing", reviewer: "security", findings: findings.slice(1), createdAt: NOW }), /INCOMPLETE/);
 });
 
-test("BLH-053/054/055 release gates require evidence and persist immutable decisions", () => {
+test("BLH-053/054/055 release gates require evidence and persist immutable decisions", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "release-gates-")); const handle = openExecutionDatabase(root); migrateExecutionDatabase(handle, { appliedAt: NOW });
   try {
-    const simulation = { ...new LongHorizonSimulator().run({ seed: "gate", days: 90, programs: 4 }), evidenceLevel: "integrated" as const };
+    const simulation = await new IntegratedLongHorizonSimulator().run({ seed: "gate" });
     new LongHorizonSimulator().persist(handle, "sim-1", simulation, NOW);
     const threat = reviewThreatModel({ id: "threat-1", reviewer: "security", findings: mitigated, createdAt: NOW }); persistThreatReview(handle, threat);
     const gates = new ReleaseGateEvaluator();
@@ -68,8 +69,8 @@ test("BLH-053/054/055 release gates require evidence and persist immutable decis
   } finally { handle.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test("BLH-055 capability degradation immediately freezes new hard calls", () => {
-  const simulation = { ...new LongHorizonSimulator().run({ seed: "breaker", days: 90, programs: 2 }), evidenceLevel: "integrated" as const }; const threat = reviewThreatModel({ id: "threat", reviewer: "security", findings: mitigated, createdAt: NOW });
+test("BLH-055 capability degradation immediately freezes new hard calls", async () => {
+  const simulation = await new IntegratedLongHorizonSimulator().run({ seed: "breaker" }); const threat = reviewThreatModel({ id: "threat", reviewer: "security", findings: mitigated, createdAt: NOW });
   const gates = new ReleaseGateEvaluator(); const passedSoft = gates.evaluateSoft({ id: "soft", shadowGate: gates.evaluateShadow({ id: "shadow", explicitProjects: 1, observationDays: 7, modelCalls: 1, blockedCalls: 0, attributableUsageRatio: 1, empiricalP90Coverage: 1, coverageTarget: 0.9, threatReview: threat, createdAt: NOW }), observationDays: 7, lowRiskPrograms: 1, minimumCompletionRate: 1, baselineCompletionRate: 0, stopResumeDrills: 1, stopResumeFailures: 0, duplicateExternalEffects: 0, simulation, threatReview: threat, createdAt: NOW });
   const hard = gates.evaluateHard({ id: "hard", softGate: passedSoft, preflight: hardPreflight(), simulation, threatReview: threat, invariantViolations: 0, disasterRecoveryPassed: true, capabilityEvidenceFresh: true, createdAt: NOW });
   const breaker = new HardModeCircuitBreaker(); assert.equal(breaker.evaluate({ hardGate: hard, preflight: hardPreflight(), capabilityEvidenceFresh: true, invariantViolations: 0 }).allowed, true);

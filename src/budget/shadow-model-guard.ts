@@ -51,12 +51,14 @@ export class ShadowModelGuard {
     now: string;
   }): ModelGuardDecision {
     this.barrier?.assertAllowed(input.context.programId, input.context.executionEpoch);
-    const estimatedMaximum = this.pricing.estimate(input.pricingSnapshotId, input.modelRef, input.usageUpperBound);
     const priceCheck = this.pricing.verifyCurrentPrice(input.pricingSnapshotId, input.modelRef, input.currentCatalog);
+    const estimatedMaximum = this.pricing.getSnapshot(input.pricingSnapshotId)?.prices[input.modelRef]
+      ? this.pricing.estimate(input.pricingSnapshotId, input.modelRef, input.usageUpperBound) : {};
     const account = this.accounts.get(input.accountId);
     if (!account) throw new BudgetLedgerError("BUDGET_NOT_FOUND", `Account ${input.accountId} was not found`);
     const committed = addBudgetVectors(account.spent, account.reserved);
-    const available = budgetVectorFits(committed, account.limit) ? subtractBudgetVectors(account.limit, committed) : {};
+    const parent = input.context.reservationId ? this.ledger.getReservation(input.context.reservationId) : undefined;
+    const available = parent ? parent.remaining : budgetVectorFits(committed, account.limit) ? subtractBudgetVectors(account.limit, committed) : {};
     const reason: ModelGuardDecision["reason"] = !priceCheck.allowed
       ? priceCheck.reason ?? "MODEL_PRICE_MISSING"
       : budgetVectorFits(estimatedMaximum, available) ? "ALLOWED" : "INSUFFICIENT_BUDGET";
@@ -69,6 +71,7 @@ export class ShadowModelGuard {
         id: reservationId,
         programId: input.context.programId,
         accountId: input.accountId,
+        ...(parent ? { parentReservationId: parent.id } : {}),
         operationKey: `model:${operationHash}`,
         amount: estimatedMaximum,
         consumerClass: input.consumerClass,

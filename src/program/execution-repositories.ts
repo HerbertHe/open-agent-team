@@ -11,6 +11,7 @@ import {
   type PlanVersionStatus,
   type Program,
   type ProgramStatus,
+  type ScopeTier,
   type WorkPackage,
   type WorkPackageStatus,
 } from "./program-types";
@@ -260,7 +261,7 @@ export class PlanVersionRepository {
     expectedRevision: number,
     status: PlanVersionStatus,
     activatedAt?: string,
-    options: RepositoryMutationOptions = {},
+    options: RepositoryMutationOptions & { scopeTier?: ScopeTier } = {},
   ): PlanVersion {
     return this.database.transaction(() => {
       const current = this.get(id);
@@ -271,13 +272,14 @@ export class PlanVersionRepository {
         ...current,
         status,
         revision: current.revision + 1,
+        scopeTier: options.scopeTier ?? current.scopeTier,
         ...(activatedAt ? { activatedAt } : {}),
       });
       const result = this.database.prepare(`
         UPDATE plan_versions
-        SET status = ?, revision = ?, activated_at = ?, plan_json = ?
+        SET status = ?, revision = ?, activated_at = ?, plan_json = ?, scope_tier = ?
         WHERE id = ? AND revision = ?
-      `).run(next.status, next.revision, next.activatedAt ?? null, JSON.stringify(next), id, expectedRevision);
+      `).run(next.status, next.revision, next.activatedAt ?? null, JSON.stringify(next), next.scopeTier, id, expectedRevision);
       if (result.changes !== 1) throw new ExecutionRepositoryError("REVISION_CONFLICT", "plan_version", id, `Plan Version ${id} changed concurrently`);
       options.faultInjector?.("after_entity_write");
       appendEvents(this.database, options);

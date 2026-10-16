@@ -1,7 +1,7 @@
 # BLH-006 Execution Schema v1
 
 > 日期：2026-10-10
-> 状态：v1 已实现；当前二进制最新版本为 v6。Execution DB 仅在实验父开关开启时接入 Orchestrator 生命周期。
+> 状态：v1 已实现；当前二进制最新版本为 v7。Execution DB 仅在实验父开关开启时接入 Orchestrator 生命周期。
 
 ## Schema 内容
 
@@ -51,9 +51,13 @@ v5 增加 `verification_evidence`、`replan_failures`、`program_closeouts` 和 
 
 v6 增加 `simulation_runs`、`threat_model_reviews` 和 `release_gate_records`，持久化确定性长周期仿真、安全评审及 Shadow/Soft/Hard Gate 证据。空库按 v1→v2→v3→v4→v5→v6 顺序迁移；v6 中断不会污染已提交的 v5。
 
+## Schema v7
+
+v7 增加 `program_scheduler_leases`、`attempt_execution_owners` 和 `execution_resource_claims`，持久化跨实例调度租约、Attempt 所有权及项目资源占用。唯一键防止同一项目资源重复占用，触发器校验 Attempt 的 Program 和资源所属项目。v7 中断回滚本版并保留 v6；并发升级会重读并验证其他进程已提交的版本。详细协议见[跨实例调度协调](./cross-instance-scheduling-runtime.md)。
+
 ## 迁移协议
 
-- `PRAGMA user_version` 是当前 Schema version；最新版本为 6。
+- `PRAGMA user_version` 是当前 Schema version；最新版本为 7。
 - `execution_schema_migrations` 保存 migration name、SHA-256 checksum 和应用时间。
 - 每一版 DDL、migration history 与对应 `user_version` 在同一事务提交。
 - 重复运行会验证表集合、checksum 和 foreign key，而不是直接返回成功。

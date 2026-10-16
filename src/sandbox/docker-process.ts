@@ -78,6 +78,9 @@ export class DockerSessionProvider {
   private readonly knownSessions = new Map<string, { spec: AgentInstanceSpec; options: StartOptions }>();
   private engineCheck?: Promise<void>;
   private executionAuthorizer?: RuntimeExecutionAuthorizer;
+  private modelCallHandler?: import("../budget/model-call-protocol").ModelCallHandler;
+  private toolEffectHandler?: import("../program/tool-effects-protocol").ToolEffectHandler;
+  private toolExecutor?: import("../program/tool-effects-protocol").RuntimeToolExecutor;
   constructor(
     private readonly dockerConfig: { image: string; network: "none" | "bridge" | "host"; extra_args: string[] },
     private readonly agentDir: string,
@@ -87,6 +90,29 @@ export class DockerSessionProvider {
   ) { assertSafeDockerExtraArgs(dockerConfig.extra_args); }
 
   setExecutionAuthorizer(authorizer?: RuntimeExecutionAuthorizer): void { this.executionAuthorizer = authorizer; }
+  setModelCallHandler(handler?: import("../budget/model-call-protocol").ModelCallHandler): void { this.modelCallHandler = handler; }
+  setToolEffectHandler(handler?: import("../program/tool-effects-protocol").ToolEffectHandler): void { this.toolEffectHandler = handler; }
+  setToolExecutor(executor?: import("../program/tool-effects-protocol").RuntimeToolExecutor): void { this.toolExecutor = executor; }
+
+  async verifyCommand(command: string, workspacePath: string, timeoutSeconds: number, signal?: AbortSignal): Promise<import("../program/default-acceptance-validators").VerificationCommandResult> {
+    const { runVerificationProcess } = await import("../program/default-acceptance-validators");
+    await this.ensureEngine();
+    if (signal?.aborted) throw new Error("VERIFICATION_ABORTED");
+    const name = `oat-verify-${randomUUID()}`;
+    const { commonGitDir, gitLinkDir, gitLinkPath } = await createDockerGitLink(workspacePath, name);
+    try {
+      return await runVerificationProcess(dockerExecutable(), ["run", "--rm", "--init", "--name", name,
+        "--label", "oat.managed=true", "--label", `oat.project=${this.projectName}`, "--label", "oat.role=verifier",
+        "--network", this.dockerConfig.network, "--workdir", "/workspace", "-v", `${path.resolve(workspacePath)}:/workspace:rw`,
+        "-v", `${gitLinkPath}:/workspace/.git:ro`, "-v", `${commonGitDir}:/oat-git-common:rw`,
+        "-v", `${resolvePackageRoot()}:/oat:ro`, ...this.dockerConfig.extra_args, this.dockerConfig.image, "sh", "-lc", command], workspacePath, timeoutSeconds, signal);
+    } finally {
+      await runDocker(["rm", "-f", name]).catch(() => undefined);
+      const exists = await runDocker(["inspect", "--format", "{{.State.Running}}", name]).catch(() => undefined);
+      await fs.rm(gitLinkDir, { recursive: true, force: true });
+      if (!exists || exists.code === 0) throw new Error("VERIFICATION_CONTAINER_NOT_QUIESCENT");
+    }
+  }
 
   listRuntimeEntries(): DockerRuntimeEntry[] {
     return Array.from(this.entries.values(), (entry) => ({ agentId: entry.spec.id, role: entry.spec.role, containerName: entry.containerName, startedAt: entry.startedAt, state: entry.child.exitCode === null ? "running" : "stopping", recentErrors: [...entry.stderr] }));
@@ -136,6 +162,22 @@ export class DockerSessionProvider {
       const lines = readline.createInterface({ input: child.stdout });
       lines.on("line", (line) => {
         let msg: ChildToMain; try { msg = JSON.parse(line) as ChildToMain; } catch { return; }
+        if (msg.type === "tool_effect_request") {
+          void Promise.resolve().then(() => {
+            if (!this.toolEffectHandler) throw new Error("TOOL_EFFECT_HANDLER_UNAVAILABLE");
+            return this.toolEffectHandler(spec.id, spec.workspacePath, msg.request, "/workspace");
+          }).then(() => this.send(spec.id, { type: "tool_effect_result", requestId: msg.requestId }),
+            (error) => this.send(spec.id, { type: "tool_effect_result", requestId: msg.requestId, error: error instanceof Error ? error.message : String(error) }));
+          return;
+        }
+        if (msg.type === "model_budget_request") {
+          void Promise.resolve().then(() => {
+            if (!this.modelCallHandler) throw new Error("MODEL_BUDGET_HANDLER_UNAVAILABLE");
+            return this.modelCallHandler(spec.id, spec.model, msg.request);
+          }).then((result) => this.send(spec.id, { type: "model_budget_result", requestId: msg.requestId, ...result }),
+            (error) => this.send(spec.id, { type: "model_budget_result", requestId: msg.requestId, error: error instanceof Error ? error.message : String(error) }));
+          return;
+        }
         if (msg.type === "ready") { cleanup(); resolve(); return; }
         if (msg.type === "agent_error") { cleanup(); reject(new Error(msg.error)); return; }
         if (msg.type === "checkpoint_result" || msg.type === "abort_result") { entry.controlWaiters.get(msg.requestId)?.(msg); return; }
@@ -151,7 +193,12 @@ export class DockerSessionProvider {
   private async executeTool(entry: Entry, msg: Extract<ChildToMain, { type: "tool_call" }>): Promise<void> {
     try {
       if (msg.executionContext) await this.executionAuthorizer?.({ phase: "tool", agentId: entry.spec.id, context: msg.executionContext, toolName: msg.toolName });
-      this.send(entry.spec.id, { type: "tool_result", callId: msg.callId, result: await entry.tools.get(msg.toolName)?.(msg.toolCallId, msg.params, msg.executionContext) });
+      const execute = entry.tools.get(msg.toolName);
+      if (!execute) throw new Error("TOOL_PERMISSION_DENIED");
+      const result = msg.executionContext && this.toolExecutor ? await this.toolExecutor({ agentId: entry.spec.id, workspacePath: entry.spec.workspacePath,
+        context: msg.executionContext, toolName: msg.toolName, toolCallId: msg.toolCallId, params: msg.params, permittedTools: new Set(entry.tools.keys()),
+        execute: () => execute(msg.toolCallId, msg.params, msg.executionContext) }) : await execute(msg.toolCallId, msg.params, msg.executionContext);
+      this.send(entry.spec.id, { type: "tool_result", callId: msg.callId, result });
     }
     catch (error) { this.send(entry.spec.id, { type: "tool_result", callId: msg.callId, error: error instanceof Error ? error.message : String(error) }); }
   }

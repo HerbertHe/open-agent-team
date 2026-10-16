@@ -120,6 +120,9 @@ export class PiSessionProvider implements RuntimeProvider {
   private readonly knownSessions = new Map<string, { spec: AgentInstanceSpec; startOptions: StartOptions }>();
   private readonly agentDir: string;
   private executionAuthorizer?: RuntimeExecutionAuthorizer;
+  private modelCallHandler?: import("../budget/model-call-protocol").ModelCallHandler;
+  private toolEffectHandler?: import("../program/tool-effects-protocol").ToolEffectHandler;
+  private toolExecutor?: import("../program/tool-effects-protocol").RuntimeToolExecutor;
 
   constructor(
     agentDir?: string,
@@ -130,6 +133,9 @@ export class PiSessionProvider implements RuntimeProvider {
   }
 
   setExecutionAuthorizer(authorizer?: RuntimeExecutionAuthorizer): void { this.executionAuthorizer = authorizer; }
+  setModelCallHandler(handler?: import("../budget/model-call-protocol").ModelCallHandler): void { this.modelCallHandler = handler; }
+  setToolEffectHandler(handler?: import("../program/tool-effects-protocol").ToolEffectHandler): void { this.toolEffectHandler = handler; }
+  setToolExecutor(executor?: import("../program/tool-effects-protocol").RuntimeToolExecutor): void { this.toolExecutor = executor; }
 
   /**
    * 启动 Agent 子进程。执行顺序：
@@ -283,6 +289,26 @@ export class PiSessionProvider implements RuntimeProvider {
       const msg = rawMsg as ChildToMain;
       const entry = this.entries.get(agentId);
 
+      if (msg.type === "tool_effect_request") {
+        void Promise.resolve().then(() => {
+          if (!this.toolEffectHandler) throw new Error("TOOL_EFFECT_HANDLER_UNAVAILABLE");
+          return this.toolEffectHandler(agentId, spec.workspacePath, msg.request);
+        }).then(() => { try { child.send({ type: "tool_effect_result", requestId: msg.requestId } as MainToChild); } catch { /* disconnected */ } },
+          (error) => { try { child.send({ type: "tool_effect_result", requestId: msg.requestId, error: error instanceof Error ? error.message : String(error) } as MainToChild); } catch { /* disconnected */ } });
+        return;
+      }
+
+      if (msg.type === "model_budget_request") {
+        const respond = (value: Partial<Extract<MainToChild, { type: "model_budget_result" }>>) => {
+          try { child.send({ type: "model_budget_result", requestId: msg.requestId, ...value } as MainToChild); } catch { /* disconnected runner is reconciled by coordinator */ }
+        };
+        void Promise.resolve().then(() => {
+          if (!this.modelCallHandler) throw new Error("MODEL_BUDGET_HANDLER_UNAVAILABLE");
+          return this.modelCallHandler(agentId, spec.model, msg.request);
+        }).then((result) => respond(result), (error) => respond({ error: error instanceof Error ? error.message : String(error) }));
+        return;
+      }
+
       if (msg.type === "agent_event") {
         this.onAgentEvent?.({
           agentId,
@@ -309,7 +335,10 @@ export class PiSessionProvider implements RuntimeProvider {
         // 注意：工具执行期间子进程可能崩溃，需用 try-catch 防止 child.send() 抛出导致 unhandledRejection
         Promise.resolve()
           .then(() => msg.executionContext ? this.executionAuthorizer?.({ phase: "tool", agentId, context: msg.executionContext, toolName: msg.toolName }) : undefined)
-          .then(() => execute(msg.toolCallId, msg.params, msg.executionContext))
+          .then(() => msg.executionContext && this.toolExecutor ? this.toolExecutor({ agentId, workspacePath: spec.workspacePath,
+            context: msg.executionContext, toolName: msg.toolName, toolCallId: msg.toolCallId, params: msg.params,
+            permittedTools: new Set(entry!.toolRegistry.keys()), execute: () => execute(msg.toolCallId, msg.params, msg.executionContext) })
+            : execute(msg.toolCallId, msg.params, msg.executionContext))
           .then((result) => {
             try {
               child.send({ type: "tool_result", callId: msg.callId, result } as MainToChild);

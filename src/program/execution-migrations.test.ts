@@ -27,14 +27,15 @@ function tableNames(handle: ExecutionDatabase): string[] {
   ).pluck().all() as string[];
 }
 
-test("BLH-006 migrates an empty execution database through schema v6 atomically", () => {
+test("BLH-006 migrates an empty execution database through schema v7 atomically", () => {
   withDatabase("oat-execution-migration", (handle) => {
     const result = migrateExecutionDatabase(handle, { appliedAt: "2026-10-10T00:00:00.000Z" });
-    assert.deepEqual(result, { fromVersion: 0, toVersion: 6, appliedVersions: [1, 2, 3, 4, 5, 6] });
+    assert.deepEqual(result, { fromVersion: 0, toVersion: 7, appliedVersions: [1, 2, 3, 4, 5, 6, 7] });
     assert.equal(handle.connection.pragma("user_version", { simple: true }), EXECUTION_SCHEMA_VERSION);
     assert.deepEqual(tableNames(handle), [
       "acceptance_criteria",
       "admission_decisions",
+      "attempt_execution_owners",
       "attempt_leases",
       "audit_events",
       "budget_accounts",
@@ -44,12 +45,14 @@ test("BLH-006 migrates an empty execution database through schema v6 atomically"
       "execution_barriers",
       "execution_checkpoints",
       "execution_outbox",
+      "execution_resource_claims",
       "execution_schema_migrations",
       "plan_versions",
       "pricing_snapshots",
       "program_alerts",
       "program_closeouts",
       "program_control_requests",
+      "program_scheduler_leases",
       "programs",
       "release_gate_records",
       "replan_failures",
@@ -73,9 +76,9 @@ test("BLH-006 repeated migration is a validated no-op", () => {
   withDatabase("oat-execution-migration-repeat", (handle) => {
     migrateExecutionDatabase(handle, { appliedAt: "2026-10-10T00:00:00.000Z" });
     const repeated = migrateExecutionDatabase(handle, { appliedAt: "2026-10-11T00:00:00.000Z" });
-    assert.deepEqual(repeated, { fromVersion: 6, toVersion: 6, appliedVersions: [] });
+    assert.deepEqual(repeated, { fromVersion: 7, toVersion: 7, appliedVersions: [] });
     const count = handle.connection.prepare("SELECT COUNT(*) FROM execution_schema_migrations").pluck().get();
-    assert.equal(count, 6);
+    assert.equal(count, 7);
   });
 });
 
@@ -88,7 +91,7 @@ test("BLH-006 interruption rolls back DDL, history and user_version", () => {
     assert.deepEqual(tableNames(handle), []);
 
     const recovered = migrateExecutionDatabase(handle);
-    assert.deepEqual(recovered.appliedVersions, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(recovered.appliedVersions, [1, 2, 3, 4, 5, 6, 7]);
   });
 });
 
@@ -99,7 +102,7 @@ test("BLH-012 v2 interruption preserves v1 and resumes cleanly", () => {
     }), (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 1);
     assert.equal(tableNames(handle).includes("budget_accounts"), false);
-    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [2, 3, 4, 5, 6]);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [2, 3, 4, 5, 6, 7]);
   });
 });
 
@@ -110,7 +113,7 @@ test("BLH-021 v3 interruption preserves v2 and resumes cleanly", () => {
     }), (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 2);
     assert.equal(tableNames(handle).includes("wakeups"), false);
-    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [3, 4, 5, 6]);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [3, 4, 5, 6, 7]);
   });
 });
 
@@ -121,7 +124,7 @@ test("BLH-031 v4 interruption preserves v3 and resumes cleanly", () => {
     }), (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 3);
     assert.equal(tableNames(handle).includes("effects"), false);
-    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [4, 5, 6]);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [4, 5, 6, 7]);
   });
 });
 
@@ -132,7 +135,7 @@ test("BLH-041 v5 interruption preserves v4 and resumes cleanly", () => {
     }), (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 4);
     assert.equal(tableNames(handle).includes("verification_evidence"), false);
-    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [5, 6]);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [5, 6, 7]);
   });
 });
 
@@ -143,7 +146,7 @@ test("BLH-051 v6 interruption preserves v5 and resumes cleanly", () => {
     }), (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 5);
     assert.equal(tableNames(handle).includes("simulation_runs"), false);
-    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [6]);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [6, 7]);
   });
 });
 
@@ -153,6 +156,18 @@ test("BLH-006 rejects a database created by a newer binary", () => {
     assert.throws(() => migrateExecutionDatabase(handle), (error) =>
       error instanceof ExecutionMigrationError && error.code === "SCHEMA_TOO_NEW");
     assert.equal(handle.connection.pragma("user_version", { simple: true }), 99);
+  });
+});
+
+test("scheduler ownership v7 interruption preserves v6 history and resumes cleanly", () => {
+  withDatabase("scheduler-v7-interrupt", (handle) => {
+    assert.throws(() => migrateExecutionDatabase(handle, { faultInjector: (point) => { if (point === "v7_after_schema") throw new Error("crash"); } }),
+      (error) => error instanceof ExecutionMigrationError && error.code === "MIGRATION_FAILED");
+    assert.equal(handle.connection.pragma("user_version", { simple: true }), 6);
+    assert.equal(tableNames(handle).includes("program_scheduler_leases"), false);
+    assert.equal(handle.connection.prepare("SELECT COUNT(*) FROM execution_schema_migrations").pluck().get(), 6);
+    assert.deepEqual(migrateExecutionDatabase(handle).appliedVersions, [7]);
+    assert.deepEqual(handle.connection.pragma("foreign_key_check"), []);
   });
 });
 

@@ -44,6 +44,13 @@ export class UsageReconciler {
     } catch (error) {
       result = { status: "unknown", reason: error instanceof Error ? error.message : String(error) };
     }
+    return this.applyResult(input, result);
+  }
+
+  applyResult(input: { reservationId: string; pricingSnapshotId: string; modelRef: string; now: string }, result: ProviderUsageQueryResult): ReconciliationResult {
+    const reservation = this.ledger.getReservation(input.reservationId);
+    if (!reservation) throw new Error(`Reservation ${input.reservationId} was not found`);
+    if (["settled", "reconciled"].includes(reservation.state)) return { action: "already_final", reservation };
     if (result.status === "found") {
       const actual = this.pricing.estimate(input.pricingSnapshotId, input.modelRef, result.usage);
       return {

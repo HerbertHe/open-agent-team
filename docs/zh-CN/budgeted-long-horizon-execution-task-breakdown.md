@@ -6,6 +6,8 @@
 
 ## 0. 当前实施状态
 
+状态核对日期：2026-10-16。`verified` 沿用已记录的组件验证结果；`partial` 表示生产接入、Adapter 覆盖或发布验证不完整；`blocked` 表示发布所需证据或前置 Gate 尚未满足。本轮 Program、Budget、Sandbox、实验配置及 TaskManager 相关回归已重新运行；verified 不等于真实 Provider 或线上发布验证已完成。
+
 | 任务 | 状态 | 结果 |
 | --- | --- | --- |
 | BLH-001 | `verified` | 实验配置、类型、JSON Schema、示例和默认关闭测试已实现 |
@@ -23,15 +25,28 @@
 | BLH-013 | `verified` | Reservation 状态机、operationKey 幂等与并发防超卖已实现 |
 | BLH-014 | `verified` | Spend Event 幂等结算、父信封差额释放和迟到 Usage 对账已实现 |
 | BLH-015 | `verified` | 不可变 Pricing Snapshot、历史重放估算与价格漂移冻结已实现 |
-| BLH-016 | `partial` | Program Context 已由 Program Coordinator 自动绑定到生产 Task、Prompt 与工具 IPC；父进程入口会校验 barrier、epoch、fencing、lease owner/expiry 和 reservation。Session 内部每个模型续轮的独立 Provider 级精确计费 Hook 仍未集成 |
-| BLH-017 | `partial` | Shadow Model Guard、审计和 soft reservation 组件已实现；尚未包装生产 ModelRuntime 的全部调用路径 |
+| BLH-016 | `partial` | Program Context 已贯通 Task、Prompt、工具及 SDK 模型流 IPC；每次受管 SDK 调用有独立 operation ID。Provider 权威请求身份与账单证据仍不完整 |
+| BLH-017 | `partial` | 共享 SDK streamFunction 已接入生产 Shadow/Soft 闸门；Soft 在任务信封内创建子 Reservation，终态前结算，隐藏 Provider 重试被显式关闭。实际 Provider 能力仍需发布环境验证，Hard 未开放 |
 | BLH-018 | `verified` | Provider Usage 查询、释放及未知结果按上界保守结算已实现 |
 | BLH-019 | `verified` | 历史 P50/P90、样本量、置信度和 5% 双尾异常值策略已实现 |
 | BLH-020 | `verified` | 默认关闭的 Program 草案 CRUD API，以及 Program/账户/价格快照原子创建已实现 |
 | BLH-021～025 | `verified` | 类型化验收、Plan 校验、成本分布、相关联合 Monte Carlo 准入与 Scope Tier 选择已实现 |
-| BLH-026～030 | `partial` | Plan 激活、预算健康选择、Reservation、Lease/Fencing 已接入常驻 10 秒生产调度循环和 TaskManager；支持续租、失败补偿、过期 fail-closed 与 Task 完成转 Verifying。Wakeup 自动驱动、Verifier 自动闭环及跨实例调度仍未完整集成 |
+| BLH-026 业务入口 | `partial` | 已接通计划提交、冷启动准入、显式风险确认和 revision 绑定的原子审批激活 API；实际所选 Scope Tier 会持久化。生产历史样本自动校准和 Desktop 计划编辑/审批表单仍待接入，运行期自动重规划不在本次入口范围内 |
+| BLH-026～030 | `partial` | Plan 激活、预算健康选择、Reservation、Lease/Fencing 已接入常驻 10 秒生产调度循环和 TaskManager；Task Completed 后自动验收并推进依赖，ReviewPending 继续续租。持久化 Wakeup 已驱动常驻调度；共享 SQLite 的 Program owner/fence、原子派发和项目资源互斥已接入，远端会话迁移仍待扩展 |
+| BLH-029 常驻集成 | `verified` | Wakeup→专用 Outbox 消费→Coordinator 已接入；重启补发、回拨去重、失败重试、暂停延期、新 epoch 隔离、确认与后继唤醒原子提交及停机排空已有真实 SQLite 回归。消费为至少一次，现已接入独立的跨实例 owner/fence 与 Outbox owner 过滤 |
+| BLH-027～028 跨实例集成 | `verified` | Schema v7 调度所有权、tick 互斥、原子预算/Lease/资源派发、运行时 fencing、保守接管、远端中止隔离及并发迁移已实现；真实多进程 SQLite 回归通过。未知在途结果保留 uncertain，不声称透明接管 |
 | BLH-031～038 | `verified` | Checkpoint、Runtime 中止、Execution Barrier、安全快照、控制 API、恢复预检和迟到事件隔离已实现 |
-| BLH-039～040 | `partial` | Effect Ledger 与 Tool Guard 组件已实现；尚未包装生产工具执行总入口 |
+| BLH-039～040 | `partial` | 本地/Docker 的 OAT execute 与 SDK 工具钩子已接入生产网关；支持身份/权限/信封检查、稳定 operation key、摘要回执、调用次数预留结算与防重。任意命令内的嵌套副作用和外部 Provider 保证仍需专用 Adapter 与发布验证 |
+| BLH-041 | `partial` | 文件 postcondition、任务进度/交付、Git 审核与发布记录查询已接入持续轮询、结束、中止和停机路径；查询超时与不可查询操作保持 uncertain，不重发；通用外部 Provider 查询仍待扩展 |
+| BLH-042 | `partial` | Budget Health/Mode 已接入执行分区检查与收尾决策；预算不足、强制期限与未知结果触发安全收尾，其他运营策略仍待扩展 |
+| BLH-043～046 | `partial` | 文件、命令、JSON 测试报告验收已接入生产 tick；证据提交检查 epoch/lease，依赖自动解锁，活动计划完成后触发 Closeout。批准定义内的有限自动重规划、显式配置的规则路由、停止/恢复点/对账/预算报告已接入；生成新定义的规划器及其他验收 Adapter 仍待扩展 |
+| BLH-047～048 | `partial` | Execution DB 只读模型、Desktop Program 页面、中止/恢复 API 与 UI 已实现；预算账户、DAG 数据和时间线已有基础 JSON 展示，端到端验收证据仍待补齐 |
+| BLH-049 | `verified` | 指标已接入 10 秒后台扫描与只读视图；持久化告警跨连接合并、固定枚举标签、恢复关闭已有回归 |
+| BLH-050 | `partial` | 六类故障注入点均在真实组件链触发，覆盖回滚、重放防重、快照重试及恢复中断；逐故障点系统强杀重启及真实远端验证仍待补齐 |
+| BLH-051 | `verified` | 独立 SQLite 的 90 天多 Program 集成仿真已接通计划、调度、账本、验收、重规划、快照/恢复及收尾；覆盖重启、回拨、价格/审批、模拟 Provider 错误和备份恢复，验证 seed 可复现及七项不变量。Provider/任务派发采用测试替身，不替代发布观察 |
+| BLH-052 | `partial` | 五类威胁评审规则与持久化已实现；实际安全评审及高风险 finding 关闭证据仍需提供 |
+| BLH-053～054 | `blocked` | Shadow/Soft Gate 机制已实现；缺少各至少 7 天的真实观察、质量基线比较和停止/恢复演练等发布证据 |
+| BLH-055 | `blocked` | Hard Gate、启动阻断与能力退化熔断机制已实现；Soft Gate、verified Runtime/Provider 能力与灾难恢复等前置证据不足，Hard 仍为 No-Go |
 
 BLH-002 详细证据见 [Runtime 调用级 Hook Spike](./budgeted-runtime-hook-spike.md)。
 BLH-003 详细证据见 [Provider Budget Capability Profile](./provider-budget-capability-profile.md)。
@@ -42,7 +57,12 @@ BLH-007 领域约束见 [Program 领域 Schema v1](./program-domain-schemas-v1.m
 BLH-008～010 的并发、投递和审计协议见 [Execution Repository、Transactional Outbox 与审计存储](./execution-repositories-outbox-audit.md)。
 BLH-011～020 的账本、计价、Runtime Context 和 Program 草案实现见 [预算账本、运行时上下文与 Program 草案](./budget-ledger-runtime-program.md)。
 BLH-021～030 的计划、准入、调度、租约和投影协议见 [计划、准入、调度与长期运行基础](./planning-admission-scheduling-runtime.md)。
+计划提交到审批激活的 API 与使用示例见 [Program 计划 API](./program-planning-api.md)。
+SDK 模型调用计量、自动验收和保证边界见[模型调用计量与自动验收运行时](./model-metering-verification-runtime.md)。
+工具权限、调用次数预算、副作用回执和状态查询见[工具副作用网关与对账](./tool-effects-runtime.md)。
 BLH-031～040 的 Checkpoint、中止恢复和外部副作用安全协议见 [Checkpoint、中止恢复与外部副作用安全](./checkpoint-interrupt-effects-runtime.md)。
+指标、故障注入和集成仿真运行方式见[指标告警与集成长周期仿真](./metrics-integrated-simulation-runtime.md)。
+BLH-041～050 的组件能力见同文[运营闭环](./checkpoint-interrupt-effects-runtime.md#7-blh-041050-运营闭环)；BLH-051～055 的证据要求见[长周期仿真、安全评审与发布 Gate](./release-assurance-and-long-horizon-simulation.md)。
 
 ## 1. 任务执行规则
 
@@ -194,7 +214,7 @@ BLH-035 的固定执行顺序：
 | BLH-054 | Soft 发布 Gate | 低风险项目调度/降级试验 | 046,048,051,053 | 1–2 周观察 | 最小交付优于基线；停止/恢复演练通过；无重复副作用 |
 | BLH-055 | Hard 实验 Gate | 仅开放通过预检的 Runtime/Provider | 004,050,051,052,054 | 1d 评审+持续观察 | 所有不变量和灾难恢复通过；能力退化立即冻结新调用 |
 
-> 实现进度（2026-10-12，专项回归修订）：基础 Schema、账本、控制面和单元回归已经实现；中止/恢复已改为服务端发现 Attempt、相关 ACK、权威 checkpoint/工作区快照和新 epoch Session 重建。Program Coordinator 已把计划选择、预算预留、Lease、TaskManager 派发、运行时闸门、续租和 Verifying 交接组成默认关闭的生产骨架；逐 Provider 调用精确计费、Verifier 自动闭环、Wakeup 自动驱动、跨实例协调、集成长周期仿真以及真实 7～14 天发布证据仍属于 `partial/not integrated`，不得再以“BLH-001～055 全部完成”描述。Soft 进入前必须通过 Shadow Gate；合成仿真不能授权 Soft/Hard。全部能力仍受默认关闭的实验父开关保护。
+> 实现进度（2026-10-16）：计划 API、SDK 调用级 Shadow/Soft 预算入口、首批自动验收、依赖推进、活动计划 Closeout，OAT/SDK 工具副作用网关、首批状态查询以及持久化 Wakeup 自动驱动、有限重规划、配置式模型路由、安全收尾与共享 SQLite 跨实例协调已接入生产骨架。Provider 权威计费与请求身份、其他工具/验收 Adapter、新定义重规划策略、远端运行时迁移、集成长周期仿真及真实 7～14 天发布证据仍属于 `partial/not integrated`，不得以“BLH-001～055 全部完成”描述。Soft 进入前必须通过 Shadow Gate；合成仿真不能授权 Soft/Hard。全部能力仍受默认关闭的实验父开关保护。
 
 ## 11. 推荐迭代
 
@@ -223,11 +243,15 @@ BLH-035 的固定执行顺序：
 
 同一时段避免两个 PR 同时大改 `task-manager.ts`、`orchestrator.ts` 或 Runtime IPC。先合并接口/Schema PR，再并行实现调用方。
 
-## 13. 第一批立即可领取任务
+## 13. 当前待办与建议顺序
 
-1. **BLH-001**：只实现实验配置骨架和默认关闭测试。
-2. **BLH-002**：只做 Runtime Hook spike，不引入生产行为。
-3. **BLH-003**：定义 Provider Capability Profile 和保守默认值。
-4. **BLH-005 的准备部分**：先提交 Execution DB 路径与连接 ADR；代码实现等待 BLH-004。
+BLH-001～015 等基础任务已有实现和验证记录，不再作为首批新任务领取。下一批围绕现有 partial 项补齐生产链路：
 
-第一批结束后执行 Gate 0 评审。只有确认逐调用 Hook 和 Provider 能力边界，才开始账本、调度和 hard-mode 相关实现。
+1. **BLH-016～018：Provider 计量证据**。SDK 调用级 Reservation/Settlement 已接入；继续补齐真实 Provider 状态查询、权威用量和请求身份，验证重试、输出限制与错误回报边界。
+2. **BLH-039～041：工具 Adapter 与发布验证**。生产网关和首批状态查询已接入；继续补齐其他外部服务状态查询、能力证据及跨实例/真实 Docker/远端恢复验证，不以重发工具代替对账。
+3. **BLH-026～030、043～046：执行闭环**。首批自动验收与 Closeout 已接入；有限重规划/配置式路由/安全收尾已接入；继续补齐其他验收 Adapter、新定义规划策略及真实远端运行时故障验证。
+4. **BLH-047～052：产品与集成验证**。验证 Desktop 预算/DAG/时间线及中止恢复流程，指标与真实组件参与的 90 天仿真已接通，继续提供 Desktop 端到端验收、真实远端故障演练及实际安全评审证据。
+5. **BLH-053～054：真实观察**。在显式 opt-in 项目收集至少 7 天 Shadow 证据；通过 Shadow Gate 后再开展至少 7 天低风险 Soft 观察、基线比较和停止/恢复演练。
+6. **BLH-055：Hard 前置能力复评**。在 Soft Gate 及 Runtime/Provider verified 能力等条件满足后重新评审；合成仿真或组件单测不能代替发布证据。
+
+所有工作保持实验父开关默认关闭，不能将上述任务列表解释为开放 Hard 的授权。

@@ -11,6 +11,7 @@ import type { Express, Request, Response } from "express";
 import { WorkPackageRepository } from "./execution-repositories";
 import type { FaultPoint } from "./fault-injection-harness";
 import { ExecutionRuntimeContextSchema, type ExecutionRuntimeContext } from "./execution-runtime-context";
+import { WakeupService } from "./wakeup-service";
 
 export interface ResumeDryRunReport {
   programId: string; snapshotId: string; blockingDrift: string[]; warnings: string[]; restartWorkPackageIds: string[];
@@ -33,7 +34,7 @@ export function registerExperimentalResumeRoute(app: Express, service: ResumeSer
 export class ResumeService {
   private readonly database: Database.Database; private readonly barrier: ExecutionBarrier; private readonly audit: ExecutionAuditRepository;
   constructor(private readonly handle: ExecutionDatabase, private readonly snapshots: SuspensionSnapshotStore, private readonly runtime: InterruptibleRuntimeProvider,
-    private readonly faultInjector?: (point: FaultPoint) => void) {
+    private readonly faultInjector?: (point: FaultPoint) => void, private readonly instanceId?: string, private readonly clock = () => new Date().toISOString()) {
     this.database = handle.connection; this.barrier = new ExecutionBarrier(handle); this.audit = new ExecutionAuditRepository(handle);
   }
   dryRun(input: { programId: string; snapshotId: string; currentGitSha?: string; currentArtifactDigests?: Record<string, string>; pricingChanged?: boolean; providerChanged?: boolean; permissionsChanged?: boolean }): ResumeDryRunReport {
@@ -42,6 +43,8 @@ export class ResumeService {
     const program = this.database.prepare("SELECT status, execution_epoch FROM programs WHERE id=?").get(programId) as { status: string; execution_epoch: number } | undefined;
     if (!program || !["suspended", "suspended_uncertain"].includes(program.status)) throw new Error("Program is not suspended");
     const blockingDrift: string[] = []; const warnings: string[] = [];
+    const runtimeOwner = this.database.prepare("SELECT owner_id FROM program_scheduler_leases WHERE program_id=?").pluck().get(programId) as string | undefined;
+    if (this.instanceId && runtimeOwner && runtimeOwner !== this.instanceId) blockingDrift.push("foreign_runtime_owner");
     blockingDrift.push(...manifest.resumePreconditions);
     const uncertain = this.database.prepare("SELECT COUNT(*) FROM effects WHERE program_id=? AND state='uncertain'").pluck().get(programId) as number;
     if (uncertain > 0) blockingDrift.push("uncertain_effects");
@@ -68,9 +71,17 @@ export class ResumeService {
     if (createHash("sha256").update(JSON.stringify(reportBody)).digest("hex") !== reportDigest) throw new Error("Resume report digest is invalid");
     const freshReport = this.dryRun({ programId: report.programId, snapshotId: report.snapshotId });
     if (freshReport.blockingDrift.length || freshReport.reportDigest !== report.reportDigest) throw new Error("Resume preconditions changed");
+    const owner = this.database.prepare("SELECT owner_id,fencing_token FROM program_scheduler_leases WHERE program_id=?").get(report.programId) as { owner_id: string; fencing_token: number } | undefined;
+    const assertOwner = () => {
+      if (!this.instanceId) return;
+      const current = this.database.prepare("SELECT owner_id,fencing_token,expires_at FROM program_scheduler_leases WHERE program_id=?").get(report.programId) as { owner_id: string; fencing_token: number; expires_at: string } | undefined;
+      if (!owner && !current) return;
+      if (!owner || !current || current.owner_id !== this.instanceId || current.fencing_token !== owner.fencing_token || current.expires_at <= this.clock()) throw new Error("RESUME_RUNTIME_OWNER_STALE");
+    };
     const { manifest } = this.snapshots.get(report.snapshotId);
     const resetContexts = new Map<string, ExecutionRuntimeContext>();
     const epoch = this.database.transaction(() => {
+      assertOwner();
       const row = this.database.prepare("SELECT revision, execution_epoch, status FROM programs WHERE id=?").get(report.programId) as { revision: number; execution_epoch: number; status: string };
       if (row.revision !== input.expectedRevision || row.execution_epoch !== report.oldEpoch || !["suspended", "suspended_uncertain"].includes(row.status)) throw new Error("REVISION_CONFLICT");
       const next = row.execution_epoch + 1;
@@ -96,23 +107,31 @@ export class ResumeService {
     this.faultInjector?.("resume_after_epoch_increment");
     try {
       const authoritativeAgentIds = new Set(manifest.workspaceStates.map((workspace) => workspace.agentId));
-      for (const agentId of authoritativeAgentIds) await this.runtime.resetSession(agentId, resetContexts.get(agentId));
+      for (const agentId of authoritativeAgentIds) { assertOwner(); await this.runtime.resetSession(agentId, resetContexts.get(agentId)); assertOwner(); }
     } catch (error) {
+      assertOwner();
       this.database.prepare("UPDATE programs SET status='suspended', revision=revision+1, updated_at=? WHERE id=? AND execution_epoch=?").run(input.now, report.programId, epoch);
       throw error;
     }
     this.database.transaction(() => {
+      assertOwner();
       this.database.prepare("UPDATE programs SET status='running', revision=revision+1, updated_at=? WHERE id=? AND execution_epoch=? AND status='reconciling'").run(input.now, report.programId, epoch);
       this.barrier.release(report.programId, epoch, input.now);
+      const planId = this.database.prepare("SELECT active_plan_version_id FROM programs WHERE id=?").pluck().get(report.programId) as string | null;
+      if (planId) new WakeupService(this.handle).schedule({ programId: report.programId,
+        dedupeKey: `resume-wakeup:${createHash("sha256").update(`${input.requestId}:${epoch}`).digest("hex")}`,
+        wakeAt: input.now, createdAt: input.now, payload: { kind: "scheduler_tick", executionEpoch: epoch, planVersionId: planId } });
       this.audit.append({ id: `audit:${createHash("sha256").update(input.requestId).digest("hex")}`, programId: report.programId, actorType: "user", eventType: "program.resumed", requestId: OpaqueIdSchema.parse(input.requestId), metadata: { snapshotId: report.snapshotId, reportDigest: report.reportDigest, epoch }, createdAt: input.now });
     }).immediate();
     return { executionEpoch: epoch, status: "running" };
   }
 
-  recoverInterrupted(now: string): number {
+  recoverInterrupted(now: string, onlyExpiredOwned = false): number {
     const result = this.database.prepare(`UPDATE programs SET status='suspended',revision=revision+1,updated_at=?
-      WHERE status='reconciling' AND EXISTS (SELECT 1 FROM execution_barriers b WHERE b.program_id=programs.id AND b.active=1 AND b.reason='resume_transition')`)
-      .run(new Date(now).toISOString());
+      WHERE status='reconciling' AND EXISTS (SELECT 1 FROM execution_barriers b WHERE b.program_id=programs.id AND b.active=1 AND b.reason='resume_transition')
+      AND NOT EXISTS (SELECT 1 FROM program_scheduler_leases s WHERE s.program_id=programs.id AND s.expires_at>?)
+      AND (?=0 OR EXISTS (SELECT 1 FROM program_scheduler_leases s WHERE s.program_id=programs.id))`)
+      .run(new Date(now).toISOString(), new Date(now).toISOString(), onlyExpiredOwned ? 1 : 0);
     return result.changes;
   }
 }

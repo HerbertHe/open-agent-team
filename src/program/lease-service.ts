@@ -4,6 +4,8 @@ import type { ExecutionDatabase } from "./execution-database";
 import { WorkPackageRepository } from "./execution-repositories";
 import { assertAttemptTransition, AttemptStatusSchema, OpaqueIdSchema, type AttemptStatus, type WorkPackageAttempt } from "./program-types";
 import type { FaultPoint } from "./fault-injection-harness";
+import { assertAttemptSchedulerOwnership } from "./scheduler-ownership";
+import { ExecutionBarrier } from "./execution-barrier";
 
 export class LeaseError extends Error {
   constructor(readonly code: "LEASE_UNAVAILABLE" | "STALE_FENCE" | "ATTEMPT_NOT_FOUND", message: string) {
@@ -31,7 +33,8 @@ function fromRow(row: AttemptRow): WorkPackageAttempt {
 export class LeaseService {
   private readonly database: Database.Database;
   private readonly work: WorkPackageRepository;
-  constructor(handle: ExecutionDatabase, private readonly faultInjector?: (point: FaultPoint) => void) { this.database = handle.connection; this.work = new WorkPackageRepository(handle); }
+  private readonly barrier: ExecutionBarrier;
+  constructor(handle: ExecutionDatabase, private readonly faultInjector?: (point: FaultPoint) => void) { this.database = handle.connection; this.work = new WorkPackageRepository(handle); this.barrier = new ExecutionBarrier(handle); }
 
   acquire(input: { workPackageId: string; ownerId: string; now: string; expiresAt: string; attemptId?: string }): WorkPackageAttempt {
     const ownerId = OpaqueIdSchema.parse(input.ownerId);
@@ -54,6 +57,7 @@ export class LeaseService {
       const maxima = this.database.prepare(`SELECT COALESCE(MAX(attempt_number),0) AS n, COALESCE(MAX(fencing_token),0) AS f
         FROM work_package_attempts WHERE work_package_id = ?`).get(item.id) as { n: number; f: number };
       const epoch = this.database.prepare("SELECT execution_epoch FROM programs WHERE id = ?").pluck().get(item.programId) as number;
+      this.barrier.assertAllowed(item.programId, epoch);
       const id = OpaqueIdSchema.parse(input.attemptId ?? `attempt:${randomUUID()}`);
       this.database.prepare(`INSERT INTO work_package_attempts(
         id, work_package_id, attempt_number, status, execution_epoch, fencing_token, created_at, updated_at
@@ -71,10 +75,14 @@ export class LeaseService {
   renew(input: { attemptId: string; ownerId: string; fencingToken: number; now: string; expiresAt: string }): void {
     const now = new Date(input.now).toISOString(); const expiresAt = new Date(input.expiresAt).toISOString();
     if (Date.parse(expiresAt) <= Date.parse(now)) throw new RangeError("expiresAt must be later than now");
-    const result = this.database.prepare(`UPDATE attempt_leases SET heartbeat_at = ?, expires_at = ?
-      WHERE attempt_id = ? AND owner_id = ? AND fencing_token = ? AND expires_at > ?`)
-      .run(now, expiresAt, input.attemptId, input.ownerId, input.fencingToken, now);
-    if (result.changes !== 1) throw new LeaseError("STALE_FENCE", "Lease owner, token or expiry is stale");
+    this.database.transaction(() => {
+      const identity = this.database.prepare("SELECT w.program_id,a.execution_epoch FROM work_package_attempts a JOIN work_packages w ON w.id=a.work_package_id WHERE a.id=?").get(input.attemptId) as { program_id: string; execution_epoch: number } | undefined;
+      if (identity) { this.barrier.assertAllowed(identity.program_id, identity.execution_epoch); assertAttemptSchedulerOwnership(this.database, input.attemptId, identity.program_id, now); }
+      const result = this.database.prepare(`UPDATE attempt_leases SET heartbeat_at = ?, expires_at = ?
+        WHERE attempt_id = ? AND owner_id = ? AND fencing_token = ? AND expires_at > ?`)
+        .run(now, expiresAt, input.attemptId, input.ownerId, input.fencingToken, now);
+      if (result.changes !== 1) throw new LeaseError("STALE_FENCE", "Lease owner, token or expiry is stale");
+    }).immediate();
   }
 
   transition(input: { attemptId: string; ownerId: string; fencingToken: number; now: string; status: AttemptStatus }): WorkPackageAttempt {
@@ -82,6 +90,9 @@ export class LeaseService {
     return this.database.transaction(() => {
       const row = this.database.prepare("SELECT * FROM work_package_attempts WHERE id = ?").get(input.attemptId) as AttemptRow | undefined;
       if (!row) throw new LeaseError("ATTEMPT_NOT_FOUND", "Attempt was not found");
+      const programId = this.work.get(row.work_package_id)!.programId;
+      this.barrier.assertAllowed(programId, row.execution_epoch);
+      assertAttemptSchedulerOwnership(this.database, input.attemptId, programId, now);
       const lease = this.database.prepare(`SELECT 1 FROM attempt_leases WHERE attempt_id = ? AND owner_id = ?
         AND fencing_token = ? AND expires_at > ?`).get(input.attemptId, input.ownerId, input.fencingToken, now);
       if (!lease || row.fencing_token !== input.fencingToken) throw new LeaseError("STALE_FENCE", "Attempt fencing token is stale");

@@ -36,7 +36,9 @@ export class EffectLedger {
       .run(candidate.id, candidate.programId, candidate.attemptId, candidate.operationKey, candidate.effectType, candidate.impact, candidate.requestDigest, JSON.stringify(candidate.request), candidate.executionEpoch, candidate.fencingToken, candidate.createdAt, candidate.updatedAt);
     if (result.changes === 0) {
       const existing = this.getByOperationKey(candidate.operationKey)!;
-      if (!isDeepStrictEqual(existing.request, candidate.request) || existing.attemptId !== candidate.attemptId || existing.effectType !== candidate.effectType) throw new EffectLedgerError("EFFECT_CONFLICT", `Operation key ${candidate.operationKey} identifies another effect`);
+      if (!isDeepStrictEqual(existing.request, candidate.request) || existing.attemptId !== candidate.attemptId || existing.effectType !== candidate.effectType
+        || existing.programId !== candidate.programId || existing.executionEpoch !== candidate.executionEpoch || existing.fencingToken !== candidate.fencingToken
+        || existing.impact !== candidate.impact) throw new EffectLedgerError("EFFECT_CONFLICT", `Operation key ${candidate.operationKey} identifies another effect`);
       return existing;
     }
     return candidate;
@@ -46,9 +48,10 @@ export class EffectLedger {
     const current = this.getByOperationKey(operationKey); if (!current) throw new EffectLedgerError("EFFECT_NOT_FOUND", `Effect ${operationKey} not found`);
     if (!TRANSITIONS[current.state].includes(state)) throw new EffectLedgerError("INVALID_EFFECT_STATE", `${current.state} -> ${state}`);
     const receipt = details.receipt ? Json.parse(details.receipt) : undefined;
-    this.database.prepare(`UPDATE effects SET state=?, provider_request_id=COALESCE(?,provider_request_id), receipt_digest=COALESCE(?,receipt_digest),
+    const changed = this.database.prepare(`UPDATE effects SET state=?, provider_request_id=COALESCE(?,provider_request_id), receipt_digest=COALESCE(?,receipt_digest),
       receipt_json=COALESCE(?,receipt_json), updated_at=? WHERE operation_key=? AND state=?`)
       .run(state, details.providerRequestId ?? null, receipt ? effectDigest(receipt) : null, receipt ? JSON.stringify(receipt) : null, new Date(now).toISOString(), current.operationKey, current.state);
+    if (changed.changes !== 1) throw new EffectLedgerError("EFFECT_CONFLICT", "Effect changed concurrently");
     if (state === "dispatched") this.faultInjector?.("dispatch_after_provider_accept");
     return this.getByOperationKey(current.operationKey)!;
   }

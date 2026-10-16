@@ -731,7 +731,9 @@ export class TaskManager {
     const createdAt = new Date();
     const now = createdAt.toISOString();
     const task: QueuedTask = {
-      id: this.nextTaskId(createdAt),
+      // Program dispatches can originate in different processes sharing the
+      // Execution DB; their local daily sequence is not globally unique.
+      id: body.executionContext ? `task-program-${randomUUID()}` : this.nextTaskId(createdAt),
       targetAgentId: target.spec.id,
       createdBy: body.createdBy,
       parentTaskId: body.parentTaskId,
